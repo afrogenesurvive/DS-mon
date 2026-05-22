@@ -6,12 +6,15 @@ struct ThresholdView: View {
     @State private var apiKeyInput = ""
     @State private var saved = false
     @State private var saveFailed = false
+    @AppStorage("app_language") private var appLanguage: String = "auto"
 
     var body: some View {
         VStack(spacing: 0) {
             thresholdSection
             Divider().padding(.horizontal, 16)
             apiKeySection
+            Divider().padding(.horizontal, 16)
+            languageSection
         }
         .frame(width: 440)
         .onAppear {
@@ -110,6 +113,30 @@ struct ThresholdView: View {
         .padding(20)
         .animation(.easeInOut(duration: 0.2), value: saved)
         .animation(.easeInOut(duration: 0.2), value: saveFailed)
+    }
+
+    private var languageSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "globe")
+                    .foregroundColor(.purple)
+                Text(Strings.languageLabel)
+                    .font(.body).bold()
+                Spacer()
+            }
+
+            Picker("", selection: $appLanguage) {
+                ForEach(Language.allCases) { lang in
+                    Text(lang.displayName).tag(lang.rawValue)
+                }
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+            .onChange(of: appLanguage) { _, _ in
+                Strings.notifyLanguageChanged()
+            }
+        }
+        .padding(20)
     }
 
     private func saveKey() {

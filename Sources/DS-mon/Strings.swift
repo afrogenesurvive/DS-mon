@@ -1,10 +1,52 @@
 import Foundation
 
-enum Strings {
-    static let locale = Locale.preferredLanguages.first ?? "zh-Hans"
+extension Notification.Name {
+    static let languageDidChange = Notification.Name("languageDidChange")
+}
 
-    private static var isZH: Bool {
-        locale.hasPrefix("zh-Hans") || locale == "zh-CN" || locale == "zh"
+enum Language: String, CaseIterable, Identifiable {
+    case auto = "auto"
+    case zh = "zh-Hans"
+    case en = "en"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .auto: return isSystemZH ? "简体中文 (跟随系统)" : "English (System)"
+        case .zh: return "简体中文"
+        case .en: return "English"
+        }
+    }
+
+    private var isSystemZH: Bool {
+        let locale = Locale.preferredLanguages.first ?? "en"
+        return locale.hasPrefix("zh-Hans") || locale == "zh-CN" || locale == "zh"
+    }
+}
+
+enum Strings {
+    private static var languageCode: String {
+        let saved = UserDefaults.standard.string(forKey: "app_language") ?? "auto"
+        if saved == "auto" {
+            let locale = Locale.preferredLanguages.first ?? "en"
+            return locale.hasPrefix("zh-Hans") || locale == "zh-CN" || locale == "zh" ? "zh-Hans" : "en"
+        }
+        return saved
+    }
+
+    private static var isZH: Bool { languageCode == "zh-Hans" }
+
+    static func notifyLanguageChanged() {
+        NotificationCenter.default.post(name: .languageDidChange, object: nil)
+    }
+
+    // Language picker
+    static var languageLabel: String { isZH ? "语言" : "Language" }
+    static var languageSystem: String {
+        let locale = Locale.preferredLanguages.first ?? "en"
+        let isSysZH = locale.hasPrefix("zh-Hans") || locale == "zh-CN" || locale == "zh"
+        return isSysZH ? "跟随系统" : "System"
     }
 
     // Status bar

@@ -46,6 +46,8 @@ class StatusBarController: NSObject {
 
         updateLabel()
 
+        NotificationCenter.default.addObserver(self, selector: #selector(languageChanged), name: .languageDidChange, object: nil)
+
         let host = NSHostingView(rootView: StatsPopoverView(stats: s))
         host.frame = NSRect(x: 0, y: 0, width: 260, height: 280)
 
@@ -70,7 +72,7 @@ class StatusBarController: NSObject {
             let window = NSWindow(contentViewController: host)
             window.title = Strings.settingsTitle
             window.styleMask = [.titled, .closable]
-            window.setContentSize(NSSize(width: 440, height: 280))
+            window.setContentSize(NSSize(width: 440, height: 380))
             window.center()
             settingsWindow = window
         }
@@ -100,6 +102,16 @@ class StatusBarController: NSObject {
         let w = CGFloat(2 + 22 + 4) + max(dotTextW, amtW) + 4
         statusItem?.length = w
         statusView?.setFrameSize(NSSize(width: w, height: statusView?.frame.height ?? 22))
+    }
+
+    @objc private func languageChanged() {
+        updateLabel()
+        // Rebuild popover for language refresh
+        guard let s = stats else { return }
+        let host = NSHostingView(rootView: StatsPopoverView(stats: s))
+        host.frame = NSRect(x: 0, y: 0, width: 260, height: 280)
+        popover?.contentViewController = NSViewController()
+        popover?.contentViewController?.view = host
     }
 
 }
