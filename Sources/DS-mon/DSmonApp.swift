@@ -135,6 +135,7 @@ class StatusBarView: NSView {
         ic.isTemplate = true
         return ic
     }()
+    private let iconView = NSImageView()
 
     // Cached stable state — never shows "查询中..."
     private var cachedDotColor: NSColor = .systemGreen
@@ -146,6 +147,12 @@ class StatusBarView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+
+        iconView.image = icon
+        iconView.isEditable = false
+        iconView.frame = CGRect(x: 2, y: 0, width: 22, height: 22)
+        iconView.autoresizingMask = [.maxXMargin, .minYMargin, .maxYMargin]
+        addSubview(iconView)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             guard let self else { return }
@@ -194,40 +201,46 @@ class StatusBarView: NSView {
         let barH = bounds.height
         guard barH > 0 else { return }
 
-        let iconSize: CGFloat = 22
-        let iconRect = CGRect(x: 2, y: (barH - iconSize) / 2, width: iconSize, height: iconSize)
-        icon?.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1)
+        let iconMaxX = iconView.frame.maxX
 
         let breathAlpha = CGFloat(0.1 + 0.9 * (sin(breathPhase) * 0.5 + 0.5))
         let dotColorWithBreath = cachedDotColor.withAlphaComponent(breathAlpha)
-        let amtColor: NSColor = cachedDotColor == .systemRed ? cachedAmtColor.withAlphaComponent(breathAlpha) : cachedAmtColor
+
+        let isDark = effectiveAppearance.name == .darkAqua || effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let resolvedTextColor: NSColor = isDark ? .white : .darkGray
+        let resolvedAmtColor: NSColor = cachedAmtColor == .labelColor
+            ? (isDark ? .white : .black)
+            : cachedAmtColor.withAlphaComponent(breathAlpha)
 
         let textFont = NSFont.systemFont(ofSize: 10)
         let amtFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
 
-        let textAttrs: [NSAttributedString.Key: Any] = [.font: textFont, .foregroundColor: NSColor.secondaryLabelColor]
-        let amtAttrs: [NSAttributedString.Key: Any] = [.font: amtFont, .foregroundColor: amtColor]
+        let textStr = NSAttributedString(string: cachedStatusStr as String, attributes: [
+            .font: textFont, .foregroundColor: resolvedTextColor
+        ])
+        let amtStr = NSAttributedString(string: cachedAmtStr as String, attributes: [
+            .font: amtFont, .foregroundColor: resolvedAmtColor
+        ])
 
         let dotSize = CGSize(width: 7, height: 7)
-        let textSize = cachedStatusStr.size(withAttributes: textAttrs)
-        let amtSize = cachedAmtStr.size(withAttributes: amtAttrs)
+        let textSize = textStr.size()
+        let amtSize = amtStr.size()
 
-        let textX = iconRect.maxX + 4
+        let textX = iconMaxX + 4
         let textW = max(dotSize.width + 4 + textSize.width, amtSize.width)
         let textH = amtSize.height + textSize.height - 2
         let textY = (barH - textH) / 2
         let textCX = textX + (textW - (dotSize.width + 4 + textSize.width)) / 2
 
-        let dotRect = CGRect(x: textCX, y: textY + amtSize.height - 2 + (textSize.height - dotSize.height) / 2,
-                            width: dotSize.width, height: dotSize.height)
+        let dotX: CGFloat = textCX
+        let halfDot: CGFloat = (textSize.height - dotSize.height) / 2
+        let dotY: CGFloat = textY + amtSize.height - 2 + halfDot
+        let dotRect = CGRect(x: dotX, y: dotY, width: dotSize.width, height: dotSize.height)
         dotColorWithBreath.setFill()
         NSBezierPath(roundedRect: dotRect, xRadius: dotSize.width / 2, yRadius: dotSize.height / 2).fill()
 
-        cachedStatusStr.draw(at: NSPoint(x: textCX + dotSize.width + 4, y: textY + amtSize.height - 2),
-                       withAttributes: textAttrs)
-
-        cachedAmtStr.draw(at: NSPoint(x: textX + (textW - amtSize.width) / 2, y: textY),
-                    withAttributes: amtAttrs)
+        textStr.draw(at: NSPoint(x: textCX + dotSize.width + 4, y: textY + amtSize.height - 2))
+        amtStr.draw(at: NSPoint(x: textX + (textW - amtSize.width) / 2, y: textY))
     }
 }
 
