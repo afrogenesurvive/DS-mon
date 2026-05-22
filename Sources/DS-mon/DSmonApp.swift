@@ -39,11 +39,9 @@ class StatusBarController: NSObject {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         statusView = StatusBarView(frame: .zero)
-        if let button = statusItem?.button {
-            button.target = self
-            button.action = #selector(togglePopover)
-            button.addSubview(statusView!)
-        }
+        statusView?.target = self
+        statusView?.action = #selector(togglePopover)
+        statusItem?.view = statusView
         statusItem?.length = 80
 
         updateLabel()
@@ -83,9 +81,9 @@ class StatusBarController: NSObject {
     }
 
     @objc private func togglePopover() {
-        guard let button = statusItem?.button, let pop = popover else { return }
+        guard let v = statusItem?.view, let pop = popover else { return }
         if pop.isShown { pop.performClose(nil) }
-        else { pop.show(relativeTo: button.bounds, of: button, preferredEdge: .minY) }
+        else { pop.show(relativeTo: v.bounds, of: v, preferredEdge: .minY) }
     }
 
     private func updateLabel() {

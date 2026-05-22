@@ -131,7 +131,7 @@ swift build -c release --disable-sandbox
 # Package .app
 mkdir -p build/DS-mon.app/Contents/{MacOS,Resources}
 cp .build/release/DS-mon build/DS-mon.app/Contents/MacOS/
-cp -R .build/release/DS-mon_DS-mon.bundle build/DS-mon.app/Contents/Resources/
+cp -R .build/release/DS-mon_DS-mon.bundle build/DS-mon.app/
 
 # Generate icon (requires dslogo1.png)
 mkdir -p /tmp/AppIcon.iconset
