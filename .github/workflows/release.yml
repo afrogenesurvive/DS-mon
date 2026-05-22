@@ -10,10 +10,11 @@ permissions:
 
 env:
   LOGO: Sources/DS-mon/dslogo1.png
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -85,6 +86,7 @@ jobs:
 
       - name: Package as .zip
         run: |
+          rm -f build/DS-mon-*.zip
           cd build
           ditto -c -k --keepParent DS-mon.app "DS-mon-${GITHUB_REF_NAME}.zip"
 
@@ -92,5 +94,3 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: build/DS-mon-*.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

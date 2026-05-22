@@ -6,8 +6,9 @@ import Security
 @MainActor
 @Observable
 final class DeepSeekStats {
-    // swift-ignore: isolated property accessed from deinit
+    @ObservationIgnored
     nonisolated(unsafe) private var blinkTimer: Timer?
+    @ObservationIgnored
     nonisolated(unsafe) private var refreshTimer: Timer?
     private(set) var balance: Double = 0
     private(set) var grantedBalance: Double = 0

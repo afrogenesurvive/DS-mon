@@ -39,9 +39,11 @@ class StatusBarController: NSObject {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         statusView = StatusBarView(frame: .zero)
-        statusView?.target = self
-        statusView?.action = #selector(togglePopover)
-        statusItem?.view = statusView
+        if let button = statusItem?.button {
+            button.target = self
+            button.action = #selector(togglePopover)
+            button.addSubview(statusView!)
+        }
         statusItem?.length = 80
 
         updateLabel()
@@ -81,9 +83,9 @@ class StatusBarController: NSObject {
     }
 
     @objc private func togglePopover() {
-        guard let v = statusItem?.view, let pop = popover else { return }
+        guard let button = statusItem?.button, let pop = popover else { return }
         if pop.isShown { pop.performClose(nil) }
-        else { pop.show(relativeTo: v.bounds, of: v, preferredEdge: .minY) }
+        else { pop.show(relativeTo: button.bounds, of: button, preferredEdge: .minY) }
     }
 
     private func updateLabel() {
@@ -169,10 +171,12 @@ class StatusBarView: NSView {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             guard let self else { return }
             let t = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
-                guard let self else { return }
-                self.breathPhase += self.breathStep
-                if self.breathPhase > .pi * 2 { self.breathPhase -= .pi * 2 }
-                self.display()
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.breathPhase += self.breathStep
+                    if self.breathPhase > .pi * 2 { self.breathPhase -= .pi * 2 }
+                    self.display()
+                }
             }
             RunLoop.current.add(t, forMode: .common)
         }
