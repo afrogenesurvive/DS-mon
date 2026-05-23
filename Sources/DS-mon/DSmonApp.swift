@@ -154,8 +154,9 @@ class StatusBarView: NSView {
     private var cachedStatusStr: NSString = Strings.statusNormal as NSString
     private var cachedAmtStr: NSString = ""
     private var cachedAmtColor: NSColor = .labelColor
-    private var breathPhase: Double = 0
-    private var breathStep: Double = 0.04
+    private var blinkOn_breath = true
+    private var blinkFrameCount = 0
+    private var blinkThreshold = 10
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -168,11 +169,14 @@ class StatusBarView: NSView {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             guard let self else { return }
-            let t = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+            let t = Timer.scheduledTimer(withTimeInterval: 1.0 / 10, repeats: true) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    self.breathPhase += self.breathStep
-                    if self.breathPhase > .pi * 2 { self.breathPhase -= .pi * 2 }
+                    self.blinkFrameCount += 1
+                    if self.blinkFrameCount >= self.blinkThreshold {
+                        self.blinkFrameCount = 0
+                        self.blinkOn_breath.toggle()
+                    }
                     self.display()
                 }
             }
@@ -188,21 +192,19 @@ class StatusBarView: NSView {
             if stats.errorMessage != nil {
                 cachedDotColor = .systemOrange
                 cachedStatusStr = Strings.statusError as NSString
-                breathStep = 0.08
+                blinkThreshold = 5
             } else if stats.isLowBalance {
                 cachedDotColor = .systemRed
                 cachedStatusStr = Strings.statusLowBalance as NSString
-                breathStep = 0.14
+                blinkThreshold = 5
             } else {
                 cachedDotColor = .systemGreen
                 cachedStatusStr = Strings.statusNormal as NSString
-                breathStep = 0.04
+                blinkThreshold = 10
             }
             cachedAmtColor = stats.isLowBalance ? .systemRed : .labelColor
         }
         cachedAmtStr = stats.balanceText as NSString
-
-        display()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -217,7 +219,7 @@ class StatusBarView: NSView {
 
         let iconMaxX = iconView.frame.maxX
 
-        let breathAlpha = CGFloat(0.1 + 0.9 * (sin(breathPhase) * 0.5 + 0.5))
+        let breathAlpha: CGFloat = blinkOn_breath ? 1.0 : 0.3
         let dotColorWithBreath = cachedDotColor.withAlphaComponent(breathAlpha)
 
         let isDark = effectiveAppearance.name == .darkAqua || effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
