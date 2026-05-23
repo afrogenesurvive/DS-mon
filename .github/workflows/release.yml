@@ -99,3 +99,16 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: build/DS-mon-*.zip
+
+      - name: Update Homebrew tap
+        env:
+          GH_PAT: ${{ secrets.HOMEBREW_TAP_PAT }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          git clone "https://x-access-token:${GH_PAT}@github.com/Cherno76/homebrew-tap.git" /tmp/homebrew-tap
+          cd /tmp/homebrew-tap
+          sed -i '' "s/version \"[0-9.]*\"/version \"${VERSION}\"/" Casks/ds-mon.rb
+          git add .
+          git -c user.name='DS-mon CI' -c user.email='ds-mon-ci@github.com' \
+            commit -m "chore: bump ds-mon to v${VERSION}"
+          git push
