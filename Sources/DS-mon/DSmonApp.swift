@@ -174,7 +174,6 @@ class StatusBarView: NSView {
     private var blinkOn_breath = true
     private var blinkFrameCount = 0
     private var blinkThreshold = 10
-
     override init(frame: NSRect) {
         super.init(frame: frame)
 
@@ -315,6 +314,10 @@ class StatusBarView: NSView {
 struct StatsPopoverView: View {
     let stats: DeepSeekStats
 
+    private var versionString: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerSection
@@ -336,6 +339,9 @@ struct StatsPopoverView: View {
                 .font(.caption)
             Text("DS-mon")
                 .font(.system(size: 13, weight: .semibold))
+            Text("v\(versionString)")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
             Spacer()
             statusBadge
         }
