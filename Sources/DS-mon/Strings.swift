@@ -51,15 +51,15 @@ enum Strings {
     }
 
     // Status bar
-    static var statusNormal: String { isZH ? "正常" : "Normal" }
-    static var statusLowBalance: String { isZH ? "余额不足" : "Low Balance" }
-    static var statusError: String { isZH ? "异常" : "Error" }
+    static var statusNormal: String { isZH ? "正常" : "NORM" }
+    static var statusLowBalance: String { isZH ? "余额低" : "LOWBAL" }
+    static var statusError: String { isZH ? "异常" : "ERROR" }
 
     // Popover header
     static var popoverTitle: String { "DS-mon" }
     static var badgeLoading: String { isZH ? "查询中..." : "Loading..." }
-    static var badgeNormal: String { isZH ? "正常" : "Normal" }
-    static var badgeError: String { isZH ? "异常" : "Error" }
+    static var badgeNormal: String { isZH ? "正常" : "NORM" }
+    static var badgeError: String { isZH ? "异常" : "ERROR" }
 
     // Balance section
     static var currentBalance: String { isZH ? "当前余额" : "Balance" }

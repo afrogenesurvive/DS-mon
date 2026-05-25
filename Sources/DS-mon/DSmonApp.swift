@@ -199,6 +199,11 @@ class StatusBarView: NSView {
             }
             RunLoop.current.add(t, forMode: .common)
         }
+
+        // 启动时读取保存的图标显示状态（didSet 在 init 中不触发，手动设置）
+        let savedShowIcon = UserDefaults.standard.object(forKey: "show_menu_icon") as? Bool ?? true
+        showIcon = savedShowIcon
+        iconView.isHidden = !savedShowIcon
     }
 
     required init?(coder: NSCoder) { nil }
@@ -255,7 +260,7 @@ class StatusBarView: NSView {
             .font: amtFont, .foregroundColor: resolvedAmtColor
         ])
 
-        let dotSize = CGSize(width: 7, height: 7)
+        let dotSize = CGSize(width: 7, height: 3)
         let textSize = textStr.size()
         let amtSize = amtStr.size()
 
@@ -269,11 +274,39 @@ class StatusBarView: NSView {
         let halfDot: CGFloat = (textSize.height - dotSize.height) / 2
         let dotY: CGFloat = textY + amtSize.height - 2 + halfDot
         let dotRect = CGRect(x: dotX, y: dotY, width: dotSize.width, height: dotSize.height)
-        dotColorWithBreath.setFill()
-        NSBezierPath(roundedRect: dotRect, xRadius: dotSize.width / 2, yRadius: dotSize.height / 2).fill()
+        drawStatusDot(in: dotRect, baseColor: dotColorWithBreath)
 
         textStr.draw(at: NSPoint(x: textCX + dotSize.width + 4, y: textY + amtSize.height - 2))
         amtStr.draw(at: NSPoint(x: textX + (textW - amtSize.width) / 2, y: textY))
+    }
+
+    /// 矩形指示灯：宽7高3，纯色填充，右下1px深色边缘，闪烁时浅绿外发光
+    private func drawStatusDot(in rect: CGRect, baseColor: NSColor) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+
+        let path = NSBezierPath(roundedRect: rect, xRadius: 1, yRadius: 1)
+        let isAlerting = (cachedDotColor != .systemGreen) && blinkOn_breath
+
+        // 外发光 — 仅异常闪烁时，浅绿 1px
+        if isAlerting {
+            ctx.saveGState()
+            ctx.setShadow(offset: .zero, blur: 1, color: NSColor.green.withAlphaComponent(0.6).cgColor)
+            baseColor.setFill()
+            path.fill()
+            ctx.restoreGState()
+        }
+
+        // 主体纯色填充
+        baseColor.setFill()
+        path.fill()
+
+        // 右下 1px 深色边缘（模拟立体感）
+        let edgeColor = baseColor.blended(withFraction: 0.12, of: .black) ?? baseColor
+        edgeColor.setFill()
+        let rightEdge = NSRect(x: rect.maxX - 1, y: rect.minY, width: 1, height: rect.height)
+        NSBezierPath(rect: rightEdge).fill()
+        let bottomEdge = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: 1)
+        NSBezierPath(rect: bottomEdge).fill()
     }
 }
 
@@ -312,9 +345,7 @@ struct StatsPopoverView: View {
 
     private var statusBadge: some View {
         HStack(spacing: 4) {
-            Circle()
-                .fill(statusIndicatorColor)
-                .frame(width: 7, height: 7)
+            StatusDotView(color: statusIndicatorColor, size: 7)
             Text(statusText)
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
@@ -350,9 +381,7 @@ struct StatsPopoverView: View {
             HStack(alignment: .firstTextBaseline, spacing: 0) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 5) {
-                        Circle()
-                            .fill(statusDotColor)
-                            .frame(width: 7, height: 7)
+                        StatusDotView(color: statusDotColor, size: 7)
                         Text(Strings.currentBalance)
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
@@ -443,11 +472,6 @@ struct StatsPopoverView: View {
 
     private var actionBar: some View {
         HStack(spacing: 4) {
-            Text(stats.lastUpdate)
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
-                .padding(.leading, 2)
-
             Spacer()
 
             actionButton(icon: "arrow.clockwise", label: Strings.refresh, color: .blue) {
@@ -480,5 +504,28 @@ struct StatsPopoverView: View {
         }
         .buttonStyle(.plain)
         .fixedSize()
+    }
+}
+
+// MARK: - 矩形立体指示灯（SwiftUI）
+
+/// 小圆角矩形指示灯：顶部高光 + 底部暗面 + 外发光
+struct StatusDotView: View {
+    let color: Color
+    let size: CGFloat
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 2)
+            .fill(color)
+            .overlay {
+                LinearGradient(
+                    colors: [.white.opacity(0.25), .clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 2))
+            .frame(width: size, height: size)
+            .shadow(color: color.opacity(0.4), radius: 3, x: 0, y: 0)
     }
 }
