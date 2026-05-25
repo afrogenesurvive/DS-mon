@@ -47,6 +47,7 @@ class StatusBarController: NSObject {
         updateLabel()
 
         NotificationCenter.default.addObserver(self, selector: #selector(languageChanged), name: .languageDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(menuIconChanged), name: .showMenuIconDidChange, object: nil)
 
         let host = NSHostingView(rootView: StatsPopoverView(stats: s))
         host.frame = NSRect(x: 0, y: 0, width: 260, height: 280)
@@ -72,7 +73,7 @@ class StatusBarController: NSObject {
             let window = NSWindow(contentViewController: host)
             window.title = Strings.settingsTitle
             window.styleMask = [.titled, .closable]
-            window.setContentSize(NSSize(width: 440, height: 380))
+            window.setContentSize(NSSize(width: 440, height: 460))
             window.center()
             settingsWindow = window
         }
@@ -99,7 +100,9 @@ class StatusBarController: NSObject {
         let amtW = (s.balanceText as NSString).size(
             withAttributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)]
         ).width
-        let w = CGFloat(2 + 22 + 4) + max(dotTextW, amtW) + 4
+        let showIcon = UserDefaults.standard.object(forKey: "show_menu_icon") as? Bool ?? true
+        let iconWidth: CGFloat = showIcon ? (22 + 4) : 0
+        let w = CGFloat(2) + iconWidth + max(dotTextW, amtW) + 4
         statusItem?.length = w
         statusView?.setFrameSize(NSSize(width: w, height: statusView?.frame.height ?? 22))
     }
@@ -112,6 +115,12 @@ class StatusBarController: NSObject {
         host.frame = NSRect(x: 0, y: 0, width: 260, height: 280)
         popover?.contentViewController = NSViewController()
         popover?.contentViewController?.view = host
+    }
+
+    @objc private func menuIconChanged() {
+        let showIcon = UserDefaults.standard.object(forKey: "show_menu_icon") as? Bool ?? true
+        statusView?.showIcon = showIcon
+        updateLabel()
     }
 
 }
@@ -148,6 +157,14 @@ class StatusBarView: NSView {
         return ic
     }()
     private let iconView = NSImageView()
+
+    /// 菜单栏图标是否显示，由设置窗口 Toggle 控制
+    var showIcon: Bool = true {
+        didSet {
+            iconView.isHidden = !showIcon
+            needsDisplay = true
+        }
+    }
 
     // Cached stable state — never shows loading state
     private var cachedDotColor: NSColor = .systemGreen
@@ -217,7 +234,7 @@ class StatusBarView: NSView {
         let barH = bounds.height
         guard barH > 0 else { return }
 
-        let iconMaxX = iconView.frame.maxX
+        let iconMaxX: CGFloat = showIcon ? 24 : 2
 
         let breathAlpha: CGFloat = blinkOn_breath ? 1.0 : 0.3
         let dotColorWithBreath = cachedDotColor.withAlphaComponent(breathAlpha)

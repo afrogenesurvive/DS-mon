@@ -7,6 +7,7 @@ struct ThresholdView: View {
     @State private var saved = false
     @State private var saveFailed = false
     @AppStorage("app_language") private var appLanguage: String = "auto"
+    @AppStorage("show_menu_icon") private var showMenuIcon: Bool = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -15,6 +16,8 @@ struct ThresholdView: View {
             apiKeySection
             Divider().padding(.horizontal, 16)
             languageSection
+            Divider().padding(.horizontal, 16)
+            menuIconSection
         }
         .frame(width: 440)
         .onAppear {
@@ -137,6 +140,44 @@ struct ThresholdView: View {
             }
         }
         .padding(20)
+    }
+
+    private var menuIconSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "eye")
+                    .foregroundColor(.teal)
+                Text(isZH ? "菜单栏图标" : "Menu Bar Icon")
+                    .font(.body).bold()
+                Spacer()
+            }
+
+            HStack {
+                Toggle(isOn: $showMenuIcon) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(isZH ? "显示图标" : "Show Icon")
+                            .font(.callout)
+                        Text(isZH ? "在菜单栏显示/隐藏鲸鱼图标" : "Show or hide the whale icon in the menu bar")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+                .onChange(of: showMenuIcon) { _, _ in
+                    NotificationCenter.default.post(name: .showMenuIconDidChange, object: nil)
+                }
+            }
+        }
+        .padding(20)
+    }
+
+    private var isZH: Bool {
+        let saved = UserDefaults.standard.string(forKey: "app_language") ?? "auto"
+        if saved == "auto" {
+            let locale = Locale.preferredLanguages.first ?? "en"
+            return locale.hasPrefix("zh-Hans") || locale == "zh-CN" || locale == "zh"
+        }
+        return saved == "zh-Hans"
     }
 
     private func saveKey() {
