@@ -18,6 +18,8 @@ struct ThresholdView: View {
             languageSection
             Divider().padding(.horizontal, 16)
             menuIconSection
+            Divider().padding(.horizontal, 16)
+            proxySection
         }
         .frame(width: 440)
         .onAppear {
@@ -170,6 +172,91 @@ struct ThresholdView: View {
         }
         .padding(20)
     }
+
+    private var proxySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .foregroundColor(.indigo)
+                Text(Strings.proxySection)
+                    .font(.body).bold()
+                Spacer()
+                if proxyRunning {
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.green).frame(width: 6, height: 6)
+                        Text(Strings.proxyRunning)
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    }
+                } else {
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.gray).frame(width: 6, height: 6)
+                        Text(Strings.proxyStopped)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+
+            HStack {
+                Toggle(isOn: $proxyEnabled) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(Strings.proxyToggle)
+                            .font(.callout)
+                        Text(Strings.proxyToggleHint)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+                .onChange(of: proxyEnabled) { _, newVal in
+                    if newVal {
+                        do {
+                            try ProxyServer.shared.start(port: UInt16(proxyPort))
+                        } catch {
+                            proxyEnabled = false
+                        }
+                    } else {
+                        ProxyServer.shared.stop()
+                    }
+                    proxyRunning = ProxyServer.shared.isRunning
+                }
+            }
+
+            HStack(spacing: 8) {
+                Text(Strings.proxyPortLabel)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("18080", value: $proxyPort, format: .number.grouping(.never))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 70)
+                    .multilineTextAlignment(.trailing)
+                    .onChange(of: proxyPort) { _, newVal in
+                        if newVal < 1024 { proxyPort = 1024 }
+                        if newVal > 65535 { proxyPort = 65535 }
+                    }
+                Text("\(proxyPort)")
+                    .hidden()
+                    .frame(width: 0)
+                Text(isZH
+                     ? "客户端 base_url = http://localhost:\(proxyPort)"
+                     : "Client base_url = http://localhost:\(proxyPort)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .disabled(proxyRunning)
+        }
+        .padding(20)
+    }
+
+    // MARK: - Proxy State
+
+    @State private var proxyEnabled: Bool = UserDefaults.standard.bool(forKey: "proxy_enabled")
+    @State private var proxyPort: Int = {
+        let p = UserDefaults.standard.integer(forKey: "proxy_port")
+        return p >= 1024 ? p : 18080
+    }()
+    @State private var proxyRunning: Bool = ProxyServer.shared.isRunning
 
     private var isZH: Bool {
         let saved = UserDefaults.standard.string(forKey: "app_language") ?? "auto"

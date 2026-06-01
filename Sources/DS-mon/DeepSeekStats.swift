@@ -148,7 +148,7 @@ final class DeepSeekStats {
     }
 
     var modelsText: String {
-        models.isEmpty ? "—" : models.prefix(3).joined(separator: "\n")
+        models.isEmpty ? "—" : models.joined(separator: ", ")
     }
 
     var statusColor: Color {

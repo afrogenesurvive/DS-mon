@@ -3,6 +3,7 @@ import Foundation
 extension Notification.Name {
     static let languageDidChange = Notification.Name("languageDidChange")
     static let showMenuIconDidChange = Notification.Name("showMenuIconDidChange")
+    static let usageRecorded = Notification.Name("usageRecorded")
 }
 
 enum Language: String, CaseIterable, Identifiable {
@@ -78,6 +79,10 @@ enum Strings {
     static var refresh: String { isZH ? "刷新" : "Refresh" }
     static var settings: String { isZH ? "设置" : "Settings" }
     static var quit: String { isZH ? "退出" : "Quit" }
+    static var quitTitle: String { isZH ? "确认退出" : "Quit" }
+    static var quitMessage: String { isZH ? "确定要退出 DS-mon 吗？" : "Are you sure you want to quit DS-mon?" }
+    static var quitConfirm: String { isZH ? "退出" : "Quit" }
+    static var cancel: String { isZH ? "取消" : "Cancel" }
 
     // Settings window
     static var settingsTitle: String { isZH ? "设置" : "Settings" }
@@ -106,7 +111,54 @@ enum Strings {
     }
     static var keychainSaveFailed: String { isZH ? "保存 API Key 失败：需在钥匙串弹窗中点击「始终允许」" : "Failed to save API Key. Click 'Always Allow' in the Keychain prompt" }
 
+    // Proxy
+    static var proxySection: String { isZH ? "本地代理" : "Proxy" }
+    static var proxyToggle: String { isZH ? "启用代理" : "Enable Proxy" }
+    static var proxyToggleHint: String { isZH ? "拦截并记录 DeepSeek API 调用数据" : "Intercept and log DeepSeek API calls" }
+    static var proxyPortLabel: String { isZH ? "代理端口" : "Proxy Port" }
+    static var proxyPortHint: String { isZH ? "客户端设置 base_url 为 http://localhost:{port}" : "Set client base_url to http://localhost:{port}" }
+    static var proxyRunning: String { isZH ? "代理已启动" : "Proxy running" }
+    static var proxyStopped: String { isZH ? "代理已停止" : "Proxy stopped" }
+
+    // Usage stats
+    static var usageTitle: String { isZH ? "用量统计" : "Usage Stats" }
+    static var requestsLabel: String { isZH ? "请求数" : "Requests" }
+    static var totalTokensLabel: String { isZH ? "总 Tokens" : "Total Tokens" }
+    static var cachedTokensLabel: String { isZH ? "缓存命中" : "Cache Hit" }
+    static var reasoningTokensLabel: String { isZH ? "推理 Tokens" : "Reasoning" }
+    static var costLabel: String { isZH ? "预估费用" : "Est. Cost" }
+    static var latencyLabel: String { isZH ? "平均延迟" : "Avg Latency" }
+    static var todayLabel: String { isZH ? "今日" : "Today" }
+    static var weekLabel: String { isZH ? "周" : "Week" }
+    static var monthLabel: String { isZH ? "月" : "Month" }
+    static var noUsageData: String { isZH ? "暂无数据" : "No data" }
+    static func requestsCount(_ n: Int) -> String {
+        isZH ? "\(n) 次" : "\(n)"
+    }
+    static func tokensShort(_ n: Int) -> String {
+        if n >= 1_000_000 {
+            let m = Double(n) / 1_000_000
+            return String(format: "%.1fM", m)
+        }
+        if n >= 1000 {
+            return "\(n / 1000)k"
+        }
+        return "\(n)"
+    }
+    static func costShort(_ c: Double) -> String {
+        isZH ? "¥\(String(format: "%.2f", c))" : "$\(String(format: "%.2f", c))"
+    }
+    static func latencyMsFormat(_ ms: Double) -> String {
+        isZH ? "\(Int(ms))ms" : "\(Int(ms))ms"
+    }
+
     static var balanceText: String { isZH ? "¥%.2f" : "¥%.2f" }
     static var grantedText: String { isZH ? "赠送 ¥%.2f" : "Granted ¥%.2f" }
     static var toppedUpText: String { isZH ? "充值 ¥%.2f" : "Topped Up ¥%.2f" }
+
+    // Chart
+    static var chartMiss: String { isZH ? "Miss" : "Miss" }
+    static var chartHit: String { isZH ? "Hit" : "Hit" }
+    static var chartOut: String { isZH ? "Out" : "Out" }
+    static var chartTotal: String { isZH ? "合计" : "Total" }
 }
