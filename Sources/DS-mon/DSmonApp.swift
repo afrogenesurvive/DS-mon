@@ -41,7 +41,7 @@ class StatusBarController: NSObject {
         statusView = StatusBarView(frame: .zero)
         statusView?.target = self
         statusView?.action = #selector(togglePopover)
-        statusItem?.view = statusView
+        statusItem?.setValue(statusView, forKey: "view")
         statusItem?.length = 80
 
         updateLabel()
@@ -82,7 +82,7 @@ class StatusBarController: NSObject {
     }
 
     @objc private func togglePopover() {
-        guard let v = statusItem?.view, let pop = popover else { return }
+        guard let v = statusItem?.value(forKey: "view") as? NSView, let pop = popover else { return }
         if pop.isShown { pop.performClose(nil) }
         else { pop.show(relativeTo: v.bounds, of: v, preferredEdge: .minY) }
     }
@@ -171,6 +171,7 @@ class StatusBarView: NSView {
     private var cachedStatusStr: NSString = Strings.statusNormal as NSString
     private var cachedAmtStr: NSString = ""
     private var cachedAmtColor: NSColor = .labelColor
+    private var cachedTextColor: NSColor = .labelColor
     private var blinkOn_breath = true
     private var blinkFrameCount = 0
     private var blinkThreshold = 10
@@ -212,18 +213,21 @@ class StatusBarView: NSView {
         if !stats.isLoading {
             if stats.errorMessage != nil {
                 cachedDotColor = .systemOrange
+                cachedTextColor = .systemOrange
                 cachedStatusStr = Strings.statusError as NSString
                 blinkThreshold = 5
             } else if stats.isLowBalance {
                 cachedDotColor = .systemRed
+                cachedTextColor = .systemRed
                 cachedStatusStr = Strings.statusLowBalance as NSString
                 blinkThreshold = 5
             } else {
                 cachedDotColor = .systemGreen
+                cachedTextColor = .labelColor
                 cachedStatusStr = Strings.statusNormal as NSString
                 blinkThreshold = 10
             }
-            cachedAmtColor = stats.isLowBalance ? .systemRed : .labelColor
+            cachedAmtColor = .labelColor
         }
         cachedAmtStr = stats.balanceText as NSString
     }
@@ -244,7 +248,9 @@ class StatusBarView: NSView {
         let dotColorWithBreath = cachedDotColor.withAlphaComponent(breathAlpha)
 
         let isDark = effectiveAppearance.name == .darkAqua || effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let resolvedTextColor: NSColor = isDark ? .white : .darkGray
+        let resolvedTextColor: NSColor = cachedTextColor == .labelColor
+            ? (isDark ? .white : .darkGray)
+            : cachedTextColor.withAlphaComponent(breathAlpha)
         let resolvedAmtColor: NSColor = cachedAmtColor == .labelColor
             ? (isDark ? .white : .black)
             : cachedAmtColor.withAlphaComponent(breathAlpha)

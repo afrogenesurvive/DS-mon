@@ -1,5 +1,5 @@
 cask "ds-mon" do
-  version "1.2"
+  version "1.6"
   sha256 :no_check
 
   url "https://github.com/Cherno76/DS-mon/releases/download/v#{version}/DS-mon-v#{version}.zip"
