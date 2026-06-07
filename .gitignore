@@ -5,3 +5,11 @@ build/
 *.png
 !Sources/**/*.png
 !screenshot.png
+.rustup/
+.reasonix/
+reasonix.toml
+codex-relay
+codex-relay-src/
+codex-relay-cache-hit.patch
+etc/
+usr/

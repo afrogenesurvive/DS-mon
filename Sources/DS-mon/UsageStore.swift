@@ -1,6 +1,78 @@
 import Foundation
 import SQLite3
 
+// MARK: - 定价模型
+
+/// 单个模型的 token 单价（USD / 1M tokens）
+struct ModelPricing: Codable, Equatable, Sendable {
+    var label: String
+    var hitPrice: Double   // 缓存命中输入
+    var missPrice: Double  // 缓存未命中输入
+    var outPrice: Double   // 输出
+
+    /// 仅列出主要模型。deprecated 别名（deepseek-chat, deepseek-reasoner）也在 forModel 中匹配
+    static let displayedModels: [String] = ["deepseek-v4-flash", "deepseek-v4-pro"]
+
+    static let `default`: [String: ModelPricing] = [
+        "deepseek-v4-flash":  ModelPricing(label: "V4 Flash", hitPrice: 0.02, missPrice: 1.0,  outPrice: 2.0),
+        "deepseek-v4-pro":    ModelPricing(label: "V4 Pro",   hitPrice: 0.026, missPrice: 3.13, outPrice: 6.26),
+        "deepseek-chat":      ModelPricing(label: "V4 Flash", hitPrice: 0.02, missPrice: 1.0,  outPrice: 2.0),
+        "deepseek-reasoner":  ModelPricing(label: "V4 Flash", hitPrice: 0.02, missPrice: 1.0,  outPrice: 2.0),
+    ]
+
+    /// 根据模型名匹配定价（前缀匹配：deepseek-v4-flash → flash 定价）
+    static func forModel(_ model: String) -> ModelPricing {
+        let custom = Self.loadCustom()
+        // 自定义覆盖优先
+        for (key, pricing) in custom {
+            if model == key || model.hasPrefix(key) { return pricing }
+        }
+        // 内置默认
+        for (key, pricing) in Self.default {
+            if model == key || model.hasPrefix(key) { return pricing }
+        }
+        return Self.default["deepseek-v4-flash"]!
+    }
+
+    /// 计算单次请求的预估费用
+    static func computeCost(promptTokens: Int, completionTokens: Int,
+                            cachedTokens: Int, pricing: ModelPricing) -> Double {
+        let missInput = Double(promptTokens - cachedTokens) / 1_000_000 * pricing.missPrice
+        let hitInput  = Double(cachedTokens) / 1_000_000 * pricing.hitPrice
+        let output    = Double(completionTokens) / 1_000_000 * pricing.outPrice
+        return missInput + hitInput + output
+    }
+
+    // MARK: - 用户自定义定价（存 UserDefaults JSON）
+
+    private static let storageKey = "model_pricing_overrides"
+
+    static func loadCustom() -> [String: ModelPricing] {
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
+              let dict = try? JSONDecoder().decode([String: ModelPricing].self, from: data)
+        else { return [:] }
+        return dict
+    }
+
+    static func saveCustom(_ overrides: [String: ModelPricing]) {
+        guard let data = try? JSONEncoder().encode(overrides) else { return }
+        UserDefaults.standard.set(data, forKey: storageKey)
+    }
+
+    static func resetCustom() {
+        UserDefaults.standard.removeObject(forKey: storageKey)
+    }
+
+    /// 合并后的完整定价表（默认 + 自定义覆盖）
+    static var allWithOverrides: [String: ModelPricing] {
+        var result = Self.default
+        for (key, pricing) in Self.loadCustom() {
+            result[key] = pricing
+        }
+        return result
+    }
+}
+
 // MARK: - 数据模型
 
 struct UsageRecord: Sendable {
@@ -25,14 +97,9 @@ struct AggregatedUsage: Sendable {
     let cachedTokens: Int
     let reasoningTokens: Int
     let avgLatencyMs: Double
+    let estimatedCost: Double     // 来自 SUM(cost)，按各自模型定价计算
     var cacheHitRate: Double {
         promptTokens > 0 ? Double(cachedTokens) / Double(promptTokens) * 100 : 0
-    }
-    var estimatedCost: Double {
-        let missInput = Double(promptTokens - cachedTokens) / 1_000_000 * 1.0
-        let hitInput  = Double(cachedTokens) / 1_000_000 * 0.02
-        let output    = Double(completionTokens) / 1_000_000 * 2.0
-        return missInput + hitInput + output
     }
 }
 
@@ -43,6 +110,24 @@ final class UsageStore: @unchecked Sendable {
 
     private var db: OpaquePointer?
     private let lock = NSLock()
+
+    private static let dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+    private static let labelFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "M/d"
+        return f
+    }()
+    private static let dateParser: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone.current
+        return f
+    }()
 
     private init() {
         openDatabase()
@@ -68,7 +153,9 @@ final class UsageStore: @unchecked Sendable {
             return
         }
         // WAL 模式，支持并发读
-        sqlite3_exec(db, "PRAGMA journal_mode=WAL", nil, nil, nil)
+        if sqlite3_exec(db, "PRAGMA journal_mode=WAL", nil, nil, nil) != SQLITE_OK {
+            print("[UsageStore] Failed to set WAL mode: " + (sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"))
+        }
     }
 
     private func createTables() {
@@ -84,11 +171,55 @@ final class UsageStore: @unchecked Sendable {
             cached_tokens INTEGER DEFAULT 0,
             reasoning_tokens INTEGER DEFAULT 0,
             latency_ms REAL DEFAULT 0,
-            status_code INTEGER DEFAULT 200
+            status_code INTEGER DEFAULT 200,
+            cost REAL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage_log(timestamp);
         """
-        sqlite3_exec(db, sql, nil, nil, nil)
+        if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
+            print("[UsageStore] Failed to create tables: " + (sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"))
+        }
+        // 兼容旧表：可能没有 cost 列
+        if sqlite3_exec(db, "ALTER TABLE usage_log ADD COLUMN cost REAL DEFAULT 0;", nil, nil, nil) != SQLITE_OK {
+            print("[UsageStore] ALTER TABLE add cost: " + (sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"))
+        }
+        backfillCost()
+    }
+
+    /// 为旧记录回填 cost（按各自模型定价计算）
+    private func backfillCost() {
+        let selectSql = """
+        SELECT id, model, prompt_tokens, completion_tokens, cached_tokens
+        FROM usage_log WHERE cost = 0;
+        """
+        var selectStmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, selectSql, -1, &selectStmt, nil) == SQLITE_OK else {
+            print("[UsageStore] backfill select prepare failed: " + (sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"))
+            return
+        }
+        defer { sqlite3_finalize(selectStmt) }
+
+        while sqlite3_step(selectStmt) == SQLITE_ROW {
+            let id = sqlite3_column_int64(selectStmt, 0)
+            let model = String(cString: sqlite3_column_text(selectStmt, 1))
+            let pt = Int(sqlite3_column_int64(selectStmt, 2))
+            let ct = Int(sqlite3_column_int64(selectStmt, 3))
+            let ca = Int(sqlite3_column_int64(selectStmt, 4))
+
+            let pricing = ModelPricing.forModel(model)
+            let cost = ModelPricing.computeCost(promptTokens: pt, completionTokens: ct, cachedTokens: ca, pricing: pricing)
+
+            let updateSql = "UPDATE usage_log SET cost = ? WHERE id = ?;"
+            var updateStmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, updateSql, -1, &updateStmt, nil) == SQLITE_OK else {
+                print("[UsageStore] backfill update prepare failed: " + (sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"))
+                continue
+            }
+            sqlite3_bind_double(updateStmt, 1, cost)
+            sqlite3_bind_int64(updateStmt, 2, id)
+            sqlite3_step(updateStmt)
+            sqlite3_finalize(updateStmt)
+        }
     }
 
     // MARK: - 写入
@@ -97,13 +228,24 @@ final class UsageStore: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard let db else { return }
+        // 按模型定价计算单次请求费用
+        let pricing = ModelPricing.forModel(record.model)
+        let cost = ModelPricing.computeCost(
+            promptTokens: record.promptTokens,
+            completionTokens: record.completionTokens,
+            cachedTokens: record.cachedTokens,
+            pricing: pricing
+        )
         let sql = """
         INSERT INTO usage_log (timestamp, model, endpoint, prompt_tokens, completion_tokens,
-          total_tokens, cached_tokens, reasoning_tokens, latency_ms, status_code)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+          total_tokens, cached_tokens, reasoning_tokens, latency_ms, status_code, cost)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            print("[UsageStore] insert prepare failed: " + (sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"))
+            return
+        }
         sqlite3_bind_double(stmt, 1, record.timestamp.timeIntervalSince1970)
         sqlite3_bind_text(stmt, 2, record.model, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         sqlite3_bind_text(stmt, 3, record.endpoint, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
@@ -114,6 +256,7 @@ final class UsageStore: @unchecked Sendable {
         sqlite3_bind_int64(stmt, 8, Int64(record.reasoningTokens))
         sqlite3_bind_double(stmt, 9, record.latencyMs)
         sqlite3_bind_int64(stmt, 10, Int64(record.statusCode))
+        sqlite3_bind_double(stmt, 11, cost)
         sqlite3_step(stmt)
         sqlite3_finalize(stmt)
     }
@@ -122,20 +265,17 @@ final class UsageStore: @unchecked Sendable {
 
     /// 按天聚合（最近 N 天）
     func queryDaily(limit: Int = 30) -> [AggregatedUsage] {
-        let groupExpr = "date(timestamp, 'unixepoch', 'localtime')"
-        return queryAggregated(groupBy: groupExpr, groupLabel: groupExpr, limit: limit)
+        return queryAggregated(period: .daily, limit: limit)
     }
 
     /// 按周聚合（最近 N 周）
     func queryWeekly(limit: Int = 12) -> [AggregatedUsage] {
-        let groupExpr = "strftime('%Y-W%W', timestamp, 'unixepoch', 'localtime')"
-        return queryAggregated(groupBy: groupExpr, groupLabel: groupExpr, limit: limit)
+        return queryAggregated(period: .weekly, limit: limit)
     }
 
     /// 按月聚合（最近 N 月）
     func queryMonthly(limit: Int = 12) -> [AggregatedUsage] {
-        let groupExpr = "strftime('%Y-%m', timestamp, 'unixepoch', 'localtime')"
-        return queryAggregated(groupBy: groupExpr, groupLabel: groupExpr, limit: limit)
+        return queryAggregated(period: .monthly, limit: limit)
     }
 
     // MARK: - 柱状图明细查询
@@ -157,7 +297,10 @@ final class UsageStore: @unchecked Sendable {
         ORDER BY hour ASC;
         """
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            print("[UsageStore] queryHourlyBreakdown prepare failed: " + (sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"))
+            return []
+        }
         sqlite3_bind_double(stmt, 1, todayStart)
         defer { sqlite3_finalize(stmt) }
 
@@ -202,14 +345,15 @@ final class UsageStore: @unchecked Sendable {
         ORDER BY day ASC;
         """
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            print("[UsageStore] queryDailyBreakdown prepare failed: " + (sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"))
+            return []
+        }
         sqlite3_bind_double(stmt, 1, startTS)
         defer { sqlite3_finalize(stmt) }
 
-        let dayFmt = DateFormatter()
-        dayFmt.dateFormat = "yyyy-MM-dd"
-        let labelFmt = DateFormatter()
-        labelFmt.dateFormat = "M/d"
+        let dayFmt = Self.dayFormatter
+        let labelFmt = Self.labelFormatter
         var map: [String: (Int, Int, Int)] = [:]
         while sqlite3_step(stmt) == SQLITE_ROW {
             let dayStr = String(cString: sqlite3_column_text(stmt, 0))
@@ -254,7 +398,10 @@ final class UsageStore: @unchecked Sendable {
         ORDER BY week ASC;
         """
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            print("[UsageStore] queryWeeklyBreakdown prepare failed: " + (sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"))
+            return []
+        }
         sqlite3_bind_double(stmt, 1, startTS)
         defer { sqlite3_finalize(stmt) }
 
@@ -267,8 +414,7 @@ final class UsageStore: @unchecked Sendable {
             map[weekStr] = (m, h, o)
         }
 
-        let labelFmt = DateFormatter()
-        labelFmt.dateFormat = "M/d"
+        let labelFmt = Self.labelFormatter
         var results: [TokenBar] = []
         var cursor = monthStart
         while cursor <= monthEnd {
@@ -286,10 +432,7 @@ final class UsageStore: @unchecked Sendable {
     }
 
     private func _date(from dayStr: String) -> Date? {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyy-MM-dd"
-        fmt.locale = Locale(identifier: "en_US_POSIX")
-        fmt.timeZone = TimeZone.current
+        let fmt = Self.dateParser
         return fmt.date(from: dayStr)
     }
 
@@ -300,23 +443,41 @@ final class UsageStore: @unchecked Sendable {
         return String(format: "%d-V%02d", y, w)
     }
 
-    private func queryAggregated(groupBy: String, groupLabel: String, limit: Int) -> [AggregatedUsage] {
+    private enum AggregationPeriod {
+        case daily
+        case weekly
+        case monthly
+
+        var sqlExpr: String {
+            switch self {
+            case .daily:   return "date(timestamp, 'unixepoch', 'localtime')"
+            case .weekly:  return "strftime('%Y-W%W', timestamp, 'unixepoch', 'localtime')"
+            case .monthly: return "strftime('%Y-%m', timestamp, 'unixepoch', 'localtime')"
+            }
+        }
+    }
+
+    private func queryAggregated(period: AggregationPeriod, limit: Int) -> [AggregatedUsage] {
         lock.lock()
         defer { lock.unlock() }
         guard let db else { return [] }
         let sql = """
-        SELECT \(groupLabel) AS period,
+        SELECT \(period.sqlExpr) AS period,
                COUNT(*) AS req_count,
                SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens),
                SUM(cached_tokens), SUM(reasoning_tokens),
-               AVG(latency_ms)
+               AVG(latency_ms),
+               COALESCE(SUM(cost), 0)
         FROM usage_log
         GROUP BY period
         ORDER BY period DESC
         LIMIT ?;
         """
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            print("[UsageStore] queryAggregated prepare failed: " + (sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"))
+            return []
+        }
         sqlite3_bind_int(stmt, 1, Int32(limit))
         defer { sqlite3_finalize(stmt) }
 
@@ -331,7 +492,8 @@ final class UsageStore: @unchecked Sendable {
                 totalTokens: Int(sqlite3_column_int64(stmt, 4)),
                 cachedTokens: Int(sqlite3_column_int64(stmt, 5)),
                 reasoningTokens: Int(sqlite3_column_int64(stmt, 6)),
-                avgLatencyMs: sqlite3_column_double(stmt, 7)
+                avgLatencyMs: sqlite3_column_double(stmt, 7),
+                estimatedCost: sqlite3_column_double(stmt, 8)
             ))
         }
         return results

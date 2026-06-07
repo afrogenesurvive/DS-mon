@@ -33,6 +33,16 @@ cp Sources/DS-mon/dslogo.png "$APP/Contents/Resources/"
 cp Sources/DS-mon/dslogo1.png "$APP/Contents/Resources/"
 cp -r Sources/DS-mon/Assets.xcassets "$APP/Contents/Resources/"
 
+# codex-relay 二进制（协议转换：Responses API ↔ Chat Completions）
+CODEX_RELAY_SRC="$ROOT/codex-relay"
+if [ -f "$CODEX_RELAY_SRC" ]; then
+    cp "$CODEX_RELAY_SRC" "$APP/Contents/Resources/codex-relay"
+    chmod +x "$APP/Contents/Resources/codex-relay"
+    echo "    codex-relay ($(du -h "$CODEX_RELAY_SRC" | cut -f1)) 已打进包内"
+else
+    echo "    ⚠️  Sources/DS-mon/codex-relay 不存在，跳过"
+fi
+
 # Info.plist
 cat > "$APP/Contents/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>

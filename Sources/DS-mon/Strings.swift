@@ -4,6 +4,8 @@ extension Notification.Name {
     static let languageDidChange = Notification.Name("languageDidChange")
     static let showMenuIconDidChange = Notification.Name("showMenuIconDidChange")
     static let usageRecorded = Notification.Name("usageRecorded")
+    static let moonbridgeStatusChanged = Notification.Name("moonbridgeStatusChanged")
+    static let moonbridgeRestartNeeded = Notification.Name("moonbridgeRestartNeeded")
 }
 
 enum Language: String, CaseIterable, Identifiable {
@@ -111,6 +113,14 @@ enum Strings {
     }
     static var keychainSaveFailed: String { isZH ? "保存 API Key 失败：需在钥匙串弹窗中点击「始终允许」" : "Failed to save API Key. Click 'Always Allow' in the Keychain prompt" }
 
+    // codex-relay 协议转换器
+    static var moonbridgeSection: String { isZH ? "协议转换器" : "Protocol Relay" }
+    static var moonbridgeToggle: String { isZH ? "启用协议转换" : "Enable Relay" }
+    static var moonbridgeToggleHint: String { isZH ? "将 Codex 的 Responses API 转换为 Chat Completions API，适配 DeepSeek 等供应商" : "Translates Codex Responses API to Chat Completions for DeepSeek and other providers" }
+    static var moonbridgeRunning: String { isZH ? "运行中" : "Running" }
+    static var moonbridgeStopped: String { isZH ? "已停止" : "Stopped" }
+    static var moonbridgeNotice: String { isZH ? "Codex CLI 配置：base_url = http://localhost:{port}/v1（代理端口）" : "Codex CLI: base_url = http://localhost:{port}/v1 (proxy port)" }
+
     // Proxy
     static var proxySection: String { isZH ? "本地代理" : "Proxy" }
     static var proxyToggle: String { isZH ? "启用代理" : "Enable Proxy" }
@@ -146,7 +156,13 @@ enum Strings {
         return "\(n)"
     }
     static func costShort(_ c: Double) -> String {
-        isZH ? "¥\(String(format: "%.2f", c))" : "$\(String(format: "%.2f", c))"
+        if c >= 1.0 {
+            return "¥\(String(format: "%.2f", c))"
+        } else if c >= 0.001 {
+            return "¥\(String(format: "%.4f", c))"
+        } else {
+            return "¥\(String(format: "%.6f", c))"
+        }
     }
     static func latencyMsFormat(_ ms: Double) -> String {
         isZH ? "\(Int(ms))ms" : "\(Int(ms))ms"
@@ -155,6 +171,15 @@ enum Strings {
     static var balanceText: String { isZH ? "¥%.2f" : "¥%.2f" }
     static var grantedText: String { isZH ? "赠送 ¥%.2f" : "Granted ¥%.2f" }
     static var toppedUpText: String { isZH ? "充值 ¥%.2f" : "Topped Up ¥%.2f" }
+
+    // Pricing
+    static var pricingSection: String { isZH ? "模型定价" : "Model Pricing" }
+    static var pricingNote: String { isZH ? "修改仅对新请求生效。计价单位为 ¥/1M tokens。" : "Changes apply to new requests only. Prices in ¥/1M tokens." }
+    static var pricingHit: String { isZH ? "缓存命中 (Input)" : "Cache Hit (Input)" }
+    static var pricingMiss: String { isZH ? "缓存未命中 (Input)" : "Cache Miss (Input)" }
+    static var pricingOut: String { isZH ? "输出 (Output)" : "Output" }
+    static var pricingReset: String { isZH ? "恢复默认" : "Reset to Default" }
+    static var pricingResetDone: String { isZH ? "已恢复默认定价" : "Reset to default pricing" }
 
     // Chart
     static var chartMiss: String { isZH ? "Miss" : "Miss" }

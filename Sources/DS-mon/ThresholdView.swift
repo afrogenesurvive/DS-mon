@@ -9,23 +9,72 @@ struct ThresholdView: View {
     @AppStorage("app_language") private var appLanguage: String = "auto"
     @AppStorage("show_menu_icon") private var showMenuIcon: Bool = true
 
+    // 定价编辑状态
+    @State private var pricingOverrides: [String: ModelPricing] = [:]
+    @State private var pricingResetMsg = false
+
+    // Moon Bridge 状态
+    @State private var moonbridgeEnabled: Bool = UserDefaults.standard.bool(forKey: "moonbridge_enabled")
+    @State private var moonbridgeReachable: Bool? = ProxyServer.shared.moonbridgeReachable
+    @State private var moonbridgeStatusMsg: String? = ProxyServer.shared.moonbridgeError
+
     var body: some View {
         VStack(spacing: 0) {
-            thresholdSection
-            Divider().padding(.horizontal, 16)
+            // 全宽行：API Key
             apiKeySection
             Divider().padding(.horizontal, 16)
-            languageSection
-            Divider().padding(.horizontal, 16)
-            menuIconSection
-            Divider().padding(.horizontal, 16)
-            proxySection
+
+            // 双栏布局
+            HStack(alignment: .top, spacing: 0) {
+                // 左列
+                VStack(spacing: 0) {
+                    thresholdSection
+                    Divider().padding(.horizontal, 16)
+                    languageSection
+                    Divider().padding(.horizontal, 16)
+                    proxySection
+                }
+                .frame(maxWidth: .infinity)
+
+                Divider()
+
+                // 右列
+                VStack(spacing: 0) {
+                    menuIconSection
+                    Divider().padding(.horizontal, 16)
+                    moonbridgeSection
+                    Divider().padding(.horizontal, 16)
+                    pricingSection
+                }
+                .frame(maxWidth: .infinity)
+            }
         }
-        .frame(width: 440)
+        .frame(width: 500)
         .onAppear {
             thresholdValue = stats.threshold
             loadStoredKey()
+            loadPricing()
+            proxyError = ProxyServer.shared.listenerError
+            if moonbridgeEnabled {
+                moonbridgeReachable = ProxyServer.shared.moonbridgeReachable
+                moonbridgeStatusMsg = ProxyServer.shared.moonbridgeError
+                if moonbridgeReachable == nil {
+                    ProxyServer.shared.checkMoonBridgeHealthWithRetry()
+                }
+            }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .moonbridgeStatusChanged)) { _ in
+            moonbridgeReachable = ProxyServer.shared.moonbridgeReachable
+            moonbridgeStatusMsg = ProxyServer.shared.moonbridgeError
+        }
+    }
+
+    private func loadPricing() {
+        pricingOverrides = ModelPricing.loadCustom()
+    }
+
+    private func savePricing() {
+        ModelPricing.saveCustom(pricingOverrides)
     }
 
     private var thresholdSection: some View {
@@ -38,7 +87,7 @@ struct ThresholdView: View {
                 Spacer()
             }
 
-            HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 4) {
                     Text("¥")
                         .foregroundColor(.secondary)
@@ -181,7 +230,15 @@ struct ThresholdView: View {
                 Text(Strings.proxySection)
                     .font(.body).bold()
                 Spacer()
-                if proxyRunning {
+                if let err = proxyError {
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.red).frame(width: 6, height: 6)
+                        Text(err)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .lineLimit(1)
+                    }
+                } else if proxyRunning {
                     HStack(spacing: 4) {
                         Circle().fill(Color.green).frame(width: 6, height: 6)
                         Text(Strings.proxyRunning)
@@ -220,24 +277,27 @@ struct ThresholdView: View {
                         ProxyServer.shared.stop()
                     }
                     proxyRunning = ProxyServer.shared.isRunning
+                    proxyError = ProxyServer.shared.listenerError
                 }
             }
 
-            HStack(spacing: 8) {
-                Text(Strings.proxyPortLabel)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                TextField("18080", value: $proxyPort, format: .number.grouping(.never))
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 70)
-                    .multilineTextAlignment(.trailing)
-                    .onChange(of: proxyPort) { _, newVal in
-                        if newVal < 1024 { proxyPort = 1024 }
-                        if newVal > 65535 { proxyPort = 65535 }
-                    }
-                Text("\(proxyPort)")
-                    .hidden()
-                    .frame(width: 0)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(Strings.proxyPortLabel)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("18080", value: $proxyPort, format: .number.grouping(.never))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 70)
+                        .multilineTextAlignment(.trailing)
+                        .onChange(of: proxyPort) { _, newVal in
+                            if newVal < 1024 { proxyPort = 1024 }
+                            if newVal > 65535 { proxyPort = 65535 }
+                        }
+                    Text("\(proxyPort)")
+                        .hidden()
+                        .frame(width: 0)
+                }
                 Text(isZH
                      ? "客户端 base_url = http://localhost:\(proxyPort)"
                      : "Client base_url = http://localhost:\(proxyPort)")
@@ -245,6 +305,172 @@ struct ThresholdView: View {
                     .foregroundColor(.secondary)
             }
             .disabled(proxyRunning)
+        }
+        .padding(20)
+    }
+
+    // MARK: - 定价设置
+
+    private var pricingSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "dollarsign.circle.fill")
+                    .foregroundColor(.green)
+                Text(Strings.pricingSection)
+                    .font(.body).bold()
+                Spacer()
+                if pricingResetMsg {
+                    Text(Strings.pricingResetDone)
+                        .font(.caption)
+                        .foregroundColor(.green)
+                        .transition(.opacity)
+                }
+                Button(Strings.pricingReset) {
+                    ModelPricing.resetCustom()
+                    loadPricing()
+                    withAnimation {
+                        pricingResetMsg = true
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        withAnimation { pricingResetMsg = false }
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundColor(.orange)
+            }
+
+            Text(Strings.pricingNote)
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            // 每一行 = 一个模型（仅显示主要模型，不显示 deprecated 别名）
+            ForEach(ModelPricing.displayedModels, id: \.self) { key in
+                if let defaults = ModelPricing.default[key] {
+                    let binding = Binding<ModelPricing>(
+                        get: { pricingOverrides[key] ?? defaults },
+                        set: { pricingOverrides[key] = $0; savePricing() }
+                    )
+                    pricingRow(modelKey: key, defaults: defaults, pricing: binding)
+                }
+            }
+        }
+        .padding(20)
+    }
+
+    /// 单个模型的定价编辑行
+    private func pricingRow(modelKey: String, defaults: ModelPricing,
+                            pricing: Binding<ModelPricing>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(pricing.wrappedValue.label)
+                    .font(.system(size: 12, weight: .medium))
+                Spacer()
+                if pricing.wrappedValue != defaults {
+                    Text("⚡")
+                        .font(.caption)
+                }
+            }
+
+            HStack(spacing: 8) {
+                priceField(label: Strings.pricingHit,
+                           value: Binding(
+                            get: { pricing.wrappedValue.hitPrice },
+                            set: { pricing.wrappedValue.hitPrice = $0; savePricing() }
+                           ))
+                priceField(label: Strings.pricingMiss,
+                           value: Binding(
+                            get: { pricing.wrappedValue.missPrice },
+                            set: { pricing.wrappedValue.missPrice = $0; savePricing() }
+                           ))
+                priceField(label: Strings.pricingOut,
+                           value: Binding(
+                            get: { pricing.wrappedValue.outPrice },
+                            set: { pricing.wrappedValue.outPrice = $0; savePricing() }
+                           ))
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func priceField(label: String, value: Binding<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.system(size: 8))
+                .foregroundColor(.secondary)
+            HStack(spacing: 2) {
+                Text("¥")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("", value: value, format: .number.precision(.fractionLength(2...6)))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 10).monospacedDigit())
+                    .frame(width: 72)
+                    .multilineTextAlignment(.trailing)
+            }
+        }
+    }
+
+    // MARK: - Moon Bridge Section
+
+    private var moonbridgeSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "moon.fill")
+                    .foregroundColor(.purple)
+                Text(Strings.moonbridgeSection)
+                    .font(.body).bold()
+                Spacer()
+                HStack(spacing: 4) {
+                if let r = moonbridgeReachable {
+                    Circle().fill(r ? Color.green : Color.red).frame(width: 6, height: 6)
+                    Text(r ? Strings.moonbridgeRunning : Strings.moonbridgeStopped)
+                        .font(.caption)
+                        .foregroundColor(r ? .green : .red)
+                } else {
+                    // moonbridgeReachable == nil → 初始状态，尚未检测
+                    Text(Strings.moonbridgeStopped)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            }
+
+            HStack {
+                Toggle(isOn: $moonbridgeEnabled) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(Strings.moonbridgeToggle)
+                            .font(.callout)
+                        Text(Strings.moonbridgeToggleHint)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+                .onChange(of: moonbridgeEnabled) { _, newVal in
+                    UserDefaults.standard.set(newVal, forKey: "moonbridge_enabled")
+                    RelayAction(newVal ? "start" : "stop")
+                    if !newVal {
+                        moonbridgeReachable = false
+                        moonbridgeStatusMsg = nil
+                    }
+                }
+            }
+
+            Text(Strings.moonbridgeNotice.replacingOccurrences(of: "{port}", with: "18080"))
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            if let msg = moonbridgeStatusMsg, moonbridgeEnabled {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                    Text(msg)
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
+            }
         }
         .padding(20)
     }
@@ -257,6 +483,7 @@ struct ThresholdView: View {
         return p >= 1024 ? p : 18080
     }()
     @State private var proxyRunning: Bool = ProxyServer.shared.isRunning
+    @State private var proxyError: String? = ProxyServer.shared.listenerError
 
     private var isZH: Bool {
         let saved = UserDefaults.standard.string(forKey: "app_language") ?? "auto"

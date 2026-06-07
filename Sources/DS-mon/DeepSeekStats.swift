@@ -31,6 +31,13 @@ final class DeepSeekStats {
         balance >= 0 && balance < threshold
     }
 
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
+    private var lastModelsFetch: Date?
     private var apiKey: String = ""
 
     init() {
@@ -170,11 +177,13 @@ final class DeepSeekStats {
 
         Task {
             await fetchBalance()
-            await fetchModels()
+            // 模型列表每小时刷新一次即可
+            if lastModelsFetch == nil || Date().timeIntervalSince(lastModelsFetch!) >= 3600 {
+                await fetchModels()
+                lastModelsFetch = Date()
+            }
             isLoading = false
-            let f = DateFormatter()
-            f.dateFormat = "HH:mm:ss"
-            lastUpdate = f.string(from: Date())
+            lastUpdate = Self.timeFormatter.string(from: Date())
         }
     }
 
