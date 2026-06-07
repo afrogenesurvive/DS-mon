@@ -19,8 +19,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build (release)
+      - name: Build DS-mon (release)
         run: swift build -c release --disable-sandbox
+
+      - name: Build codex-relay
+        run: |
+          brew install rust
+          cd codex-relay-src
+          cargo build --release
+          cp target/release/codex-relay "$OLDPWD/codex-relay"
 
       - name: Prepare .app bundle
         run: |
@@ -28,6 +35,7 @@ jobs:
           RES="$BUNDLE/Contents/Resources"
           mkdir -p "$BUNDLE/Contents/MacOS" "$RES"
           cp .build/release/DS-mon "$BUNDLE/Contents/MacOS/"
+          cp codex-relay "$RES/"
           # Copy SPM resources directly into Contents/Resources (no .bundle wrapper needed)
           cp .build/release/DS-mon_DS-mon.bundle/dslogo.png "$RES/"
           cp .build/release/DS-mon_DS-mon.bundle/dslogo1.png "$RES/"

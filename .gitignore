@@ -9,7 +9,7 @@ build/
 .reasonix/
 reasonix.toml
 codex-relay
-codex-relay-src/
+codex-relay-src/target/
 codex-relay-cache-hit.patch
 etc/
 usr/
