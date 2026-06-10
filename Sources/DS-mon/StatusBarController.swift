@@ -124,15 +124,12 @@ class StatusBarController: NSObject, NSWindowDelegate {
 
     func refreshCacheHitRate() {
         hitRateDebounceTask?.cancel()
-        hitRateDebounceTask = Task.detached(priority: .utility) { [weak self] in
+        hitRateDebounceTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
             let cacheHit = UsageStore.shared.currentHourCacheHitRate()
-            await MainActor.run {
-                guard let self, !Task.isCancelled else { return }
-                self.statusView?.cacheHitRatio = cacheHit
-                self.statusView?.needsDisplay = true
-            }
+            self.statusView?.cacheHitRatio = cacheHit
+            self.statusView?.needsDisplay = true
         }
     }
 
