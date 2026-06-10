@@ -13,3 +13,5 @@ codex-relay-src/target/
 codex-relay-cache-hit.patch
 etc/
 usr/
+.qoder/
+.qoder-config.json

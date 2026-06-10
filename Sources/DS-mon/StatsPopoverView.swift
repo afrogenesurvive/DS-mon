@@ -40,6 +40,14 @@ struct StatsPopoverView: View {
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
             Spacer()
+            // 活跃提供商名称
+            Text(stats.providerName)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(4)
             statusBadge
         }
         .padding(.horizontal, 14)
@@ -63,12 +71,14 @@ struct StatsPopoverView: View {
         if stats.isLoading { return .gray }
         if stats.errorMessage != nil { return .orange }
         if stats.isLowBalance { return stats.blinkOn ? .red : .red.opacity(0.4) }
+        if stats.isWarningBalance { return .orange }
         return .green
     }
 
     private var statusText: String {
         if stats.isLoading { return Strings.badgeLoading }
         if stats.errorMessage != nil { return Strings.badgeError }
+        if stats.isWarningBalance { return Strings.badgeWarning }
         return Strings.badgeNormal
     }
 
@@ -76,6 +86,7 @@ struct StatsPopoverView: View {
         if stats.isLoading { return Color.gray.opacity(0.1) }
         if stats.errorMessage != nil { return Color.orange.opacity(0.1) }
         if stats.isLowBalance { return Color.red.opacity(0.08) }
+        if stats.isWarningBalance { return Color.orange.opacity(0.08) }
         return Color.green.opacity(0.1)
     }
 
@@ -99,13 +110,12 @@ struct StatsPopoverView: View {
 
             if stats.grantedBalance > 0 || stats.toppedUpBalance > 0 {
                 HStack(spacing: 12) {
-                    Label(stats.grantedText, systemImage: "gift.fill")
-                        .font(.system(size: 9))
-                        .foregroundColor(.green)
                     Label(stats.toppedUpText, systemImage: "creditcard.fill")
                         .font(.system(size: 9))
                         .foregroundColor(.blue)
-                    Spacer()
+                    Label(stats.grantedText, systemImage: "gift.fill")
+                        .font(.system(size: 9))
+                        .foregroundColor(.green)
                 }
                 .padding(.leading, 14)
             }
@@ -118,17 +128,20 @@ struct StatsPopoverView: View {
         if stats.isLoading { return .gray }
         if stats.errorMessage != nil { return .orange }
         if stats.isLowBalance { return stats.blinkOn ? .red : .red.opacity(0.4) }
+        if stats.isWarningBalance { return .orange }
         return .green
     }
 
     private var balanceColor: Color {
         if stats.isLowBalance { return stats.blinkOn ? .red : .red.opacity(0.4) }
+        if stats.isWarningBalance { return .orange }
         return Color(nsColor: .labelColor)
     }
 
     private var infoSection: some View {
         VStack(spacing: 4) {
             infoRow(icon: "bell.fill", iconColor: .orange, label: Strings.thresholdLabel, value: String(format: "¥%.0f", stats.threshold), valueColor: .orange)
+            infoRow(icon: "star.fill", iconColor: .yellow, label: Strings.defaultModelLabel2, value: stats.defaultModelText)
             infoRow(icon: "cube.2.fill", iconColor: .teal, label: Strings.availableModels, value: stats.modelsText)
             infoRow(icon: stats.isAvailable ? "checkmark.circle.fill" : "exclamationmark.circle.fill",
                     iconColor: stats.isAvailable ? .green : .red,
@@ -231,17 +244,20 @@ struct StatsPopoverView: View {
     }
 
     private func loadUsage() {
-        let store = UsageStore.shared
-        switch usagePeriod {
-        case 0:
-            usageData = store.queryDaily(limit: 1).first
-            chartData = store.queryHourlyBreakdown()
-        case 1:
-            usageData = store.queryWeekly(limit: 1).first
-            chartData = store.queryDailyBreakdown()
-        default:
-            usageData = store.queryMonthly(limit: 1).first
-            chartData = store.queryWeeklyBreakdown()
+        Task { @MainActor in
+            let store = UsageStore.shared
+            let pid = stats.providerID.isEmpty ? nil : stats.providerID
+            switch usagePeriod {
+            case 0:
+                usageData = await store.queryDaily(limit: 1, providerId: pid).first
+                chartData = await store.queryHourlyBreakdown(providerId: pid)
+            case 1:
+                usageData = await store.queryWeekly(limit: 1, providerId: pid).first
+                chartData = await store.queryDailyBreakdown(providerId: pid)
+            default:
+                usageData = await store.queryMonthly(limit: 1, providerId: pid).first
+                chartData = await store.queryWeeklyBreakdown(providerId: pid)
+            }
         }
     }
 

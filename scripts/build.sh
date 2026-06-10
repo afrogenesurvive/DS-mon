@@ -12,8 +12,11 @@ if [ -n "$1" ]; then
 elif VERSION=$(git -C "$(dirname "$0")/.." describe --tags --abbrev=0 2>/dev/null); then
     VERSION="${VERSION#v}"  # 去掉前缀 v
 else
-    VERSION="2.0"
+    VERSION="2.2"
 fi
+# 构建号：git commit count
+BUILD=$(git -C "$(dirname "$0")/.." rev-list --count HEAD 2>/dev/null || echo "0")
+BUILD_VERSION="${VERSION}.${BUILD}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$ROOT/build/DS-mon.app"
 
@@ -31,6 +34,7 @@ cp .build/release/DS-mon "$APP/Contents/MacOS/"
 # 资源
 cp Sources/DS-mon/dslogo.png "$APP/Contents/Resources/"
 cp Sources/DS-mon/dslogo1.png "$APP/Contents/Resources/"
+cp Sources/DS-mon/menu_icon.png "$APP/Contents/Resources/"
 cp -r Sources/DS-mon/Assets.xcassets "$APP/Contents/Resources/"
 
 # codex-relay 二进制（协议转换：Responses API ↔ Chat Completions）
@@ -64,29 +68,23 @@ cat > "$APP/Contents/Info.plist" << PLIST
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>$VERSION</string>
+	<string>$BUILD_VERSION</string>
 	<key>CFBundleVersion</key>
-	<string>$VERSION</string>
+	<string>$BUILD_VERSION</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>15.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>LSUIElement</key>
 	<true/>
+	<key>DSMonBuildTimestamp</key>
+	<string>$(date "+%Y-%m-%d %H:%M:%S")</string>
 </dict>
 </plist>
 PLIST
 
-# AppIcon.icns
-ICONSET="/tmp/dsmon_AppIcon.iconset"
-rm -rf "$ICONSET"
-mkdir -p "$ICONSET"
-for s in 16 32 128 256 512; do
-    sips -z $s $s Sources/DS-mon/dslogo1.png --out "$ICONSET/icon_${s}x${s}.png" > /dev/null 2>&1
-    sips -z $((s*2)) $((s*2)) Sources/DS-mon/dslogo1.png --out "$ICONSET/icon_${s}x${s}@2x.png" > /dev/null 2>&1
-done
-iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
-rm -rf "$ICONSET"
+# AppIcon.icns（使用 Python 生成，iconutil 在 macOS 26+ 上已不支持 iconset→icns）
+python3 "$ROOT/scripts/gen_icns.py" Sources/DS-mon/dslogo1.png "$APP/Contents/Resources/AppIcon.icns"
 
 # 刷新缓存
 touch "$APP"

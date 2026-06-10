@@ -1,15 +1,15 @@
 import Foundation
 import SwiftUI
-import Security
 
 /// DS-mon 数据模型
 @MainActor
 @Observable
 final class DeepSeekStats {
+    // Task 本身是 Sendable，cancel() 线程安全，此标记仅用于 deinit 访问
     @ObservationIgnored
-    nonisolated(unsafe) private var blinkTimer: Timer?
+    private var blinkTask: Task<Void, Never>?
     @ObservationIgnored
-    nonisolated(unsafe) private var refreshTimer: Timer?
+    private var refreshTask: Task<Void, Never>?
     private(set) var balance: Double = 0
     private(set) var grantedBalance: Double = 0
     private(set) var toppedUpBalance: Double = 0
@@ -21,14 +21,29 @@ final class DeepSeekStats {
     private(set) var errorMessage: String?
     private(set) var blinkOn = false  // 用于闪烁动画
 
+    // 活跃提供商信息
+    private(set) var providerName: String = "DeepSeek"
+    private(set) var providerID: String = "deepseek"
+    private(set) var hasBalanceAPI: Bool = true
+
     /// 余额预警阈值（默认 20）
     var threshold: Double {
-        get { UserDefaults.standard.double(forKey: "balance_threshold") }
-        set { UserDefaults.standard.set(newValue, forKey: "balance_threshold") }
+        get { UserDefaults.standard.double(forKey: Strings.Keys.balanceThreshold) }
+        set { UserDefaults.standard.set(newValue, forKey: Strings.Keys.balanceThreshold) }
     }
 
     var isLowBalance: Bool {
         balance >= 0 && balance < threshold
+    }
+
+    var maxBalanceAmount: Double {
+        let val = UserDefaults.standard.double(forKey: Strings.Keys.maxBalanceAmount)
+        return val > 0 ? val : AppConfig.defaultMaxBalanceAmount
+    }
+
+    var isWarningBalance: Bool {
+        guard hasBalanceAPI else { return false }
+        return !isLowBalance && balance >= 0 && balance < maxBalanceAmount * 0.5
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -38,29 +53,58 @@ final class DeepSeekStats {
     }()
 
     private var lastModelsFetch: Date?
-    private var apiKey: String = ""
 
     init() {
-        loadAPIKey()
-        if UserDefaults.standard.object(forKey: "balance_threshold") == nil {
-            threshold = 20
+        loadProvider()
+        if UserDefaults.standard.object(forKey: Strings.Keys.balanceThreshold) == nil {
+            threshold = AppConfig.defaultBalanceThreshold
         }
         startBlinkTimer()
         startAutoRefresh()
         refresh()
+
+        // 监听提供商切换
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(providerChanged),
+            name: .activeProviderDidChange, object: nil
+        )
     }
 
     deinit {
-        blinkTimer?.invalidate()
-        refreshTimer?.invalidate()
+        blinkTask?.cancel()
+        refreshTask?.cancel()
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func providerChanged() {
+        lastModelsFetch = nil
+        models = []
+        loadProvider()
+        refresh()
+    }
+
+    private func loadProvider() {
+        let mgr = ProviderManager.shared
+        if let provider = mgr.activeProvider {
+            providerName = provider.name
+            providerID = provider.id
+            hasBalanceAPI = provider.hasBalanceAPI
+            currency = provider.currency
+        } else {
+            providerName = "—"
+            providerID = ""
+            hasBalanceAPI = false
+            currency = "CNY"
+        }
     }
 
     // MARK: - 闪烁
-	
+
     private func startBlinkTimer() {
-        blinkTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in
+        blinkTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(AppConfig.blinkInterval))
+                guard !Task.isCancelled, let self else { return }
                 self.blinkOn.toggle()
             }
         }
@@ -69,117 +113,81 @@ final class DeepSeekStats {
     // MARK: - 自动刷新
 
     private func startAutoRefresh() {
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in self.refresh() }
+        refreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(AppConfig.balanceRefreshInterval))
+                guard !Task.isCancelled, let self else { return }
+                self.refresh()
+            }
         }
-    }
-
-    // MARK: - Keychain
-
-    private func loadAPIKey() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "dsmon_apikey",
-            kSecAttrAccount as String: NSUserName(),
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecSuccess, let data = item as? Data {
-            apiKey = String(data: data, encoding: .utf8) ?? ""
-        }
-    }
-
-    @discardableResult
-    func saveAPIKey(_ key: String) -> Bool {
-        let deleteQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "dsmon_apikey",
-            kSecAttrAccount as String: NSUserName()
-        ]
-        SecItemDelete(deleteQuery as CFDictionary)
-
-        let data = key.data(using: .utf8)!
-        let addQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "dsmon_apikey",
-            kSecAttrAccount as String: NSUserName(),
-            kSecValueData as String: data
-        ]
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            errorMessage = Strings.keychainSaveFailed
-            return false
-        }
-        apiKey = key
-        errorMessage = nil
-        return true
-    }
-
-    var hasAPIKey: Bool { !apiKey.isEmpty }
-
-    static func readAPIKeyFromKeychain() -> String {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "dsmon_apikey",
-            kSecAttrAccount as String: NSUserName(),
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecSuccess, let data = item as? Data {
-            return String(data: data, encoding: .utf8) ?? ""
-        }
-        return ""
     }
 
     // MARK: - 状态
 
     var balanceText: String {
-        String(format: Strings.balanceText, balance)
+        if !hasBalanceAPI { return "—" }
+        return String(format: Strings.balanceText, balance)
     }
 
     var grantedText: String {
-        String(format: Strings.grantedText, grantedBalance)
+        if !hasBalanceAPI { return "" }
+        return String(format: Strings.grantedText, grantedBalance)
     }
 
     var toppedUpText: String {
-        String(format: Strings.toppedUpText, toppedUpBalance)
+        if !hasBalanceAPI { return "" }
+        return String(format: Strings.toppedUpText, toppedUpBalance)
     }
 
     var availabilityText: String {
-        isAvailable ? Strings.available : Strings.insufficient
+        if !hasBalanceAPI { return "—" }
+        return isAvailable ? Strings.available : Strings.insufficient
     }
 
     var modelsText: String {
         models.isEmpty ? "—" : models.joined(separator: ", ")
     }
 
+    var defaultModelText: String {
+        if let provider = ProviderManager.shared.activeProvider,
+           let model = provider.defaultModel ?? provider.pricingOverrides.keys.sorted().first {
+            return model
+        }
+        return "—"
+    }
+
     var statusColor: Color {
         if isLoading { return .gray }
         if errorMessage != nil { return .orange }
-        if isLowBalance { return blinkOn ? .red : .red.opacity(0.3) }
+        if hasBalanceAPI && isLowBalance { return blinkOn ? .red : .red.opacity(0.3) }
+        if hasBalanceAPI && isWarningBalance { return .orange }
         return .green
     }
 
     // MARK: - 刷新
 
     func refresh() {
+        let apiKey = ProviderManager.shared.activeAPIKey
         guard !apiKey.isEmpty else {
             errorMessage = Strings.noAPIKey
             return
         }
         isLoading = true
         errorMessage = nil
+        loadProvider()
 
         Task {
-            await fetchBalance()
-            // 模型列表每小时刷新一次即可
-            if lastModelsFetch == nil || Date().timeIntervalSince(lastModelsFetch!) >= 3600 {
-                await fetchModels()
+            if hasBalanceAPI {
+                await fetchBalance(apiKey: apiKey)
+            } else {
+                // 无余额 API 的提供商：跳过余额查询
+                balance = 0
+                grantedBalance = 0
+                toppedUpBalance = 0
+                isAvailable = true
+            }
+            // 每次 refresh 都重新拉取模型列表
+            if await fetchModels(apiKey: apiKey) {
                 lastModelsFetch = Date()
             }
             isLoading = false
@@ -187,11 +195,14 @@ final class DeepSeekStats {
         }
     }
 
-    private func fetchBalance() async {
-        guard let url = URL(string: "https://api.deepseek.com/user/balance") else { return }
+    private func fetchBalance(apiKey: String) async {
+        guard let provider = ProviderManager.shared.activeProvider else { return }
+        guard let balancePath = provider.balanceURL else { return }
+        guard let url = URL(string: provider.baseURL + balancePath) else { return }
+
         var req = URLRequest(url: url)
-        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        req.timeoutInterval = 8
+        req.setValue("\(provider.authHeaderPrefix) \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.timeoutInterval = AppConfig.balanceRequestTimeout
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
             guard let http = resp as? HTTPURLResponse else {
@@ -200,23 +211,19 @@ final class DeepSeekStats {
             }
             switch http.statusCode {
             case 200:
-                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let infos = json["balance_infos"] as? [[String: Any]] else {
+                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                     errorMessage = Strings.parseFailed
                     return
                 }
-                isAvailable = json["is_available"] as? Bool ?? true
-                for info in infos where info["currency"] as? String == "CNY" {
-                    if let s = info["total_balance"] as? String {
-                        balance = Double(s) ?? 0
-                    }
-                    if let s = info["granted_balance"] as? String {
-                        grantedBalance = Double(s) ?? 0
-                    }
-                    if let s = info["topped_up_balance"] as? String {
-                        toppedUpBalance = Double(s) ?? 0
-                    }
-                    currency = info["currency"] as? String ?? "CNY"
+                switch provider.balanceStrategy {
+                case .deepseek:
+                    parseDeepSeekBalance(json)
+                case .openrouter:
+                    parseOpenRouterBalance(json)
+                case .moonshot:
+                    parseMoonshotBalance(json)
+                case .none:
+                    break
                 }
             case 401:
                 errorMessage = Strings.keyInvalid
@@ -241,19 +248,133 @@ final class DeepSeekStats {
         }
     }
 
-    private func fetchModels() async {
-        guard let url = URL(string: "https://api.deepseek.com/models") else { return }
+    // MARK: - 余额解析策略
+
+    /// DeepSeek: { "balance_infos": [{ "total_balance": "100", "granted_balance": "0", "topped_up_balance": "100", "currency": "CNY" }], "is_available": true }
+    private func parseDeepSeekBalance(_ json: [String: Any]) {
+        guard let infos = json["balance_infos"] as? [[String: Any]] else {
+            errorMessage = Strings.parseFailed
+            return
+        }
+        isAvailable = json["is_available"] as? Bool ?? true
+        for info in infos where (info["currency"] as? String) == currency {
+            if let s = info["total_balance"] as? String {
+                balance = Double(s) ?? 0
+            }
+            if let s = info["granted_balance"] as? String {
+                grantedBalance = Double(s) ?? 0
+            }
+            if let s = info["topped_up_balance"] as? String {
+                toppedUpBalance = Double(s) ?? 0
+            }
+            currency = info["currency"] as? String ?? "CNY"
+        }
+    }
+
+    /// OpenRouter: { "data": { "credits": "100.50", "usage": "50.25" } }
+    private func parseOpenRouterBalance(_ json: [String: Any]) {
+        guard let data = json["data"] as? [String: Any] else {
+            errorMessage = Strings.parseFailed
+            return
+        }
+        // OpenRouter 的 credits 是剩余额度
+        if let credits = data["credits"] as? String {
+            balance = Double(credits) ?? 0
+        } else if let credits = data["credits"] as? Double {
+            balance = credits
+        }
+        if let usage = data["usage"] as? String {
+            toppedUpBalance = Double(usage) ?? 0
+        } else if let usage = data["usage"] as? Double {
+            toppedUpBalance = usage
+        }
+        grantedBalance = 0
+        isAvailable = balance > 0 || toppedUpBalance > 0
+        currency = "USD"
+    }
+
+    /// Moonshot (Kimi): { "code": 0, "data": { "available_balance": 49.59, "voucher_balance": 46.59, "cash_balance": 3.00 }, "status": true }
+    private func parseMoonshotBalance(_ json: [String: Any]) {
+        guard let code = json["code"] as? Int, code == 0,
+              let data = json["data"] as? [String: Any] else {
+            errorMessage = Strings.parseFailed
+            return
+        }
+        if let available = data["available_balance"] as? Double {
+            balance = available
+        } else if let available = data["available_balance"] as? String {
+            balance = Double(available) ?? 0
+        }
+        if let cash = data["cash_balance"] as? Double {
+            toppedUpBalance = cash
+        } else if let cash = data["cash_balance"] as? String {
+            toppedUpBalance = Double(cash) ?? 0
+        }
+        if let voucher = data["voucher_balance"] as? Double {
+            grantedBalance = voucher
+        } else if let voucher = data["voucher_balance"] as? String {
+            grantedBalance = Double(voucher) ?? 0
+        }
+        isAvailable = json["status"] as? Bool ?? true
+        currency = "CNY"
+    }
+
+    private var modelsLogFile: URL {
+        URL(fileURLWithPath: NSHomeDirectory() + "/Library/Caches/com.dsmon.app/proxy.log")
+    }
+    private func modelsLog(_ msg: String) {
+        let df = DateFormatter()
+        df.dateFormat = "HH:mm:ss"
+        let ts = df.string(from: Date())
+        let line = "[\(ts)] [models] \(msg)\n"
+        guard let d = line.data(using: .utf8) else { return }
+        if FileManager.default.fileExists(atPath: modelsLogFile.path) {
+            if let fh = try? FileHandle(forWritingTo: modelsLogFile) {
+                fh.seekToEndOfFile()
+                fh.write(d)
+                try? fh.close()
+            }
+        } else {
+            try? d.write(to: modelsLogFile)
+        }
+    }
+
+    private func fetchModels(apiKey: String) async -> Bool {
+        guard let provider = ProviderManager.shared.activeProvider else { modelsLog("no active provider"); return false }
+        let urlStr = provider.baseURL + provider.apiPath + "/models"
+        guard let url = URL(string: urlStr) else { modelsLog("bad URL: \(urlStr)"); return false }
         var req = URLRequest(url: url)
-        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        req.timeoutInterval = 5
+        req.setValue("\(provider.authHeaderPrefix) \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.timeoutInterval = AppConfig.modelsRequestTimeout
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
-            guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return }
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let list = json["data"] as? [[String: Any]] else { return }
-            models = list.compactMap { $0["id"] as? String }
+            guard let http = resp as? HTTPURLResponse else { modelsLog("not HTTP"); return false }
+            guard http.statusCode == 200 else {
+                let body = String(data: data, encoding: .utf8) ?? ""
+                modelsLog("HTTP \(http.statusCode): \(body.prefix(300))")
+                return false
+            }
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                modelsLog("JSON parse failed")
+                return false
+            }
+
+            // 有的返回 data[]，有的返回 models[]
+            if let list = json["data"] as? [[String: Any]] {
+                models = list.compactMap { $0["id"] as? String }
+                modelsLog("parsed \(models.count) models from data[]")
+            } else if let list = json["models"] as? [[String: Any]] {
+                models = list.compactMap { $0["id"] as? String }
+                modelsLog("parsed \(models.count) models from models[]")
+            } else {
+                modelsLog("no data[] or models[] key in response, keys: \(json.keys)")
+                return false
+            }
+            return !models.isEmpty
         } catch {
-            // 不覆盖余额请求的错误信息
+            modelsLog("error: \(error.localizedDescription)")
+            return false
         }
     }
 }
+

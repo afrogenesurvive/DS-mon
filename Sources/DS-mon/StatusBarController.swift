@@ -24,32 +24,23 @@ class StatusBarController: NSObject, NSWindowDelegate {
         statusView?.target = self
         statusView?.action = #selector(togglePopover)
         statusItem?.setValue(statusView, forKey: "view")
-        statusItem?.length = 80
+        statusItem?.length = 60
+        let savedMode = UserDefaults.standard.string(forKey: Strings.Keys.menuBarTextDisplay) ?? "balance"
+        statusView?.menuBarTextDisplay = savedMode
 
         updateLabel()
 
         NotificationCenter.default.addObserver(self, selector: #selector(languageChanged), name: .languageDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(menuIconChanged), name: .showMenuIconDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(indicatorChanged), name: .showIndicatorDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(menuBarTextDisplayChanged), name: .menuBarTextDisplayDidChange, object: nil)
 
-        let host = NSHostingView(rootView: StatsPopoverView(stats: s))
-        host.frame = NSRect(x: 0, y: 0, width: 290, height: 500)
-
-        // 不透明背景
-        let container = NSVisualEffectView(frame: host.frame)
-        container.material = .popover
-        container.blendingMode = .behindWindow
-        container.state = .active
-        container.addSubview(host)
-        container.wantsLayer = true
-        container.layer?.cornerRadius = 10
-        container.layer?.masksToBounds = true
-
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 290, height: 500),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: AppConfig.popoverWidth, height: AppConfig.popoverHeight),
                               styleMask: [.borderless, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.backgroundColor = .clear
         window.isOpaque = false
-        window.contentView = container
+        window.contentView = buildPopoverContentView(stats: s)
         window.level = .popUpMenu
         window.hasShadow = true
         window.isReleasedWhenClosed = false
@@ -58,22 +49,24 @@ class StatusBarController: NSObject, NSWindowDelegate {
         popoverWindow = window
 
         updateLabel()
-        startLabelObservation()
+        refreshCacheHitRate()
+        startUpdateTimer()
     }
 
-    /// 通过 Observation 跟踪状态变化，替代轮询 Timer
-    private func startLabelObservation() {
-        guard let stats else { return }
-        withObservationTracking {
-            _ = stats.balance
-            _ = stats.blinkOn
-            _ = stats.errorMessage
-        } onChange: {
-            Task { @MainActor [weak self] in
-                self?.updateLabel()
-                self?.startLabelObservation()
-            }
+    /// 定时器驱动更新：每 1 秒检查一次状态，替代 withObservationTracking
+    private var updateTimer: Timer?
+
+    private func startUpdateTimer() {
+        stopUpdateTimer()
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            ProxyServer.shared.decayVU()
+            self?.updateLabel()
         }
+    }
+
+    private func stopUpdateTimer() {
+        updateTimer?.invalidate()
+        updateTimer = nil
     }
 
     func showSettings() {
@@ -86,7 +79,7 @@ class StatusBarController: NSObject, NSWindowDelegate {
             let window = NSWindow(contentViewController: host)
             window.title = Strings.settingsTitle
             window.styleMask = [.titled, .closable, .resizable]
-            window.setContentSize(NSSize(width: 500, height: 490))
+            window.setContentSize(NSSize(width: AppConfig.settingsWidth, height: AppConfig.settingsHeight))
             window.center()
             window.isReleasedWhenClosed = false
             settingsWindow = window
@@ -122,36 +115,83 @@ class StatusBarController: NSObject, NSWindowDelegate {
 
     private func startEventMonitor() {
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            DispatchQueue.main.async { self?.closePopover() }
+            Task { @MainActor in self?.closePopover() }
+        }
+    }
+
+/// 请求完成后刷新缓存命中率（SQLite 读取较慢，不在 updateLabel 循环中执行）
+    private var hitRateDebounceTask: Task<Void, Never>?
+
+    func refreshCacheHitRate() {
+        hitRateDebounceTask?.cancel()
+        hitRateDebounceTask = Task.detached(priority: .utility) { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            let cacheHit = UsageStore.shared.currentHourCacheHitRate()
+            await MainActor.run {
+                guard let self, !Task.isCancelled else { return }
+                self.statusView?.cacheHitRatio = cacheHit
+                self.statusView?.needsDisplay = true
+            }
         }
     }
 
     private func updateLabel() {
         guard let s = stats else { return }
-        statusView?.update(stats: s)
+        let balance = s.balance
+        let blinkOn = s.blinkOn
+        let isError = s.errorMessage != nil
+        let isLow = s.isLowBalance
+        let isWarning = s.isWarningBalance
+        let balanceText = s.balanceText
 
-        let statusStr: NSString
-        if s.errorMessage != nil { statusStr = Strings.statusError as NSString }
-        else if s.isLowBalance { statusStr = Strings.statusLowBalance as NSString }
-        else { statusStr = Strings.statusNormal as NSString }
-        let textW = statusStr.size(withAttributes: [.font: NSFont.systemFont(ofSize: 10)]).width
-        let dotTextW = CGFloat(7 + 4) + textW
-        let amtW = (s.balanceText as NSString).size(
-            withAttributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)]
-        ).width
-        let showIcon = UserDefaults.standard.object(forKey: "show_menu_icon") as? Bool ?? true
-        let iconWidth: CGFloat = showIcon ? (22 + 4) : 0
-        let w = CGFloat(2) + iconWidth + max(dotTextW, amtW) + 4
+        let maxAmount = UserDefaults.standard.double(forKey: Strings.Keys.maxBalanceAmount)
+        let cap = maxAmount > 0 ? maxAmount : AppConfig.defaultMaxBalanceAmount
+        let ratio = cap > 0 ? min(balance / cap, 1.0) : 0
+        let hr = statusView?.cacheHitRatio ?? 0
+        let hitRateText = hr > 0 ? String(format: "%.1f%%", hr * 100) : ""
+
+        applyLabel(balanceRatio: ratio, balanceAmount: balanceText, hitRateText: hitRateText, isError: isError, isLow: isLow, blinkOn: blinkOn, isWarning: isWarning)
+    }
+
+    private func applyLabel(balanceRatio: Double, balanceAmount: String = "", hitRateText: String = "", isError: Bool, isLow: Bool, blinkOn: Bool, isWarning: Bool = false) {
+        statusView?.update(balanceRatio: balanceRatio, balanceAmount: balanceAmount, hitRateText: hitRateText, isError: isError, isLowAlerting: isLow, blinkOn: blinkOn, isWarning: isWarning)
+
+        // 计算总宽度
+        let showIcon = UserDefaults.standard.object(forKey: Strings.Keys.showMenuIcon) as? Bool ?? true
+        let showIndicator = UserDefaults.standard.object(forKey: Strings.Keys.showIndicator) as? Bool ?? true
+        let textMode = UserDefaults.standard.string(forKey: Strings.Keys.menuBarTextDisplay) ?? "balance"
+
+        var w: CGFloat = showIcon ? 21 : 2  // leftX
+        if showIndicator {
+            w += 23  // leadingGap + 3bars + 2columnGaps + border + padding
+        }
+        if textMode == "balance", !balanceAmount.isEmpty {
+            let amtFont = NSFont.menuFont(ofSize: 0)
+            let amtW = (balanceAmount as NSString).size(withAttributes: [.font: amtFont]).width
+            w += amtW + 4
+        } else if textMode == "hitRate" {
+            let hrFont = NSFont.menuFont(ofSize: 0)
+            let hrText = hitRateText.isEmpty ? "0%" : hitRateText
+            let hrW = (hrText as NSString).size(withAttributes: [.font: hrFont]).width
+            w += hrW + 4
+        }
+        w += 2  // trailing padding
         statusItem?.length = w
-        statusView?.setFrameSize(NSSize(width: w, height: statusView?.frame.height ?? 22))
+        statusView?.setFrameSize(NSSize(width: w, height: 18))
+        statusView?.needsDisplay = true
     }
 
     @objc private func languageChanged() {
         updateLabel()
-        // Rebuild popover for language refresh
         guard let s = stats else { return }
-        let host = NSHostingView(rootView: StatsPopoverView(stats: s))
-        host.frame = NSRect(x: 0, y: 0, width: 290, height: 500)
+        popoverWindow?.contentView = buildPopoverContentView(stats: s)
+    }
+
+    /// 构建弹出面板内容视图（带不透明背景）
+    private func buildPopoverContentView(stats: DeepSeekStats) -> NSView {
+        let host = NSHostingView(rootView: StatsPopoverView(stats: stats))
+        host.frame = NSRect(x: 0, y: 0, width: AppConfig.popoverWidth, height: AppConfig.popoverHeight)
         let container = NSVisualEffectView(frame: host.frame)
         container.material = .popover
         container.blendingMode = .behindWindow
@@ -160,122 +200,109 @@ class StatusBarController: NSObject, NSWindowDelegate {
         container.wantsLayer = true
         container.layer?.cornerRadius = 10
         container.layer?.masksToBounds = true
-        popoverWindow?.contentView = container
+        return container
     }
 
     @objc private func menuIconChanged() {
-        let showIcon = UserDefaults.standard.object(forKey: "show_menu_icon") as? Bool ?? true
+        let showIcon = UserDefaults.standard.object(forKey: Strings.Keys.showMenuIcon) as? Bool ?? true
         statusView?.showIcon = showIcon
+        updateLabel()
+    }
+
+    @objc private func indicatorChanged() {
+        let show = UserDefaults.standard.object(forKey: Strings.Keys.showIndicator) as? Bool ?? true
+        statusView?.showIndicator = show
+        updateLabel()
+    }
+
+    @objc private func menuBarTextDisplayChanged() {
+        let mode = UserDefaults.standard.string(forKey: Strings.Keys.menuBarTextDisplay) ?? "balance"
+        statusView?.menuBarTextDisplay = mode
         updateLabel()
     }
 
 }
 
-// MARK: - 菜单栏自定义视图
+// MARK: - 菜单栏自定义视图 — LED 条阵列
 
+/// 三条 5 格 LED 条从左到右排列
 @MainActor
 class StatusBarView: NSView {
     weak var target: AnyObject?
     var action: Selector?
 
     private let icon: NSImage? = {
-        guard let url = Bundle.main.url(forResource: "dslogo", withExtension: "png"),
-              let image = NSImage(contentsOf: url),
-              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-
-        let w = cgImage.width, h = cgImage.height
-        let cs = CGColorSpaceCreateDeviceRGB()
-        guard let ctx = CGContext(data: nil, width: w, height: h,
-                                  bitsPerComponent: 8, bytesPerRow: w * 4,
-                                  space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
-        guard let px = ctx.data else { return nil }
-        let p = px.bindMemory(to: UInt8.self, capacity: w * h * 4)
-        for i in 0..<(w * h) {
-            let o = i * 4
-            let isW = p[o] > 220 && p[o+1] > 220 && p[o+2] > 220 && p[o+3] > 200
-            if isW { p[o] = 0; p[o+1] = 0; p[o+2] = 0; p[o+3] = 0 }
-            else { p[o] = 0; p[o+1] = 0; p[o+2] = 0; p[o+3] = 255 }
-        }
-        guard let n = ctx.makeImage() else { return nil }
-        let ic = NSImage(cgImage: n, size: NSSize(width: 22, height: 22))
-        ic.isTemplate = true
-        return ic
+        guard let url = Bundle.module.url(forResource: "menu_icon", withExtension: "png"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        image.size = NSSize(width: 18, height: 18)
+        image.isTemplate = true
+        return image
     }()
     private let iconView = NSImageView()
 
-    /// 菜单栏图标是否显示，由设置窗口 Toggle 控制
     var showIcon: Bool = true {
-        didSet {
-            iconView.isHidden = !showIcon
-            needsDisplay = true
-        }
+        didSet { iconView.isHidden = !showIcon; needsDisplay = true }
     }
+    var showIndicator: Bool = true
+    var menuBarTextDisplay: String = "balance"
+    var hitRateText: String = ""
+    var balanceAmount: String = ""
 
-    // Cached stable state — never shows loading state
-    private var cachedDotColor: NSColor = .systemGreen
-    private var cachedStatusStr: NSString = Strings.statusNormal as NSString
-    private var cachedAmtStr: NSString = ""
-    private var cachedAmtColor: NSColor = .labelColor
-    private var cachedTextColor: NSColor = .labelColor
-    private var blinkOn_breath = true
-    private var blinkFrameCount = 0
-    private var blinkThreshold = 10
+    // MARK: 数据
+    private var balanceRatio: Double = 0
+    var cacheHitRatio: Double?
+    private var isError = false
+    private var isLowAlerting = false
+    private var isWarning = false
+    private var blinkOn = true
+
+    // MARK: 动画
+    private var animCounter: Int { Int(Date().timeIntervalSinceReferenceDate / 1.0) % 2 == 0 ? 0 : 1 }  // 呼吸节奏 ~2s/cycle
+
+    // MARK: 布局常量
+    private let barWidth: CGFloat = 5.0
+    private let barHeight: CGFloat = 2.5
+    private let barGap: CGFloat = 0.5
+    private let columnGap: CGFloat = 1.0
+    private let leadingGap: CGFloat = 1
+
+    /// 指示器区域总宽度（不含左右边距）
+
+    private var barCount: Int { showIcon ? 3 : 3 }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
-
         iconView.image = icon
         iconView.isEditable = false
-        iconView.frame = CGRect(x: 2, y: 0, width: 22, height: 22)
+        iconView.frame = CGRect(x: 1, y: 0, width: 18, height: 18)
         iconView.autoresizingMask = [.maxXMargin, .minYMargin, .maxYMargin]
         addSubview(iconView)
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            guard let self else { return }
-            let t = Timer.scheduledTimer(withTimeInterval: 1.0 / 10, repeats: true) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    self.blinkFrameCount += 1
-                    if self.blinkFrameCount >= self.blinkThreshold {
-                        self.blinkFrameCount = 0
-                        self.blinkOn_breath.toggle()
-                    }
-                    self.display()
-                }
-            }
-            RunLoop.current.add(t, forMode: .common)
-        }
-
-        // 启动时读取保存的图标显示状态（didSet 在 init 中不触发，手动设置）
-        let savedShowIcon = UserDefaults.standard.object(forKey: "show_menu_icon") as? Bool ?? true
+        let savedShowIcon = UserDefaults.standard.object(forKey: Strings.Keys.showMenuIcon) as? Bool ?? true
         showIcon = savedShowIcon
         iconView.isHidden = !savedShowIcon
+
     }
 
     required init?(coder: NSCoder) { nil }
 
-    func update(stats: DeepSeekStats) {
-        // Only update display state when NOT loading — avoids text flicker
-        if !stats.isLoading {
-            if stats.errorMessage != nil {
-                cachedDotColor = .systemOrange
-                cachedTextColor = .systemOrange
-                cachedStatusStr = Strings.statusError as NSString
-                blinkThreshold = 5
-            } else if stats.isLowBalance {
-                cachedDotColor = .systemRed
-                cachedTextColor = .systemRed
-                cachedStatusStr = Strings.statusLowBalance as NSString
-                blinkThreshold = 5
-            } else {
-                cachedDotColor = .systemGreen
-                cachedTextColor = .labelColor
-                cachedStatusStr = Strings.statusNormal as NSString
-                blinkThreshold = 10
-            }
-            cachedAmtColor = .labelColor
-        }
-        cachedAmtStr = stats.balanceText as NSString
+    override func removeFromSuperview() {
+        super.removeFromSuperview()
+    }
+
+    override func layout() {
+        super.layout()
+        iconView.frame.origin.y = (bounds.height - 18) / 2
+    }
+
+    func update(balanceRatio: Double, balanceAmount: String = "", hitRateText: String = "", isError: Bool, isLowAlerting: Bool, blinkOn: Bool, isWarning: Bool = false) {
+        self.balanceRatio = balanceRatio
+        self.balanceAmount = balanceAmount
+        self.isError = isError
+        self.isLowAlerting = isLowAlerting
+        self.isWarning = isWarning
+        self.hitRateText = hitRateText
+        self.blinkOn = blinkOn
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -285,78 +312,179 @@ class StatusBarView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let barH = bounds.height
         guard barH > 0 else { return }
 
-        let iconMaxX: CGFloat = showIcon ? 24 : 2
+        let leftX: CGFloat = showIcon ? 21 : 2
+        var cursorX = leftX
 
-        let breathAlpha: CGFloat = blinkOn_breath ? 1.0 : 0.3
-        let dotColorWithBreath = cachedDotColor.withAlphaComponent(breathAlpha)
+        // ── 三个指示灯条 ──
+        if showIndicator {
+            let bar1x = cursorX + leadingGap
+            let hasActivity = ProxyServer.shared.hasActiveConnection
 
-        let isDark = effectiveAppearance.name == .darkAqua || effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let resolvedTextColor: NSColor = cachedTextColor == .labelColor
-            ? (isDark ? .white : .darkGray)
-            : cachedTextColor.withAlphaComponent(breathAlpha)
-        let resolvedAmtColor: NSColor = cachedAmtColor == .labelColor
-            ? (isDark ? .white : .black)
-            : cachedAmtColor.withAlphaComponent(breathAlpha)
+            let totalH = CGFloat(5) * barHeight + CGFloat(4) * barGap
+            let topY = (barH - totalH) / 2 - 1
+            let barsRight = bar1x + 3 * barWidth + 2 * columnGap + 1
+            let containerRect = CGRect(x: bar1x - 1, y: topY, width: barsRight - bar1x + 1, height: totalH + 2)
+            let containerPath = CGPath(roundedRect: containerRect, cornerWidth: 1.5, cornerHeight: 1.5, transform: nil)
 
-        let textFont = NSFont.systemFont(ofSize: 10)
-        let amtFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+            // 极浅背景
+            ctx.setFillColor(NSColor.gray.withAlphaComponent(0.06).cgColor)
+            ctx.addPath(containerPath)
+            ctx.fillPath()
 
-        let textStr = NSAttributedString(string: cachedStatusStr as String, attributes: [
-            .font: textFont, .foregroundColor: resolvedTextColor
-        ])
-        let amtStr = NSAttributedString(string: cachedAmtStr as String, attributes: [
-            .font: amtFont, .foregroundColor: resolvedAmtColor
-        ])
+            // 条①：VU 电平表 — 反映最近访问频率
+            let barColor1: NSColor
+            let barFill1: CGFloat
+            if hasActivity {
+                let isCodex = ProxyServer.shared.hasActiveCodexConnection
+                barColor1 = isCodex ? .systemBlue : .systemGreen
+                barFill1 = CGFloat(ProxyServer.shared.vuLevel)
+            } else {
+                barColor1 = .gray; barFill1 = 0.05
+            }
+            drawSolidBar(ctx: ctx, x: bar1x, barH: barH, fillRatio: barFill1, color: barColor1)
 
-        let dotSize = CGSize(width: 7, height: 3)
-        let textSize = textStr.size()
-        let amtSize = amtStr.size()
+            let bar2x = bar1x + barWidth + columnGap
+            let hitRatio = cacheHitRatio ?? 0
+            let hitFill: CGFloat = hitRatio < 0.70 ? 0.15 : min(1.0, CGFloat((hitRatio - 0.7) / 0.3))
+            drawSolidBar(ctx: ctx, x: bar2x, barH: barH, fillRatio: hitFill,
+                       color: cacheHitRatio.map { cacheHitColor($0) } ?? .gray)
 
-        let textX = iconMaxX + 4
-        let textW = max(dotSize.width + 4 + textSize.width, amtSize.width)
-        let textH = amtSize.height + textSize.height - 2
-        let textY = (barH - textH) / 2
-        let textCX = textX + (textW - (dotSize.width + 4 + textSize.width)) / 2
-
-        let dotX: CGFloat = textCX
-        let halfDot: CGFloat = (textSize.height - dotSize.height) / 2
-        let dotY: CGFloat = textY + amtSize.height - 2 + halfDot
-        let dotRect = CGRect(x: dotX, y: dotY, width: dotSize.width, height: dotSize.height)
-        drawStatusDot(in: dotRect, baseColor: dotColorWithBreath)
-
-        textStr.draw(at: NSPoint(x: textCX + dotSize.width + 4, y: textY + amtSize.height - 2))
-        amtStr.draw(at: NSPoint(x: textX + (textW - amtSize.width) / 2, y: textY))
-    }
-
-    /// 矩形指示灯：宽7高3，纯色填充，右下1px深色边缘，闪烁时浅绿外发光
-    private func drawStatusDot(in rect: CGRect, baseColor: NSColor) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-
-        let path = NSBezierPath(roundedRect: rect, xRadius: 1, yRadius: 1)
-        let isAlerting = (cachedDotColor != .systemGreen) && blinkOn_breath
-
-        // 外发光 — 仅异常闪烁时，浅绿 1px
-        if isAlerting {
-            ctx.saveGState()
-            ctx.setShadow(offset: .zero, blur: 1, color: NSColor.green.withAlphaComponent(0.6).cgColor)
-            baseColor.setFill()
-            path.fill()
-            ctx.restoreGState()
+            let bar3x = bar2x + barWidth + columnGap
+            let balColor: NSColor = isLowAlerting ? (blinkOn ? .systemRed : .systemRed.withAlphaComponent(0.3)) : (isWarning ? .systemOrange : .systemGreen)
+            drawSolidBar(ctx: ctx, x: bar3x, barH: barH, fillRatio: min(max(CGFloat(balanceRatio), 0), 1),
+                       color: balColor)
+            cursorX = barsRight + 4  // 条区结束 + padding
         }
 
-        // 主体纯色填充
-        baseColor.setFill()
-        path.fill()
+        // ── 菜单栏文字 ──
+        let textMode = UserDefaults.standard.string(forKey: Strings.Keys.menuBarTextDisplay) ?? "balance"
+        if textMode == "balance", !balanceAmount.isEmpty {
+            let amtFont = NSFont.menuFont(ofSize: 0)
+            let amtAttr: [NSAttributedString.Key: Any] = [
+                .font: amtFont,
+                .foregroundColor: isLowAlerting
+                    ? (blinkOn ? NSColor.systemRed : NSColor.systemRed.withAlphaComponent(0.3))
+                    : (isDarkMode ? NSColor.white : NSColor.black)
+            ]
+            let amtStr = balanceAmount as NSString
+            let amtSize = amtStr.size(withAttributes: amtAttr)
+            let amtY = (barH - amtSize.height) / 2
+            amtStr.draw(at: NSPoint(x: cursorX, y: amtY), withAttributes: amtAttr)
+            cursorX += amtSize.width + 4
+        } else if textMode == "hitRate" {
+            let hrFont = NSFont.menuFont(ofSize: 0)
+            let hrColor: NSColor = isDarkMode ? NSColor.white : NSColor.black
+            let hrAttr: [NSAttributedString.Key: Any] = [
+                .font: hrFont,
+                .foregroundColor: hrColor
+            ]
+            let hrStr = hitRateText.isEmpty ? "0%" : hitRateText as NSString
+            let hrSize = hrStr.size(withAttributes: hrAttr)
+            let hrY = (barH - hrSize.height) / 2
+            hrStr.draw(at: NSPoint(x: cursorX, y: hrY), withAttributes: hrAttr)
+            cursorX += hrSize.width + 4
+        }
+    }
 
-        // 右下 1px 深色边缘（模拟立体感）
-        let edgeColor = baseColor.blended(withFraction: 0.12, of: .black) ?? baseColor
-        edgeColor.setFill()
-        let rightEdge = NSRect(x: rect.maxX - 1, y: rect.minY, width: 1, height: rect.height)
-        NSBezierPath(rect: rightEdge).fill()
-        let bottomEdge = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: 1)
-        NSBezierPath(rect: bottomEdge).fill()
+    private var isDarkMode: Bool {
+        effectiveAppearance.name == .darkAqua
+        || effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
+    // MARK: - 方条绘制
+
+    /// 数据条（从下往上填充）
+    private func drawBarColumn(ctx: CGContext, x: CGFloat, barH: CGFloat,
+                               filledCount: Int, color: NSColor) {
+        drawBarRects(ctx: ctx, x: x, barH: barH, filled: filledCount, color: color, bgAlpha: 0.15)
+    }
+
+    /// 单呼吸条（替代条 1 的 5 段 LED）
+    /// animPhase 0-5 控制呼吸相位：偶数为亮，奇数为暗
+    private func drawBreathingBar(ctx: CGContext, x: CGFloat, barH: CGFloat,
+                                  animPhase: Int, color: NSColor, alerting: Bool, blinkOn: Bool) {
+        let totalH = CGFloat(5) * barHeight + CGFloat(4) * barGap
+        let topY = (barH - totalH) / 2
+        let barRect = CGRect(x: x, y: topY, width: barWidth, height: totalH)
+
+        // 呼吸亮度：偶数为亮(1.0)，奇数为暗(0.4)
+        let isBright = animPhase % 2 == 0
+        // 空闲灰色时不用呼吸，保持静态
+        let hasBreath = color != .gray
+        let breathAlpha: CGFloat
+        if alerting {
+            breathAlpha = blinkOn ? 1.0 : 0.3
+        } else if hasBreath {
+            breathAlpha = isBright ? 1.0 : 0.35
+        } else {
+            breathAlpha = 0.15
+        }
+
+        let drawColor = color.withAlphaComponent(breathAlpha)
+        let roundPath = CGPath(roundedRect: barRect, cornerWidth: 1.5, cornerHeight: 1.5, transform: nil)
+
+        if breathAlpha > 0.5 {
+            ctx.setFillColor(drawColor.cgColor)
+        }
+
+        // 主体
+        ctx.setFillColor(drawColor.cgColor)
+        ctx.addPath(roundPath)
+        ctx.fillPath()
+    }
+
+    /// 一列方块
+    private func drawBarRects(ctx: CGContext, x: CGFloat, barH: CGFloat, filled: Int, color: NSColor, bgAlpha: CGFloat) {
+        let totalH = CGFloat(5) * barHeight + CGFloat(4) * barGap
+        let topY = (barH - totalH) / 2
+        for i in 0..<5 {
+            let y = topY + CGFloat(4 - i) * (barHeight + barGap)
+            let rect = CGRect(x: x, y: y, width: barWidth, height: barHeight)
+            let roundPath = CGPath(roundedRect: rect, cornerWidth: 1, cornerHeight: 1, transform: nil)
+
+            if i >= (5 - filled) {
+                // 主体
+                ctx.setFillColor(color.cgColor)
+                ctx.addPath(roundPath)
+                ctx.fillPath()
+            }
+        }
+    }
+
+    /// 整条柱状图（从下往上填充）
+    private func drawSolidBar(ctx: CGContext, x: CGFloat, barH: CGFloat,
+                              fillRatio: CGFloat, color: NSColor) {
+        let totalH = CGFloat(5) * barHeight + CGFloat(4) * barGap
+        let topY = (barH - totalH) / 2
+        let barRect = CGRect(x: x, y: topY, width: barWidth, height: totalH)
+        let corner: CGFloat = 1.5
+
+        // 背景
+        let bgPath = CGPath(roundedRect: barRect, cornerWidth: corner, cornerHeight: corner, transform: nil)
+        ctx.setFillColor(color.withAlphaComponent(0.15).cgColor)
+        ctx.addPath(bgPath)
+        ctx.fillPath()
+
+        // 从下往上填充
+        guard fillRatio > 0 else { return }
+        let fillH = totalH * min(max(fillRatio, 0), 1)
+        let fillRect = CGRect(x: x, y: topY, width: barWidth, height: fillH)
+        ctx.saveGState()
+        ctx.addPath(bgPath)
+        ctx.clip()
+        ctx.setFillColor(color.cgColor)
+        ctx.fill(fillRect)
+        ctx.restoreGState()
+    }
+
+    private func cacheHitColor(_ rate: Double) -> NSColor {
+        if rate < 0.70 { return .systemRed }
+        if rate < 0.85 { return .systemOrange }
+        if rate < 0.95 { return .systemCyan }
+        return .systemGreen
     }
 }

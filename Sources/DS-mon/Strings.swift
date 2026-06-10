@@ -4,8 +4,11 @@ extension Notification.Name {
     static let languageDidChange = Notification.Name("languageDidChange")
     static let showMenuIconDidChange = Notification.Name("showMenuIconDidChange")
     static let usageRecorded = Notification.Name("usageRecorded")
-    static let moonbridgeStatusChanged = Notification.Name("moonbridgeStatusChanged")
-    static let moonbridgeRestartNeeded = Notification.Name("moonbridgeRestartNeeded")
+    static let codexRelayStatusChanged = Notification.Name("codexRelayStatusChanged")
+    static let codexRelayRestartNeeded = Notification.Name("codexRelayRestartNeeded")
+    static let showIndicatorDidChange = Notification.Name("showIndicatorDidChange")
+    static let showBalanceDidChange = Notification.Name("showBalanceDidChange")
+    static let menuBarTextDisplayDidChange = Notification.Name("menuBarTextDisplayDidChange")
 }
 
 enum Language: String, CaseIterable, Identifiable {
@@ -30,16 +33,31 @@ enum Language: String, CaseIterable, Identifiable {
 }
 
 enum Strings {
-    private static var languageCode: String {
-        let saved = UserDefaults.standard.string(forKey: "app_language") ?? "auto"
-        if saved == "auto" {
-            let locale = Locale.preferredLanguages.first ?? "en"
-            return locale.hasPrefix("zh-Hans") || locale == "zh-CN" || locale == "zh" ? "zh-Hans" : "en"
-        }
-        return saved
+    /// UserDefaults keys — 集中管理，避免散落各处的字符串字面量
+    enum Keys {
+        static let appLanguage      = "app_language"
+        static let balanceThreshold = "balance_threshold"
+        static let maxBalanceAmount = "max_balance_amount"
+        static let proxyPort        = "proxy_port"
+        static let proxyEnabled     = "proxy_enabled"
+        static let codexRelayEnabled  = "codex_relay_enabled"
+        static let codexRelayPort   = "codex_relay_port"
+        static let showMenuIcon     = "show_menu_icon"
+        static let showIndicator   = "show_indicator"
+        static let showBalance     = "show_balance"
+        static let menuBarTextDisplay = "menu_bar_text_display"
+        static let modelPricingOverrides = "model_pricing_overrides"
     }
 
-    private static var isZH: Bool { languageCode == "zh-Hans" }
+    /// 判断当前是否为中文界面。直接读取 UserDefaults，无需缓存。
+    private static var isZH: Bool {
+        let saved = UserDefaults.standard.string(forKey: Keys.appLanguage) ?? "auto"
+        if saved == "auto" {
+            let locale = Locale.preferredLanguages.first ?? "en"
+            return locale.hasPrefix("zh-Hans") || locale == "zh-CN" || locale == "zh"
+        }
+        return saved == "zh-Hans"
+    }
 
     static func notifyLanguageChanged() {
         NotificationCenter.default.post(name: .languageDidChange, object: nil)
@@ -57,12 +75,14 @@ enum Strings {
     static var statusNormal: String { isZH ? "正常" : "NORM" }
     static var statusLowBalance: String { isZH ? "余额低" : "LOWBAL" }
     static var statusError: String { isZH ? "异常" : "ERROR" }
+    static var statusWarning: String { isZH ? "余额低" : "WARN" }
 
     // Popover header
     static var popoverTitle: String { "DS-mon" }
     static var badgeLoading: String { isZH ? "查询中..." : "Loading..." }
     static var badgeNormal: String { isZH ? "正常" : "NORM" }
     static var badgeError: String { isZH ? "异常" : "ERROR" }
+    static var badgeWarning: String { isZH ? "余额不足50%" : "LOW" }
 
     // Balance section
     static var currentBalance: String { isZH ? "当前余额" : "Balance" }
@@ -90,11 +110,13 @@ enum Strings {
     static var settingsTitle: String { isZH ? "设置" : "Settings" }
     static var balanceAlert: String { isZH ? "余额预警" : "Balance Alert" }
     static var alertHint: String { isZH ? "余额低于此值时菜单栏红色闪烁" : "Menu bar flashes red when balance drops below" }
+    static var maxBalanceLabel: String { isZH ? "环形上限" : "Ring Max" }
+    static var maxBalanceHint: String { isZH ? "菜单栏环形百分比以此为基准，默认 ¥100" : "Ring percentage is relative to this amount, default ¥100" }
     static var apiKeyLabel: String { isZH ? "API Key" : "API Key" }
     static var apiKeyPlaceholder: String { "sk-..." }
     static var saveButton: String { isZH ? "保存" : "Save" }
     static var savedHint: String { isZH ? "已保存，正在刷新..." : "Saved, refreshing..." }
-    static var saveFailedHint: String { isZH ? "保存失败，请在钥匙串弹窗中点击「始终允许」" : "Save failed. Click 'Always Allow' in the Keychain prompt" }
+    static var saveFailedHint: String { isZH ? "保存失败，请重试" : "Save failed, please retry" }
 
     // DeepSeekStats errors
     static var noAPIKey: String { isZH ? "未设置 API Key" : "API Key not set" }
@@ -111,15 +133,52 @@ enum Strings {
     static func networkError(_ msg: String) -> String {
         isZH ? "网络错误：\(msg)" : "Network error: \(msg)"
     }
-    static var keychainSaveFailed: String { isZH ? "保存 API Key 失败：需在钥匙串弹窗中点击「始终允许」" : "Failed to save API Key. Click 'Always Allow' in the Keychain prompt" }
+    static var keychainSaveFailed: String { isZH ? "保存 API Key 失败" : "Failed to save API Key" }
 
     // codex-relay 协议转换器
-    static var moonbridgeSection: String { isZH ? "协议转换器" : "Protocol Relay" }
-    static var moonbridgeToggle: String { isZH ? "启用协议转换" : "Enable Relay" }
-    static var moonbridgeToggleHint: String { isZH ? "将 Codex 的 Responses API 转换为 Chat Completions API，适配 DeepSeek 等供应商" : "Translates Codex Responses API to Chat Completions for DeepSeek and other providers" }
-    static var moonbridgeRunning: String { isZH ? "运行中" : "Running" }
-    static var moonbridgeStopped: String { isZH ? "已停止" : "Stopped" }
-    static var moonbridgeNotice: String { isZH ? "Codex CLI 配置：base_url = http://localhost:{port}/v1（代理端口）" : "Codex CLI: base_url = http://localhost:{port}/v1 (proxy port)" }
+
+    // Settings tabs
+    static var menuBarDisplay: String { isZH ? "菜单栏显示" : "Menu Bar Display" }
+    static var menuIconLabel: String { isZH ? "图标" : "Icon" }
+    static var indicatorLabel: String { isZH ? "状态指示器" : "Indicator" }
+    static var balanceLabel: String { isZH ? "余额" : "Balance" }
+    static var hitRateLabel: String { isZH ? "命中率" : "Hit Rate" }
+    static var textDisplayLabel: String { isZH ? "菜单栏文字" : "Menu Bar Text" }
+
+    // Provider
+    static var activeProviderLabel: String { isZH ? "活跃提供商" : "Active Provider" }
+    static var setActiveProvider: String { isZH ? "设为活跃" : "Set Active" }
+    static var activeProviderBadge: String { isZH ? "活跃中" : "Active" }
+    static var addProviderTitle: String { isZH ? "添加提供商" : "Add Provider" }
+    static var addProviderHint: String { isZH ? "恢复内置提供商" : "Restore built-in provider" }
+    static var addProviderCustomHint: String { isZH ? "自定义提供商可通过代码配置" : "Custom providers can be configured via code" }
+    static var allProvidersAdded: String { isZH ? "所有内置提供商已添加" : "All built-in providers added" }
+    static var selectProviderHint: String { isZH ? "请选择一个提供商" : "Select a provider" }
+    static var removeProvider: String { isZH ? "移除提供商" : "Remove Provider" }
+    static var defaultModelSection: String { isZH ? "默认模型" : "Default Model" }
+    static var defaultModelHint: String { isZH ? "代理转发时使用的默认模型" : "Default model used for proxy forwarding" }
+    static var defaultModelLabel: String { isZH ? "默认模型" : "Model" }
+    static var defaultModelLabel2: String { isZH ? "默认模型" : "Default Model" }
+    static var modelOverrideSection: String { isZH ? "模型覆写" : "Model Override" }
+    static var relayProviderHint: String { isZH ? "Codex Relay 转发到哪个提供商" : "Which provider Codex Relay routes to" }
+    static var relayProviderLabel: String { isZH ? "Relay 提供商" : "Relay Provider" }
+    static var relayProviderSame: String { isZH ? "同当前活跃" : "Same as active" }
+    static var noBalanceAPI: String { isZH ? "该提供商无余额查询" : "Balance API not available" }
+    static var providerBalance: String { isZH ? "余额" : "Balance" }
+    static func apiKeyHint(_ name: String) -> String {
+        isZH ? "\(name) 的 API Key 将用于代理转发" : "API Key for \(name) will be used for proxy forwarding"
+    }
+    static var providerList: String { isZH ? "提供商" : "Providers" }
+    static var save: String { isZH ? "保存" : "Save" }
+    static var keySaved: String { isZH ? "API Key 已保存" : "API Key saved" }
+    static var aboutDesc: String { isZH ? "实时监控 DeepSeek API 使用情况" : "Monitors DeepSeek API usage in real-time" }
+
+    // codex-relay 协议转换器
+    static var codexRelaySection: String { isZH ? "协议转换器" : "Protocol Relay" }
+    static var codexRelayToggle: String { isZH ? "启用协议转换" : "Enable Relay" }
+    static var codexRelayRunning: String { isZH ? "运行中" : "Running" }
+    static var codexRelayStopped: String { isZH ? "已停止" : "Stopped" }
+    static var codexRelayTooltip: String { isZH ? "将 Codex 的 Responses API 转换为 Chat Completions API，适配 DeepSeek 等供应商。\nCodex CLI 需配置 base_url = http://localhost:18080/v1 才能通过代理使用。" : "Translates Codex Responses API to Chat Completions for DeepSeek and other providers.\nCodex CLI: set base_url = http://localhost:18080/v1 to route through the proxy." }
 
     // Proxy
     static var proxySection: String { isZH ? "本地代理" : "Proxy" }
@@ -178,6 +237,7 @@ enum Strings {
     static var pricingHit: String { isZH ? "缓存命中 (Input)" : "Cache Hit (Input)" }
     static var pricingMiss: String { isZH ? "缓存未命中 (Input)" : "Cache Miss (Input)" }
     static var pricingOut: String { isZH ? "输出 (Output)" : "Output" }
+    static var pricingDefault: String { isZH ? "使用默认定价" : "Using default pricing" }
     static var pricingReset: String { isZH ? "恢复默认" : "Reset to Default" }
     static var pricingResetDone: String { isZH ? "已恢复默认定价" : "Reset to default pricing" }
 

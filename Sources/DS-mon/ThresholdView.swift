@@ -1,81 +1,477 @@
 import SwiftUI
 
+// MARK: - 设置主视图（标签页布局）
+
 struct ThresholdView: View {
     let stats: DeepSeekStats
+
+    @State private var selectedTab: SettingsTab = .general
+
+    // 通用
+    @AppStorage(Strings.Keys.showMenuIcon) private var showMenuIcon: Bool = true
+    @AppStorage(Strings.Keys.showIndicator) private var showIndicator: Bool = true
+    @AppStorage(Strings.Keys.menuBarTextDisplay) private var menuBarTextDisplay: String = "balance"
+    @AppStorage(Strings.Keys.appLanguage) private var appLanguage: String = "auto"
+
+    // 提供商
     @State private var thresholdValue: Double = 20
+    @State private var maxBalanceValue: Double = AppConfig.defaultMaxBalanceAmount
     @State private var apiKeyInput = ""
     @State private var saved = false
     @State private var saveFailed = false
-    @AppStorage("app_language") private var appLanguage: String = "auto"
-    @AppStorage("show_menu_icon") private var showMenuIcon: Bool = true
-
-    // 定价编辑状态
     @State private var pricingOverrides: [String: ModelPricing] = [:]
     @State private var pricingResetMsg = false
+    @State private var providerConfigs: [ProviderConfig] = ProviderManager.shared.providers
+    @State private var selectedProviderId: String = ProviderManager.shared.activeProviderId
+    @State private var showAddProviderPopup = false
 
-    // Moon Bridge 状态
-    @State private var moonbridgeEnabled: Bool = UserDefaults.standard.bool(forKey: "moonbridge_enabled")
-    @State private var moonbridgeReachable: Bool? = ProxyServer.shared.moonbridgeReachable
-    @State private var moonbridgeStatusMsg: String? = ProxyServer.shared.moonbridgeError
+    // 服务
+    @State private var codexRelayEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.codexRelayEnabled)
+    @State private var codexRelayReachable: Bool? = ProxyServer.shared.codexRelayReachable
+    @State private var codexRelayStatusMsg: String? = ProxyServer.shared.codexRelayError
+    @State private var showCodexRelayInfo = false
+    @State private var proxyEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.proxyEnabled)
+    @State private var proxyPort: Int = {
+        let p = UserDefaults.standard.integer(forKey: Strings.Keys.proxyPort)
+        return p >= 1024 ? p : 18080
+    }()
+    @State private var proxyRunning: Bool = ProxyServer.shared.isRunning
+    @State private var proxyError: String? = ProxyServer.shared.listenerError
+
+    enum SettingsTab: String, CaseIterable {
+        case general  = "通用"
+        case provider = "提供商"
+        case services = "服务"
+        case about    = "关于"
+
+        var icon: String {
+            switch self {
+            case .general:  return "switch.2"
+            case .provider: return "building.2"
+            case .services: return "network"
+            case .about:    return "info.circle"
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            // 全宽行：API Key
-            apiKeySection
-            Divider().padding(.horizontal, 16)
-
-            // 双栏布局
-            HStack(alignment: .top, spacing: 0) {
-                // 左列
-                VStack(spacing: 0) {
-                    thresholdSection
-                    Divider().padding(.horizontal, 16)
-                    languageSection
-                    Divider().padding(.horizontal, 16)
-                    proxySection
+            // ── 标签栏 ──
+            HStack(spacing: 0) {
+                ForEach(SettingsTab.allCases, id: \.self) { tab in
+                    Button(action: { selectedTab = tab }) {
+                        VStack(spacing: 4) {
+                            Image(systemName: tab.icon)
+                                .font(.system(size: 16))
+                            Text(tab.rawValue)
+                                .font(.caption2)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(selectedTab == tab ? Color.accentColor.opacity(0.12) : Color.clear)
+                        .cornerRadius(8)
+                        .contentShape(Rectangle())
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(selectedTab == tab ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .frame(maxWidth: .infinity)
-
-                Divider()
-
-                // 右列
-                VStack(spacing: 0) {
-                    menuIconSection
-                    Divider().padding(.horizontal, 16)
-                    moonbridgeSection
-                    Divider().padding(.horizontal, 16)
-                    pricingSection
-                }
-                .frame(maxWidth: .infinity)
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 6)
+
+            Divider().padding(.horizontal, 12)
+
+            // ── 内容区 ──
+            ScrollView {
+                switch selectedTab {
+                case .general:  generalView
+                case .provider: providerView
+                case .services: servicesView
+                case .about:    aboutView
+                }
+            }
+            .scrollIndicators(.hidden)
         }
-        .frame(width: 500)
+        .frame(width: 520, height: 480)
         .onAppear {
             thresholdValue = stats.threshold
-            loadStoredKey()
-            loadPricing()
+            maxBalanceValue = UserDefaults.standard.double(forKey: Strings.Keys.maxBalanceAmount)
+            if maxBalanceValue <= 0 { maxBalanceValue = AppConfig.defaultMaxBalanceAmount }
+            providerConfigs = ProviderManager.shared.providers
+            selectedProviderId = ProviderManager.shared.activeProviderId
             proxyError = ProxyServer.shared.listenerError
-            if moonbridgeEnabled {
-                moonbridgeReachable = ProxyServer.shared.moonbridgeReachable
-                moonbridgeStatusMsg = ProxyServer.shared.moonbridgeError
-                if moonbridgeReachable == nil {
-                    ProxyServer.shared.checkMoonBridgeHealthWithRetry()
+            if codexRelayEnabled {
+                codexRelayReachable = ProxyServer.shared.codexRelayReachable
+                codexRelayStatusMsg = ProxyServer.shared.codexRelayError
+                if codexRelayReachable == nil {
+                    ProxyServer.shared.checkCodexRelayHealthWithRetry()
                 }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .moonbridgeStatusChanged)) { _ in
-            moonbridgeReachable = ProxyServer.shared.moonbridgeReachable
-            moonbridgeStatusMsg = ProxyServer.shared.moonbridgeError
+        .onReceive(NotificationCenter.default.publisher(for: .codexRelayStatusChanged)) { _ in
+            codexRelayReachable = ProxyServer.shared.codexRelayReachable
+            codexRelayStatusMsg = ProxyServer.shared.codexRelayError
         }
     }
 
-    private func loadPricing() {
-        pricingOverrides = ModelPricing.loadCustom()
+    // MARK: - 通用
+
+    private var generalView: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Label(Strings.menuBarDisplay, systemImage: "menubar.rectangle")
+                .font(.body).bold()
+                .padding(.top, 20)
+
+            VStack(alignment: .leading, spacing: 16) {
+                Toggle(isOn: $showMenuIcon) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "circle.fill").font(.caption)
+                        Text(Strings.menuIconLabel)
+                    }
+                }
+                .toggleStyle(.switch)
+                .onChange(of: showMenuIcon) {
+                    NotificationCenter.default.post(name: .showMenuIconDidChange, object: nil)
+                }
+
+                Toggle(isOn: $showIndicator) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chart.bar.fill").font(.caption)
+                        Text(Strings.indicatorLabel)
+                    }
+                }
+                .toggleStyle(.switch)
+                .onChange(of: showIndicator) {
+                    NotificationCenter.default.post(name: .showIndicatorDidChange, object: nil)
+                }
+
+                HStack(spacing: 8) {
+                    Image(systemName: "text.alignleft").font(.caption)
+                    Text(Strings.textDisplayLabel)
+                    
+                    Button(action: {
+                        if menuBarTextDisplay == "balance" {
+                            menuBarTextDisplay = "none"
+                        } else {
+                            menuBarTextDisplay = "balance"
+                        }
+                        NotificationCenter.default.post(name: .menuBarTextDisplayDidChange, object: nil)
+                    }) {
+                        Text(Strings.balanceLabel)
+                            .font(.callout)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(menuBarTextDisplay == "balance" ? Color.accentColor : Color.gray.opacity(0.12))
+                            .foregroundColor(menuBarTextDisplay == "balance" ? .white : .primary)
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: {
+                        if menuBarTextDisplay == "hitRate" {
+                            menuBarTextDisplay = "none"
+                        } else {
+                            menuBarTextDisplay = "hitRate"
+                        }
+                        NotificationCenter.default.post(name: .menuBarTextDisplayDidChange, object: nil)
+                    }) {
+                        Text(Strings.hitRateLabel)
+                            .font(.callout)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(menuBarTextDisplay == "hitRate" ? Color.accentColor : Color.gray.opacity(0.12))
+                            .foregroundColor(menuBarTextDisplay == "hitRate" ? .white : .primary)
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
+                }
+            }
+
+            Divider()
+
+            Label(Strings.languageLabel, systemImage: "globe")
+                .font(.body).bold()
+
+            Picker(Strings.languageLabel, selection: $appLanguage) {
+                ForEach(Language.allCases) { lang in
+                    Text(lang.displayName).tag(lang.rawValue)
+                }
+            }
+            .pickerStyle(.radioGroup)
+            .onChange(of: appLanguage) {
+                Strings.notifyLanguageChanged()
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 24)
     }
 
-    private func savePricing() {
-        ModelPricing.saveCustom(pricingOverrides)
+    // MARK: - 提供商
+
+    private var providerView: some View {
+        HStack(alignment: .top, spacing: 0) {
+            // 左侧：提供商列表
+            providerListView
+                .frame(width: 140)
+
+            Divider()
+
+            // 右侧：选中提供商设置
+            providerSettingsView
+                .frame(maxWidth: .infinity)
+        }
     }
+
+    private var providerListView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(Strings.providerList)
+                .font(.caption).fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .padding(.top, 20)
+                .padding(.horizontal, 12)
+
+            List(providerConfigs.filter { $0.isEnabled }, id: \.id, selection: $selectedProviderId) { provider in
+                HStack(spacing: 6) {
+                    Image(systemName: "cube.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.accentColor)
+                    Text(provider.name).font(.callout)
+                    Spacer()
+                    if provider.id == ProviderManager.shared.activeProviderId {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.green)
+                    }
+                }
+                .padding(.vertical, 2)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    selectedProviderId = provider.id
+                }
+            }
+            .listStyle(.plain)
+            .frame(minHeight: 120)
+
+            // 添加 / 恢复提供商按钮
+            HStack(spacing: 4) {
+                Button(action: { showAddProviderPopup = true }) {
+                    Image(systemName: "plus.circle")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .help(Strings.addProviderHint)
+                .popover(isPresented: $showAddProviderPopup) {
+                    addProviderMenu
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+
+            Spacer()
+        }
+    }
+
+    private var addProviderMenu: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(Strings.addProviderTitle)
+                .font(.headline)
+                .padding(.bottom, 4)
+
+            ForEach(ProviderConfig.builtIns.filter { builtIn in
+                !providerConfigs.contains(where: { $0.id == builtIn.id })
+            }) { provider in
+                Button(action: {
+                    providerConfigs.append(provider)
+                    ProviderConfig.saveAll(providerConfigs)
+                    ProviderManager.shared.load()
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundColor(.accentColor)
+                        Text(provider.name)
+                            .font(.callout)
+                        Text(provider.baseURL)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if ProviderConfig.builtIns.allSatisfy({ builtIn in
+                providerConfigs.contains(where: { $0.id == builtIn.id })
+            }) {
+                Text(Strings.allProvidersAdded)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Divider()
+
+            Text(Strings.addProviderCustomHint)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+        .padding(14)
+        .frame(width: 240)
+    }
+
+    private var providerSettingsView: some View {
+        guard let provider = providerConfigs.first(where: { $0.id == selectedProviderId }) else {
+            return AnyView(
+                VStack {
+                    Spacer()
+                    Text(Strings.selectProviderHint)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+            )
+        }
+        return AnyView(providerSettingsContent(provider: provider))
+    }
+
+    @ViewBuilder
+    private func providerSettingsContent(provider: ProviderConfig) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                // 标题 + 设为活跃按钮
+                HStack(spacing: 6) {
+                    Image(systemName: "cube.fill")
+                        .foregroundColor(.accentColor)
+                    Text(provider.name)
+                        .font(.title3).bold()
+                    Spacer()
+                    if provider.id == ProviderManager.shared.activeProviderId {
+                        Text(Strings.activeProviderBadge)
+                            .font(.caption)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.green)
+                            .cornerRadius(6)
+                    } else {
+                        Button(Strings.setActiveProvider) {
+                            ProviderManager.shared.setActive(id: provider.id)
+                            selectedProviderId = provider.id
+                            // 重新载入平衡数据
+                            stats.refresh()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+                }
+                .padding(.top, 20)
+
+                // API Key
+                providerApiKeySection(provider: provider)
+                Divider()
+
+                // 默认模型
+                defaultModelSection(provider: provider)
+                Divider()
+
+                // 模型覆写
+                modelOverrideSection(provider: provider)
+                Divider()
+
+                // 余额预警（仅当提供商有余额 API）
+                if provider.hasBalanceAPI {
+                    thresholdSection
+                    Divider()
+                }
+
+                // 模型定价
+                providerPricingSection(provider: provider)
+                Divider()
+
+                // 删除提供商（内置提供商不可删除）
+                if !ProviderConfig.builtIns.contains(where: { $0.id == provider.id }) {
+                    Button(role: .destructive) {
+                        deleteProvider(provider)
+                    } label: {
+                        Label(Strings.removeProvider, systemImage: "trash")
+                            .font(.callout)
+                    }
+                    .buttonStyle(.borderless)
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+    // MARK: - 服务
+
+    private var servicesView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            proxySection
+            Divider().padding(.horizontal, 16)
+            codexRelaySection
+            Spacer()
+        }
+    }
+
+    // MARK: - 关于
+
+    private var aboutView: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            // 图标
+            Image(nsImage: NSApplication.shared.applicationIconImage ?? NSImage())
+                .resizable().frame(width: 64, height: 64)
+
+            Text("DS-mon")
+                .font(.title).bold()
+
+            // 版本
+            if let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+                Text("v\(ver)")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+            }
+
+            // 构建时间
+            if let ts = Bundle.main.infoDictionary?["DSMonBuildTimestamp"] as? String {
+                Text(ts)
+                    .font(.caption2)
+                    .foregroundColor(.secondary).opacity(0.6)
+            }
+
+            Divider()
+                .frame(width: 200)
+
+            VStack(spacing: 8) {
+                Label(Strings.aboutDesc, systemImage: "eye")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                HStack(spacing: 16) {
+                    Link(destination: URL(string: "https://github.com/cherno/DS-mon")!) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left.forwardslash.chevron.right")
+                            Text("GitHub")
+                        }
+                        .font(.caption)
+                    }
+                }
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - 余额预警
 
     private var thresholdSection: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -107,215 +503,120 @@ struct ThresholdView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
+
+            Divider()
+
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 4) {
+                        Text("¥")
+                            .foregroundColor(.secondary)
+                        TextField("", value: $maxBalanceValue, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                            .multilineTextAlignment(.trailing)
+                            .onSubmit(saveMaxBalance)
+                        Stepper("", value: $maxBalanceValue, in: 10...10000, step: 10)
+                            .labelsHidden()
+                            .onChange(of: maxBalanceValue) { _, _ in saveMaxBalance() }
+                    }
+                    Text(Strings.maxBalanceHint)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
         }
-        .padding(20)
+        .padding(.vertical, 4)
     }
 
-    private var apiKeySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
+    // MARK: - API Key (per provider)
+
+    private func providerApiKeySection(provider: ProviderConfig) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 4) {
                 Image(systemName: "key.fill")
-                    .foregroundColor(.blue)
-                Text(Strings.apiKeyLabel)
+                    .foregroundColor(.accentColor)
+                Text("API Key")
                     .font(.body).bold()
-                Spacer()
             }
 
             HStack(spacing: 8) {
-                SecureField("sk-...", text: $apiKeyInput)
+                let keyBinding = Binding<String>(
+                    get: { ProviderManager.shared.apiKey(for: provider) },
+                    set: { newValue in
+                        _ = ProviderManager.shared.saveAPIKey(newValue, for: provider)
+                        if provider.id == ProviderManager.shared.activeProviderId {
+                            stats.refresh()
+                        }
+                    }
+                )
+
+                SecureField("sk-...", text: keyBinding)
+                    .textFieldStyle(.roundedBorder)
                     .font(.system(.body, design: .monospaced))
-                    .textFieldStyle(PlainTextFieldStyle())
-                    .padding(8)
-                    .background(Color(nsColor: .controlBackgroundColor))
-                    .cornerRadius(6)
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.2)))
-
-                if !apiKeyInput.isEmpty {
-                    Button(action: saveKey) {
-                        Label(Strings.saveButton, systemImage: "checkmark.circle")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                }
             }
 
-            if saved {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                        .font(.caption)
-                    Text(Strings.savedHint)
-                        .foregroundColor(.green)
-                        .font(.caption)
-                }
-                .transition(.opacity)
-            }
-
-            if saveFailed {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
-                        .font(.caption)
-                    Text(Strings.saveFailedHint)
-                        .foregroundColor(.orange)
-                        .font(.caption)
-                }
-                .transition(.opacity)
-            }
+            Text(Strings.apiKeyHint(provider.name))
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
-        .padding(20)
-        .animation(.easeInOut(duration: 0.2), value: saved)
-        .animation(.easeInOut(duration: 0.2), value: saveFailed)
     }
 
-    private var languageSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Image(systemName: "globe")
-                    .foregroundColor(.purple)
-                Text(Strings.languageLabel)
+    // MARK: - 模型定价 (per provider)
+
+    private func providerPricingSection(provider: ProviderConfig) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 4) {
+                Image(systemName: "dollarsign.circle.fill")
+                    .foregroundColor(.orange)
+                Text(Strings.pricingSection)
                     .font(.body).bold()
-                Spacer()
             }
 
-            Picker("", selection: $appLanguage) {
-                ForEach(Language.allCases) { lang in
-                    Text(lang.displayName).tag(lang.rawValue)
-                }
-            }
-            .pickerStyle(.radioGroup)
-            .labelsHidden()
-            .onChange(of: appLanguage) { _, _ in
-                Strings.notifyLanguageChanged()
-            }
-        }
-        .padding(20)
-    }
+            Text(Strings.pricingNote)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-    private var menuIconSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Image(systemName: "eye")
-                    .foregroundColor(.teal)
-                Text(isZH ? "菜单栏图标" : "Menu Bar Icon")
-                    .font(.body).bold()
-                Spacer()
-            }
-
-            HStack {
-                Toggle(isOn: $showMenuIcon) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(isZH ? "显示图标" : "Show Icon")
-                            .font(.callout)
-                        Text(isZH ? "在菜单栏显示/隐藏鲸鱼图标" : "Show or hide the whale icon in the menu bar")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .toggleStyle(.switch)
-                .onChange(of: showMenuIcon) { _, _ in
-                    NotificationCenter.default.post(name: .showMenuIconDidChange, object: nil)
-                }
-            }
-        }
-        .padding(20)
-    }
-
-    private var proxySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Image(systemName: "antenna.radiowaves.left.and.right")
-                    .foregroundColor(.indigo)
-                Text(Strings.proxySection)
-                    .font(.body).bold()
-                Spacer()
-                if let err = proxyError {
-                    HStack(spacing: 4) {
-                        Circle().fill(Color.red).frame(width: 6, height: 6)
-                        Text(err)
-                            .font(.caption)
-                            .foregroundColor(.red)
-                            .lineLimit(1)
-                    }
-                } else if proxyRunning {
-                    HStack(spacing: 4) {
-                        Circle().fill(Color.green).frame(width: 6, height: 6)
-                        Text(Strings.proxyRunning)
-                            .font(.caption)
-                            .foregroundColor(.green)
-                    }
-                } else {
-                    HStack(spacing: 4) {
-                        Circle().fill(Color.gray).frame(width: 6, height: 6)
-                        Text(Strings.proxyStopped)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-
-            HStack {
-                Toggle(isOn: $proxyEnabled) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(Strings.proxyToggle)
-                            .font(.callout)
-                        Text(Strings.proxyToggleHint)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .toggleStyle(.switch)
-                .onChange(of: proxyEnabled) { _, newVal in
-                    if newVal {
-                        do {
-                            try ProxyServer.shared.start(port: UInt16(proxyPort))
-                        } catch {
-                            proxyEnabled = false
-                        }
-                    } else {
-                        ProxyServer.shared.stop()
-                    }
-                    proxyRunning = ProxyServer.shared.isRunning
-                    proxyError = ProxyServer.shared.listenerError
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(Strings.proxyPortLabel)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    TextField("18080", value: $proxyPort, format: .number.grouping(.never))
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 70)
-                        .multilineTextAlignment(.trailing)
-                        .onChange(of: proxyPort) { _, newVal in
-                            if newVal < 1024 { proxyPort = 1024 }
-                            if newVal > 65535 { proxyPort = 65535 }
-                        }
-                    Text("\(proxyPort)")
-                        .hidden()
-                        .frame(width: 0)
-                }
-                Text(isZH
-                     ? "客户端 base_url = http://localhost:\(proxyPort)"
-                     : "Client base_url = http://localhost:\(proxyPort)")
+            // 显示该提供商的定价
+            let providerPricing = provider.pricingOverrides
+            if providerPricing.isEmpty {
+                Text(Strings.pricingDefault)
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            .disabled(proxyRunning)
+
+            ForEach(Array(providerPricing.keys.sorted()), id: \.self) { key in
+                if let pricing = providerPricing[key] {
+                    HStack {
+                        Text(key)
+                            .font(.caption)
+                            .frame(width: 100, alignment: .leading)
+                        Text(String(format: "H:¥%.3f", pricing.hitPrice))
+                            .font(.caption)
+                            .foregroundColor(.green)
+                        Text(String(format: "M:¥%.3f", pricing.missPrice))
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                        Text(String(format: "O:¥%.3f", pricing.outPrice))
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                    }
+                }
+            }
         }
-        .padding(20)
     }
 
-    // MARK: - 定价设置
+    // MARK: - API Key
+
+    // MARK: - 模型定价
 
     private var pricingSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
-                Image(systemName: "dollarsign.circle.fill")
-                    .foregroundColor(.green)
+                Image(systemName: "tag.fill")
+                    .foregroundColor(.purple)
                 Text(Strings.pricingSection)
                     .font(.body).bold()
                 Spacer()
@@ -331,20 +632,21 @@ struct ThresholdView: View {
                     withAnimation {
                         pricingResetMsg = true
                     }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        withAnimation { pricingResetMsg = false }
-                    }
                 }
                 .buttonStyle(.plain)
                 .font(.caption)
                 .foregroundColor(.orange)
+                .task(id: pricingResetMsg) {
+                    guard pricingResetMsg else { return }
+                    try? await Task.sleep(for: .seconds(2))
+                    withAnimation { pricingResetMsg = false }
+                }
             }
 
             Text(Strings.pricingNote)
                 .font(.caption)
                 .foregroundColor(.secondary)
 
-            // 每一行 = 一个模型（仅显示主要模型，不显示 deprecated 别名）
             ForEach(ModelPricing.displayedModels, id: \.self) { key in
                 if let defaults = ModelPricing.default[key] {
                     let binding = Binding<ModelPricing>(
@@ -355,10 +657,9 @@ struct ThresholdView: View {
                 }
             }
         }
-        .padding(20)
+        .padding(.vertical, 4)
     }
 
-    /// 单个模型的定价编辑行
     private func pricingRow(modelKey: String, defaults: ModelPricing,
                             pricing: Binding<ModelPricing>) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -411,57 +712,138 @@ struct ThresholdView: View {
         }
     }
 
-    // MARK: - Moon Bridge Section
+    // MARK: - 本地代理
 
-    private var moonbridgeSection: some View {
+    private var proxySection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
-                Image(systemName: "moon.fill")
-                    .foregroundColor(.purple)
-                Text(Strings.moonbridgeSection)
+                Image(systemName: "network")
+                    .foregroundColor(.blue)
+                Text(Strings.proxySection)
                     .font(.body).bold()
                 Spacer()
                 HStack(spacing: 4) {
-                if let r = moonbridgeReachable {
-                    Circle().fill(r ? Color.green : Color.red).frame(width: 6, height: 6)
-                    Text(r ? Strings.moonbridgeRunning : Strings.moonbridgeStopped)
+                    Circle().fill(proxyRunning ? Color.green : Color.red).frame(width: 6, height: 6)
+                    Text(proxyRunning ? Strings.proxyRunning : Strings.proxyStopped)
                         .font(.caption)
-                        .foregroundColor(r ? .green : .red)
-                } else {
-                    // moonbridgeReachable == nil → 初始状态，尚未检测
-                    Text(Strings.moonbridgeStopped)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(proxyRunning ? .green : .red)
                 }
-            }
             }
 
             HStack {
-                Toggle(isOn: $moonbridgeEnabled) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(Strings.moonbridgeToggle)
-                            .font(.callout)
-                        Text(Strings.moonbridgeToggleHint)
+                Toggle(isOn: $proxyEnabled) {
+                    Text(Strings.proxyToggle)
+                        .font(.callout)
+                }
+                .toggleStyle(.switch)
+                .onChange(of: proxyEnabled) { _, newVal in
+                    UserDefaults.standard.set(newVal, forKey: Strings.Keys.proxyEnabled)
+                    if newVal {
+                        try? ProxyServer.shared.start(port: UInt16(proxyPort))
+                    } else {
+                        ProxyServer.shared.stop()
+                    }
+                    proxyRunning = ProxyServer.shared.isRunning
+                }
+
+                Spacer()
+
+                HStack(spacing: 4) {
+                    Text(Strings.proxyPortLabel)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("", value: $proxyPort, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 60)
+                        .multilineTextAlignment(.trailing)
+                        .onSubmit {
+                            let p = max(AppConfig.minProxyPort, min(proxyPort, AppConfig.maxProxyPort))
+                            proxyPort = p
+                            UserDefaults.standard.set(p, forKey: Strings.Keys.proxyPort)
+                            if proxyRunning { ProxyServer.shared.stop(); try? ProxyServer.shared.start(port: UInt16(p)) }
+                        }
+                }
+            }
+
+            Text(Strings.proxyToggleHint)
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            if let err = proxyError {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                    Text(err)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+            }
+        }
+        .padding(20)
+    }
+
+    // MARK: - 协议转换器
+
+    private var codexRelaySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .foregroundColor(.purple)
+                Text(Strings.codexRelaySection)
+                    .font(.body).bold()
+                Spacer()
+                HStack(spacing: 4) {
+                    if let r = codexRelayReachable {
+                        Circle().fill(r ? Color.green : Color.red).frame(width: 6, height: 6)
+                        Text(r ? Strings.codexRelayRunning : Strings.codexRelayStopped)
+                            .font(.caption)
+                            .foregroundColor(r ? .green : .red)
+                    } else {
+                        Text(Strings.codexRelayStopped)
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                 }
+                Text(CodexRelayManager.version)
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+            }
+
+            HStack {
+                Toggle(isOn: $codexRelayEnabled) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 4) {
+                            Text(Strings.codexRelayToggle)
+                                .font(.callout)
+                            Image(systemName: "info.circle.fill")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .onTapGesture { showCodexRelayInfo = true }
+                                .popover(isPresented: $showCodexRelayInfo) {
+                                    Text(Strings.codexRelayTooltip)
+                                        .font(.system(size: 12))
+                                        .lineSpacing(4)
+                                        .padding(14)
+                                        .frame(maxWidth: 280)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .multilineTextAlignment(.leading)
+                                }
+                        }
+                    }
+                }
                 .toggleStyle(.switch)
-                .onChange(of: moonbridgeEnabled) { _, newVal in
-                    UserDefaults.standard.set(newVal, forKey: "moonbridge_enabled")
-                    RelayAction(newVal ? "start" : "stop")
+                .onChange(of: codexRelayEnabled) { _, newVal in
+                    UserDefaults.standard.set(newVal, forKey: Strings.Keys.codexRelayEnabled)
+                    CodexRelayAction(newVal ? "start" : "stop")
                     if !newVal {
-                        moonbridgeReachable = false
-                        moonbridgeStatusMsg = nil
+                        codexRelayReachable = false
+                        codexRelayStatusMsg = nil
                     }
                 }
             }
 
-            Text(Strings.moonbridgeNotice.replacingOccurrences(of: "{port}", with: "18080"))
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            if let msg = moonbridgeStatusMsg, moonbridgeEnabled {
+            if let msg = codexRelayStatusMsg, codexRelayEnabled {
                 HStack(spacing: 4) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.caption)
@@ -475,43 +857,161 @@ struct ThresholdView: View {
         .padding(20)
     }
 
-    // MARK: - Proxy State
+    // MARK: - 默认模型
 
-    @State private var proxyEnabled: Bool = UserDefaults.standard.bool(forKey: "proxy_enabled")
-    @State private var proxyPort: Int = {
-        let p = UserDefaults.standard.integer(forKey: "proxy_port")
-        return p >= 1024 ? p : 18080
-    }()
-    @State private var proxyRunning: Bool = ProxyServer.shared.isRunning
-    @State private var proxyError: String? = ProxyServer.shared.listenerError
+    private func defaultModelSection(provider: ProviderConfig) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 4) {
+                Image(systemName: "star.fill")
+                    .foregroundColor(.yellow)
+                Text(Strings.defaultModelSection)
+                    .font(.body).bold()
+            }
 
-    private var isZH: Bool {
-        let saved = UserDefaults.standard.string(forKey: "app_language") ?? "auto"
-        if saved == "auto" {
-            let locale = Locale.preferredLanguages.first ?? "en"
-            return locale.hasPrefix("zh-Hans") || locale == "zh-CN" || locale == "zh"
+            Text(Strings.defaultModelHint)
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            HStack {
+                Text(Strings.defaultModelLabel)
+                    .font(.callout)
+                    .frame(width: 90, alignment: .leading)
+
+                let models = provider.pricingOverrides.keys.sorted()
+                let currentDefault = providerConfigs.first(where: { $0.id == provider.id })?.defaultModel ?? models.first ?? ""
+
+                Picker(selection: Binding(
+                    get: { currentDefault },
+                    set: { newVal in
+                        var configs = providerConfigs
+                        if let idx = configs.firstIndex(where: { $0.id == provider.id }) {
+                            configs[idx].defaultModel = newVal.isEmpty ? nil : newVal
+                            providerConfigs = configs
+                            ProviderConfig.saveAll(configs)
+                            ProviderManager.shared.load()
+                        }
+                    }
+                ), label: EmptyView()) {
+                    ForEach(models, id: \.self) { model in
+                        Text(model).tag(model)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
-        return saved == "zh-Hans"
     }
 
+    // MARK: - 模型覆写
+
+    private func modelOverrideSection(provider: ProviderConfig) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.triangle.swap")
+                    .foregroundColor(.purple)
+                Text(Strings.modelOverrideSection)
+                    .font(.body).bold()
+            }
+
+            Text(Strings.relayProviderHint)
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            // Relay 提供商下拉选择
+            HStack {
+                Text(Strings.relayProviderLabel)
+                    .font(.callout)
+                    .frame(width: 90, alignment: .leading)
+                
+                let currentRelayId = providerConfigs.first(where: { $0.id == provider.id })?.relayProviderId ?? ""
+                let availableProviders = ProviderManager.shared.enabledProviders
+                
+                Picker(selection: Binding(
+                    get: { currentRelayId },
+                    set: { newVal in
+                        var configs = providerConfigs
+                        if let idx = configs.firstIndex(where: { $0.id == provider.id }) {
+                            configs[idx].relayProviderId = newVal.isEmpty ? nil : newVal
+                            providerConfigs = configs
+                            ProviderConfig.saveAll(configs)
+                            ProviderManager.shared.load()
+                            // 重启 relay
+                            if CodexRelayManager.shared.isRunning {
+                                Task { @MainActor in
+                                    CodexRelayManager.shared.stop()
+                                    try? await Task.sleep(for: .milliseconds(300))
+                                    CodexRelayManager.shared.start()
+                                }
+                            }
+                        }
+                    }
+                ), label: EmptyView()) {
+                    Text(Strings.relayProviderSame).tag("")
+                    ForEach(availableProviders) { p in
+                        if p.id != provider.id {
+                            Text(p.name).tag(p.id)
+                        }
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
     private func saveKey() {
-        let ok = stats.saveAPIKey(apiKeyInput)
+        guard let provider = ProviderManager.shared.providers.first(where: { $0.id == selectedProviderId }) else { return }
+        let ok = ProviderManager.shared.saveAPIKey(apiKeyInput, for: provider)
         if ok {
             saved = true
             saveFailed = false
             stats.refresh()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1.5))
                 saved = false
             }
         } else {
             saveFailed = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(3))
                 saveFailed = false
             }
         }
     }
 
     private func loadStoredKey() {
-        apiKeyInput = DeepSeekStats.readAPIKeyFromKeychain()
+        guard let provider = ProviderManager.shared.providers.first(where: { $0.id == selectedProviderId }) else { return }
+        apiKeyInput = ProviderManager.shared.apiKey(for: provider)
+    }
+
+    private func loadPricing() {
+        pricingOverrides = ModelPricing.loadCustom()
+    }
+
+    private func savePricing() {
+        ModelPricing.saveCustom(pricingOverrides)
+    }
+
+    private func saveMaxBalance() {
+        let val = max(10, min(maxBalanceValue, 10000))
+        maxBalanceValue = val
+        UserDefaults.standard.set(val, forKey: Strings.Keys.maxBalanceAmount)
+    }
+
+    // MARK: - Provider Operations
+
+    @MainActor
+    private func deleteProvider(_ provider: ProviderConfig) {
+        providerConfigs.removeAll { $0.id == provider.id }
+        ProviderConfig.saveAll(providerConfigs)
+        ProviderManager.shared.load()
+        // 如果删除的是当前选中的，切换到活跃提供商
+        if selectedProviderId == provider.id {
+            selectedProviderId = ProviderManager.shared.activeProviderId
+        }
+        // 刷新状态
+        stats.refresh()
     }
 }

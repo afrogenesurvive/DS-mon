@@ -12,7 +12,8 @@ let package = Package(
             resources: [
                 .process("Assets.xcassets"),
                 .process("dslogo.png"),
-                .process("dslogo1.png")
+                .process("dslogo1.png"),
+                .process("menu_icon.png"),
             ]
         )
     ]

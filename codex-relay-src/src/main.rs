@@ -23,7 +23,8 @@ const DEBUG_NAME_LIMIT: usize = 80;
 #[derive(Parser, Debug)]
 #[command(
     name = "codex-relay",
-    about = "Responses API ↔ Chat Completions bridge"
+    about = "Responses API ↔ Chat Completions bridge",
+    version = "0.3.3"
 )]
 struct Args {
     #[arg(long, env = "CODEX_RELAY_PORT", default_value = "4444")]
