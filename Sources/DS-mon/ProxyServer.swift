@@ -75,14 +75,14 @@ final class ProxyServer: @unchecked Sendable {
     func recordRequest() {
         lock.withLock {
             _requestCount += 1
-            _vuLevel = min(1.0, _vuLevel + 0.3)
+            _vuLevel = min(1.0, _vuLevel + 0.5)
         }
     }
 
     /// 每帧衰减 VU 电平
     func decayVU() {
         lock.withLock {
-            _vuLevel = max(0, _vuLevel - 0.02)
+            _vuLevel = max(0, _vuLevel - 0.05)
         }
     }
     func start(port: UInt16? = nil) throws {
@@ -193,7 +193,7 @@ final class ProxyServer: @unchecked Sendable {
             let host = NWEndpoint.Host("127.0.0.1")
             let nwPort = NWEndpoint.Port(rawValue: port)!
             let conn = NWConnection(host: host, port: nwPort, using: .tcp)
-            let waitMs = Int(AppConfig.codexRelayHealthTimeout * 1000)
+            _ = Int(AppConfig.codexRelayHealthTimeout * 1000)
             let result: NWConnection.State = await withCheckedContinuation { continuation in
                 let mgr = ContinuationManager(continuation: continuation)
                 conn.stateUpdateHandler = { state in
