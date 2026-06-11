@@ -252,15 +252,16 @@ class StatusBarView: NSView {
 
         let bounds = CGRect(origin: .zero, size: size)
 
-        // 起点：左上，终点：右下
-        let startPoint = CGPoint(x: dotRadius, y: bounds.midY - 2)
-        let endPoint = CGPoint(x: bounds.maxX - dotRadius, y: bounds.midY + 2)
+        // 起点：左侧中间偏上
+        let startPoint = CGPoint(x: dotRadius, y: bounds.height * 0.35)
+        // 终点：右侧中间偏下
+        let endPoint = CGPoint(x: bounds.maxX - dotRadius, y: bounds.height * 0.65)
 
-        // S 形曲线控制点
-        let control1 = CGPoint(x: bounds.midX, y: startPoint.y)
-        let control2 = CGPoint(x: bounds.midX, y: endPoint.y)
+        // 关键控制点：大弧度 S 形
+        let control1 = CGPoint(x: bounds.width * 0.5, y: startPoint.y)
+        let control2 = CGPoint(x: bounds.width * 0.5, y: endPoint.y)
 
-        // 两端圆点（用 NSBezierPath 画圆）
+        // 两端圆点
         color.setFill()
         let startDotRect = CGRect(x: startPoint.x - dotRadius,
                                   y: startPoint.y - dotRadius,
@@ -273,7 +274,7 @@ class StatusBarView: NSView {
         NSBezierPath(ovalIn: startDotRect).fill()
         NSBezierPath(ovalIn: endDotRect).fill()
 
-        // S 形曲线（用 NSBezierPath）
+        // S 形曲线
         let path = NSBezierPath()
         path.lineWidth = lineWidth
         path.lineCapStyle = .round
