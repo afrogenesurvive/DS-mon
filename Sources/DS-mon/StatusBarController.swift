@@ -236,53 +236,11 @@ class StatusBarView: NSView {
     weak var target: AnyObject?
     var action: Selector?
 
-    private let icon: NSImage = {
-        let size = NSSize(width: 18, height: 18)
-        let image = NSImage(size: size)
+    private let icon: NSImage? = {
+        guard let url = Bundle.module.url(forResource: "menu_icon", withExtension: "png"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        image.size = NSSize(width: 18, height: 18)
         image.isTemplate = true
-        image.lockFocusFlipped(false)
-        guard let ctx = NSGraphicsContext.current?.cgContext else {
-            image.unlockFocus()
-            return image
-        }
-        ctx.setShouldAntialias(true)
-        ctx.setAllowsAntialiasing(true)
-
-        // 起点圆点（5px 直径）
-        ctx.setFillColor(NSColor.black.cgColor)
-        ctx.fillEllipse(in: CGRect(x: 2, y: 10, width: 6, height: 6))
-
-        // 路径：右→U拐到中部→左→U拐到右→到终点
-        let path = CGMutablePath()
-        // 从起点圆点右侧中间出发
-        path.move(to: CGPoint(x: 9, y: 13))
-        // 向右横走
-        path.addLine(to: CGPoint(x: 14, y: 13))
-        // U 形拐到中部（向下再向左）
-        path.addCurve(to: CGPoint(x: 11, y: 9),
-                      control1: CGPoint(x: 14, y: 11),
-                      control2: CGPoint(x: 13, y: 9))
-        // 向左横走
-        path.addLine(to: CGPoint(x: 7, y: 9))
-        // U 形拐到右（向上再向右）
-        path.addCurve(to: CGPoint(x: 10, y: 5),
-                      control1: CGPoint(x: 7, y: 7),
-                      control2: CGPoint(x: 8, y: 5))
-        // 向右横走
-        path.addLine(to: CGPoint(x: 17, y: 5))
-
-        ctx.setStrokeColor(NSColor.black.cgColor)
-        ctx.setLineWidth(1.5)
-        ctx.setLineCap(.round)
-        ctx.setLineJoin(.round)
-        ctx.addPath(path)
-        ctx.strokePath()
-
-        // 终点圆点（5px 直径）
-        ctx.setFillColor(NSColor.black.cgColor)
-        ctx.fillEllipse(in: CGRect(x: 10, y: 2, width: 6, height: 6))
-
-        image.unlockFocus()
         return image
     }()
     private let iconView = NSImageView()
