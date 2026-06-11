@@ -40,6 +40,8 @@ final class ProxyServer: @unchecked Sendable {
     private var _port: UInt16 = AppConfig.defaultProxyPort
     private var _requestCount = 0
     private var _vuLevel: Double = 0.0
+    private var _vuPeakLevel: Double = 0.0
+    private var _vuPrevPeakLevel: Double = 0.0
     private var _activeConnectionCount = 0
     private var _activeCodexConnectionCount = 0
     private var _listenerError: String?
@@ -54,6 +56,8 @@ final class ProxyServer: @unchecked Sendable {
     var port: UInt16 { lock.withLock { _port } }
     var requestCount: Int { lock.withLock { _requestCount } }
     var vuLevel: Double { lock.withLock { _vuLevel } }
+    var vuPeakLevel: Double { lock.withLock { _vuPeakLevel } }
+    var vuPrevPeakLevel: Double { lock.withLock { _vuPrevPeakLevel } }
     var hasActiveConnection: Bool { lock.withLock { _activeConnectionCount > 0 } }
     var hasActiveCodexConnection: Bool { lock.withLock { !activeCodexConnectionIds.isEmpty } }
     var listenerError: String? { lock.withLock { _listenerError } }
@@ -75,14 +79,41 @@ final class ProxyServer: @unchecked Sendable {
     func recordRequest() {
         lock.withLock {
             _requestCount += 1
-            _vuLevel = min(1.0, _vuLevel + 0.5)
+            let newLevel = min(1.0, _vuLevel + 0.3)
+
+            // VU 已从峰值大幅衰减 → 新的一轮开始，旧峰值降级
+            if _vuPeakLevel > 0 && _vuLevel < _vuPeakLevel * 0.5 {
+                _vuPrevPeakLevel = _vuPeakLevel
+                _vuPeakLevel = 0
+            }
+
+            // 新一轮（电平从 0 开始），清除上一轮峰值线
+            if _vuPrevPeakLevel > 0 && _vuLevel == 0 {
+                _vuPrevPeakLevel = 0
+            }
+
+
+            // 冲破当前峰值 → 降级
+            if newLevel > _vuPeakLevel && _vuPeakLevel > 0 {
+                _vuPrevPeakLevel = _vuPeakLevel
+                _vuPeakLevel = 0
+            }
+            // 连上一个峰值也冲破了 → 清除
+            if newLevel > _vuPrevPeakLevel && _vuPrevPeakLevel > 0 {
+                _vuPrevPeakLevel = 0
+            }
+            _vuLevel = newLevel
         }
     }
 
     /// 每帧衰减 VU 电平
     func decayVU() {
         lock.withLock {
-            _vuLevel = max(0, _vuLevel - 0.05)
+            // 衰减开始时捕获峰值位置（充满时不捕获）
+            if _vuLevel > 0 && _vuLevel < 1.0 && _vuPeakLevel == 0 {
+                _vuPeakLevel = _vuLevel
+            }
+            _vuLevel = max(0, _vuLevel - 0.02)
         }
     }
     func start(port: UInt16? = nil) throws {
