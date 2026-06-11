@@ -79,7 +79,7 @@ final class ProxyServer: @unchecked Sendable {
     func recordRequest() {
         lock.withLock {
             _requestCount += 1
-            let newLevel = min(1.0, _vuLevel + 0.5)
+            let newLevel = min(1.0, _vuLevel + 0.1)
 
             // 更新当前电平
             _vuLevel = newLevel
