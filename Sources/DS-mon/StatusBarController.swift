@@ -280,6 +280,7 @@ class StatusBarView: NSView {
         super.init(frame: frame)
         iconView.image = icon
         iconView.isEditable = false
+        iconView.imageScaling = .scaleProportionallyUpOrDown
         iconView.frame = CGRect(x: 1, y: 0, width: 18, height: 18)
         iconView.autoresizingMask = [.maxXMargin, .minYMargin, .maxYMargin]
         addSubview(iconView)
