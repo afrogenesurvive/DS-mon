@@ -267,8 +267,8 @@ class StatusBarView: NSView {
 
     // MARK: 布局常量
     private let barWidth: CGFloat = 5.0
-    private let barHeight: CGFloat = 2.8
-    private let barGap: CGFloat = 0.5
+    private let barHeight: CGFloat = 3.0
+    private let barGap: CGFloat = 1.0
     private let columnGap: CGFloat = 1.0
     private let leadingGap: CGFloat = 1
 
@@ -489,16 +489,19 @@ class StatusBarView: NSView {
         ctx.addPath(bgPath)
         ctx.fillPath()
 
-        // 从下往上填充
+        // 从下往上填充（逐格）
         if fillRatio > 0 {
-            let fillH = totalH * min(max(fillRatio, 0), 1)
-            let fillRect = CGRect(x: x, y: topY, width: barWidth, height: fillH)
-            ctx.saveGState()
-            ctx.addPath(bgPath)
-            ctx.clip()
-            ctx.setFillColor(color.cgColor)
-            ctx.fill(fillRect)
-            ctx.restoreGState()
+            let filledCount = Int(CGFloat(5) * min(max(fillRatio, 0), 1))
+            let segH = barHeight
+            let segGap = barGap
+            for i in 0..<filledCount {
+                let y = topY + CGFloat(4 - i) * (segH + segGap)
+                let segRect = CGRect(x: x, y: y, width: barWidth, height: segH)
+                let segPath = CGPath(roundedRect: segRect, cornerWidth: 1, cornerHeight: 1, transform: nil)
+                ctx.setFillColor(color.cgColor)
+                ctx.addPath(segPath)
+                ctx.fillPath()
+            }
         }
 
         // 峰值线（在填充之上绘制，防止被覆盖）
