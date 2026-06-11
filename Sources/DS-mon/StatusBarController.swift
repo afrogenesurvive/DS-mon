@@ -236,11 +236,38 @@ class StatusBarView: NSView {
     weak var target: AnyObject?
     var action: Selector?
 
-    private let icon: NSImage? = {
-        guard let url = Bundle.module.url(forResource: "menu_icon", withExtension: "png"),
-              let image = NSImage(contentsOf: url) else { return nil }
-        image.size = NSSize(width: 18, height: 18)
+    private let icon: NSImage = {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size)
         image.isTemplate = true
+        image.lockFocusFlipped(false)
+        guard let ctx = NSGraphicsContext.current?.cgContext else {
+            image.unlockFocus()
+            return image
+        }
+        ctx.setShouldAntialias(true)
+        ctx.setAllowsAntialiasing(true)
+
+        // S 形曲线路径
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 3, y: 15))
+        path.addCurve(to: CGPoint(x: 15, y: 3),
+                      control1: CGPoint(x: 3, y: 9),
+                      control2: CGPoint(x: 15, y: 9))
+
+        ctx.setStrokeColor(NSColor.black.cgColor)
+        ctx.setLineWidth(1.5)
+        ctx.setLineCap(.round)
+        ctx.addPath(path)
+        ctx.strokePath()
+
+        // 起点圆点
+        ctx.setFillColor(NSColor.black.cgColor)
+        ctx.fillEllipse(in: CGRect(x: 1.5, y: 13.5, width: 3, height: 3))
+        // 终点圆点
+        ctx.fillEllipse(in: CGRect(x: 13.5, y: 1.5, width: 3, height: 3))
+
+        image.unlockFocus()
         return image
     }()
     private let iconView = NSImageView()
