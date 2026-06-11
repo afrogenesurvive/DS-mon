@@ -492,7 +492,8 @@ class StatusBarView: NSView {
             let peakY = topY + totalH * (1 - min(max(CGFloat(peakRatio), 0), 1))
             let peakLineRect = CGRect(x: x - 1, y: peakY, width: barWidth + 2, height: 1.5)
             let peakPath = CGPath(roundedRect: peakLineRect, cornerWidth: 0.75, cornerHeight: 0.75, transform: nil)
-            ctx.setFillColor(color.withAlphaComponent(0.9).cgColor)
+            let peakColor = NSColor.systemRed
+            ctx.setFillColor(peakColor.withAlphaComponent(0.9).cgColor)
             ctx.addPath(peakPath)
             ctx.fillPath()
         }
@@ -501,7 +502,7 @@ class StatusBarView: NSView {
             let prevY = topY + totalH * (1 - min(max(CGFloat(prevPeakRatio), 0), 1))
             let prevLineRect = CGRect(x: x + 0.5, y: prevY, width: barWidth - 1, height: 1)
             let prevPath = CGPath(roundedRect: prevLineRect, cornerWidth: 0.5, cornerHeight: 0.5, transform: nil)
-            ctx.setFillColor(color.withAlphaComponent(0.4).cgColor)
+            ctx.setFillColor(NSColor.systemRed.withAlphaComponent(0.4).cgColor)
             ctx.addPath(prevPath)
             ctx.fillPath()
         }
