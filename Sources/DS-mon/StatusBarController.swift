@@ -248,12 +248,12 @@ class StatusBarView: NSView {
         ctx.setShouldAntialias(true)
         ctx.setAllowsAntialiasing(true)
 
-        // S 形曲线路径
+        // S 形曲线路径（起点左下，终点右上，弧线向外弯曲）
         let path = CGMutablePath()
-        path.move(to: CGPoint(x: 3, y: 15))
-        path.addCurve(to: CGPoint(x: 15, y: 3),
-                      control1: CGPoint(x: 3, y: 9),
-                      control2: CGPoint(x: 15, y: 9))
+        path.move(to: CGPoint(x: 4, y: 15))
+        path.addCurve(to: CGPoint(x: 14, y: 3),
+                      control1: CGPoint(x: 0, y: 10),
+                      control2: CGPoint(x: 18, y: 8))
 
         ctx.setStrokeColor(NSColor.black.cgColor)
         ctx.setLineWidth(1.5)
@@ -261,11 +261,11 @@ class StatusBarView: NSView {
         ctx.addPath(path)
         ctx.strokePath()
 
-        // 起点圆点
+        // 起点圆点（4px 直径）
         ctx.setFillColor(NSColor.black.cgColor)
-        ctx.fillEllipse(in: CGRect(x: 1.5, y: 13.5, width: 3, height: 3))
-        // 终点圆点
-        ctx.fillEllipse(in: CGRect(x: 13.5, y: 1.5, width: 3, height: 3))
+        ctx.fillEllipse(in: CGRect(x: 2, y: 13, width: 4, height: 4))
+        // 终点圆点（4px 直径）
+        ctx.fillEllipse(in: CGRect(x: 12, y: 1, width: 4, height: 4))
 
         image.unlockFocus()
         return image
