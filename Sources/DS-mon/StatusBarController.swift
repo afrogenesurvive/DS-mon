@@ -248,24 +248,39 @@ class StatusBarView: NSView {
         ctx.setShouldAntialias(true)
         ctx.setAllowsAntialiasing(true)
 
-        // S 形曲线路径（起点左下，终点右上，弧线向外弯曲）
+        // 起点圆点（8px 直径）
+        ctx.setFillColor(NSColor.black.cgColor)
+        ctx.fillEllipse(in: CGRect(x: 1, y: 9, width: 8, height: 8))
+
+        // 路径：右→U拐到中部→左→U拐到右→到终点
         let path = CGMutablePath()
-        path.move(to: CGPoint(x: 4, y: 15))
-        path.addCurve(to: CGPoint(x: 14, y: 3),
-                      control1: CGPoint(x: 0, y: 10),
-                      control2: CGPoint(x: 18, y: 8))
+        // 从起点圆点右侧中间出发
+        path.move(to: CGPoint(x: 9, y: 13))
+        // 向右横走
+        path.addLine(to: CGPoint(x: 14, y: 13))
+        // U 形拐到中部（向下再向左）
+        path.addCurve(to: CGPoint(x: 11, y: 9),
+                      control1: CGPoint(x: 14, y: 11),
+                      control2: CGPoint(x: 13, y: 9))
+        // 向左横走
+        path.addLine(to: CGPoint(x: 7, y: 9))
+        // U 形拐到右（向上再向右）
+        path.addCurve(to: CGPoint(x: 10, y: 5),
+                      control1: CGPoint(x: 7, y: 7),
+                      control2: CGPoint(x: 8, y: 5))
+        // 向右横走
+        path.addLine(to: CGPoint(x: 17, y: 5))
 
         ctx.setStrokeColor(NSColor.black.cgColor)
         ctx.setLineWidth(1.5)
         ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
         ctx.addPath(path)
         ctx.strokePath()
 
-        // 起点圆点（4px 直径）
+        // 终点圆点（8px 直径）
         ctx.setFillColor(NSColor.black.cgColor)
-        ctx.fillEllipse(in: CGRect(x: 2, y: 13, width: 4, height: 4))
-        // 终点圆点（4px 直径）
-        ctx.fillEllipse(in: CGRect(x: 12, y: 1, width: 4, height: 4))
+        ctx.fillEllipse(in: CGRect(x: 9, y: 1, width: 8, height: 8))
 
         image.unlockFocus()
         return image
