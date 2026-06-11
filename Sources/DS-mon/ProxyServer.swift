@@ -95,7 +95,7 @@ final class ProxyServer: @unchecked Sendable {
     /// 每帧衰减 VU 电平
     func decayVU() {
         lock.withLock {
-            _vuLevel = max(0, _vuLevel - 0.02)
+            _vuLevel = max(0, _vuLevel - 0.01)
         }
     }
     func start(port: UInt16? = nil) throws {
