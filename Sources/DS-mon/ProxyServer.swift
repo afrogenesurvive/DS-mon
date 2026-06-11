@@ -79,7 +79,7 @@ final class ProxyServer: @unchecked Sendable {
     func recordRequest() {
         lock.withLock {
             _requestCount += 1
-            let newLevel = min(1.0, _vuLevel + 0.3)
+            let newLevel = min(1.0, _vuLevel + 0.5)
 
             // VU 已从峰值大幅衰减 → 新的一轮开始，旧峰值降级
             if _vuPeakLevel > 0 && _vuLevel < _vuPeakLevel * 0.5 {
