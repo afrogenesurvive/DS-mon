@@ -107,7 +107,7 @@ final class ProxyServer: @unchecked Sendable {
     func decayVU() {
         lock.withLock {
             let oldLevel = _vuLevel
-            _vuLevel = max(0, _vuLevel - 0.067)
+            _vuLevel = max(0, _vuLevel - 0.033)
             // 电平完全衰减到 0，清除当前波次峰值
             if oldLevel > 0 && _vuLevel == 0 {
                 _vuPrevPeakLevel = 0
