@@ -267,8 +267,8 @@ class StatusBarView: NSView {
 
     // MARK: 布局常量
     private let barWidth: CGFloat = 5.0
-    private let barHeight: CGFloat = 3.0
-    private let barGap: CGFloat = 0.25
+    private let barHeight: CGFloat = 2.0
+    private let barGap: CGFloat = 1.5
     private let columnGap: CGFloat = 1.0
     private let leadingGap: CGFloat = 1
 
