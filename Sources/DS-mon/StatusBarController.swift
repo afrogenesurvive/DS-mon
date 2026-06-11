@@ -497,10 +497,8 @@ class StatusBarView: NSView {
             for i in 0..<filledCount {
                 let y = topY + CGFloat(i) * (segH + segGap)
                 let segRect = CGRect(x: x, y: y, width: barWidth, height: segH)
-                let segPath = CGPath(roundedRect: segRect, cornerWidth: 1, cornerHeight: 1, transform: nil)
                 ctx.setFillColor(color.cgColor)
-                ctx.addPath(segPath)
-                ctx.fillPath()
+                ctx.fill(segRect)
             }
         }
 
