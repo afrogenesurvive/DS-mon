@@ -343,12 +343,14 @@ class StatusBarView: NSView {
             ctx.fillPath()
 
             // 条①：VU 电平表 — 反映最近访问频率
+            let vuLevel = CGFloat(ProxyServer.shared.vuLevel)
+            let isCodex = ProxyServer.shared.hasActiveCodexConnection
+            let vuActive = hasActivity || vuLevel > 0
             let barColor1: NSColor
             let barFill1: CGFloat
-            if hasActivity {
-                let isCodex = ProxyServer.shared.hasActiveCodexConnection
+            if vuActive {
                 barColor1 = isCodex ? NSColor(red: 0x10/255.0, green: 0xB9/255.0, blue: 0x81/255.0, alpha: 1) : NSColor(red: 0x3B/255.0, green: 0x82/255.0, blue: 0xF6/255.0, alpha: 1)
-                barFill1 = CGFloat(ProxyServer.shared.vuLevel)
+                barFill1 = vuLevel
             } else {
                 barColor1 = .gray; barFill1 = 0
             }
