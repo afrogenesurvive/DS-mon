@@ -241,6 +241,7 @@ class StatusBarView: NSView {
         let dotDiameter: CGFloat = 5
         let dotRadius = dotDiameter / 2
         let lineWidth: CGFloat = 2
+        let cornerRadius: CGFloat = 3
         let color = NSColor.orange
 
         let image = NSImage(size: size)
@@ -252,14 +253,11 @@ class StatusBarView: NSView {
 
         let bounds = CGRect(origin: .zero, size: size)
 
-        // 起点：左侧中间偏上
+        // 路径关键点
         let startPoint = CGPoint(x: dotRadius, y: bounds.height * 0.35)
-        // 终点：右侧中间偏下
-        let endPoint = CGPoint(x: bounds.maxX - dotRadius, y: bounds.height * 0.65)
-
-        // 关键控制点：大弧度 S 形
-        let control1 = CGPoint(x: bounds.width * 0.5, y: startPoint.y)
-        let control2 = CGPoint(x: bounds.width * 0.5, y: endPoint.y)
+        let midTopRight = CGPoint(x: bounds.width * 0.7, y: startPoint.y)
+        let midBottomLeft = CGPoint(x: bounds.width * 0.3, y: bounds.height * 0.65)
+        let endPoint = CGPoint(x: bounds.maxX - dotRadius, y: midBottomLeft.y)
 
         // 两端圆点
         color.setFill()
@@ -274,12 +272,30 @@ class StatusBarView: NSView {
         NSBezierPath(ovalIn: startDotRect).fill()
         NSBezierPath(ovalIn: endDotRect).fill()
 
-        // S 形曲线
+        // 带圆角的 S 形路径
         let path = NSBezierPath()
         path.lineWidth = lineWidth
         path.lineCapStyle = .round
         path.move(to: startPoint)
-        path.curve(to: endPoint, controlPoint1: control1, controlPoint2: control2)
+        // 水平向右到第一个圆角
+        path.line(to: NSPoint(x: midTopRight.x - cornerRadius, y: midTopRight.y))
+        // 第一个圆角（右上转弯）
+        path.curve(
+            to: NSPoint(x: midTopRight.x, y: midTopRight.y + cornerRadius),
+            controlPoint1: NSPoint(x: midTopRight.x, y: midTopRight.y),
+            controlPoint2: NSPoint(x: midTopRight.x, y: midTopRight.y + cornerRadius)
+        )
+        // 垂直向下到第二个圆角起点
+        path.line(to: NSPoint(x: midBottomLeft.x + cornerRadius, y: midBottomLeft.y - cornerRadius))
+        // 第二个圆角（左下转弯）
+        path.curve(
+            to: NSPoint(x: midBottomLeft.x, y: midBottomLeft.y),
+            controlPoint1: NSPoint(x: midBottomLeft.x + cornerRadius, y: midBottomLeft.y),
+            controlPoint2: NSPoint(x: midBottomLeft.x, y: midBottomLeft.y)
+        )
+        // 水平向右到终点
+        path.line(to: endPoint)
+
         color.setStroke()
         path.stroke()
 
