@@ -346,7 +346,7 @@ class StatusBarView: NSView {
                 barColor1 = isCodex ? NSColor(red: 0x10/255.0, green: 0xB9/255.0, blue: 0x81/255.0, alpha: 1) : NSColor(red: 0x3B/255.0, green: 0x82/255.0, blue: 0xF6/255.0, alpha: 1)
                 barFill1 = CGFloat(ProxyServer.shared.vuLevel)
             } else {
-                barColor1 = .gray; barFill1 = 0.05
+                barColor1 = .gray; barFill1 = 0
             }
             let vuPeak = CGFloat(ProxyServer.shared.vuPeakLevel)
             let vuPrevPeak = CGFloat(ProxyServer.shared.vuPrevPeakLevel)
