@@ -492,17 +492,16 @@ class StatusBarView: NSView {
         ctx.addPath(bgPath)
         ctx.fillPath()
 
-        // 从下往上填充（逐格）
+        // 从下往上填充（平滑连续）
         if fillRatio > 0 {
-            let filledCount = Int(CGFloat(7) * min(max(fillRatio, 0), 1))
-            let segH = barHeight
-            let segGap = barGap
-            for i in 0..<filledCount {
-                let y = topY + CGFloat(i) * (segH + segGap)
-                let segRect = CGRect(x: x, y: y, width: barWidth, height: segH)
-                ctx.setFillColor(color.cgColor)
-                ctx.fill(segRect)
-            }
+            let fillH = totalH * min(max(fillRatio, 0), 1)
+            let fillRect = CGRect(x: x, y: topY, width: barWidth, height: fillH)
+            ctx.saveGState()
+            ctx.addPath(bgPath)
+            ctx.clip()
+            ctx.setFillColor(color.cgColor)
+            ctx.fill(fillRect)
+            ctx.restoreGState()
         }
 
         // 峰值线（在填充之上绘制，防止被覆盖）
