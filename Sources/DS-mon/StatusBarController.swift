@@ -489,6 +489,22 @@ class StatusBarView: NSView {
         ctx.addPath(bgPath)
         ctx.fillPath()
 
+        // 峰值线 — 当前峰值（本轮最高）
+        if peakRatio > 0 {
+            let peakY = topY + totalH * min(max(CGFloat(peakRatio), 0), 1)
+            let peakLineRect = CGRect(x: x, y: peakY, width: barWidth, height: 1)
+            let peakColor = NSColor.systemRed
+            ctx.setFillColor(peakColor.withAlphaComponent(0.9).cgColor)
+            ctx.fill(peakLineRect)
+        }
+        // 上一个峰值线
+        if prevPeakRatio > 0 {
+            let prevY = topY + totalH * min(max(CGFloat(prevPeakRatio), 0), 1)
+            let prevLineRect = CGRect(x: x, y: prevY, width: barWidth, height: 1)
+            ctx.setFillColor(NSColor.systemRed.withAlphaComponent(0.9).cgColor)
+            ctx.fill(prevLineRect)
+        }
+
         // 从下往上填充
         guard fillRatio > 0 else { return }
         let fillH = totalH * min(max(fillRatio, 0), 1)
@@ -499,22 +515,6 @@ class StatusBarView: NSView {
         ctx.setFillColor(color.cgColor)
         ctx.fill(fillRect)
         ctx.restoreGState()
-        
-        // 峰值线 — 当前峰值（本轮最高）
-        if peakRatio > 0 {
-            let peakY = topY + totalH * min(max(CGFloat(peakRatio), 0), 1)
-            let peakLineRect = CGRect(x: x, y: peakY, width: barWidth, height: 1)
-            let peakColor = NSColor.systemRed
-            ctx.setFillColor(peakColor.withAlphaComponent(0.9).cgColor)
-            ctx.fill(peakLineRect)
-        }
-        // 上一个峰值线（略淡、略短）
-        if prevPeakRatio > 0 {
-            let prevY = topY + totalH * min(max(CGFloat(prevPeakRatio), 0), 1)
-            let prevLineRect = CGRect(x: x, y: prevY, width: barWidth, height: 1)
-            ctx.setFillColor(NSColor.systemRed.withAlphaComponent(0.9).cgColor)
-            ctx.fill(prevLineRect)
-        }
     }
 
     private func cacheHitColor(_ rate: Double) -> NSColor {
