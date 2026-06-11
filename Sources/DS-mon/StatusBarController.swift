@@ -129,7 +129,9 @@ class StatusBarController: NSObject, NSWindowDelegate {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
             let cacheHit = UsageStore.shared.currentHourCacheHitRate()
+            let todayHit = UsageStore.shared.todayCacheHitRate()
             self.statusView?.cacheHitRatio = cacheHit
+            self.statusView?.todayHitRate = todayHit
             self.statusView?.needsDisplay = true
         }
     }
@@ -254,6 +256,7 @@ class StatusBarView: NSView {
     // MARK: 数据
     private var balanceRatio: Double = 0
     var cacheHitRatio: Double?
+    var todayHitRate: Double?
     private var isError = false
     private var isLowAlerting = false
     private var isWarning = false
