@@ -81,43 +81,37 @@ final class ProxyServer: @unchecked Sendable {
             _requestCount += 1
             let newLevel = min(1.0, _vuLevel + 0.5)
 
-            // 电平大幅衰减后新请求 → 新一轮开始，当前峰值归档为上一轮峰值
-            if _vuPeakLevel > 0 && _vuLevel < _vuPeakLevel * 0.5 {
-                _vuPrevPeakLevel = _vuPeakLevel
-                _vuPeakLevel = 0
-            }
-
             // 更新当前电平
             _vuLevel = newLevel
 
-            // 如果新电平超过了记录中的峰值，旧峰值降级为 prevPeak
+            // 历史最高水位（永不下降，只增不减）
             if newLevel > _vuPeakLevel {
-                if _vuPeakLevel > 0 && _vuPrevPeakLevel == 0 {
-                    _vuPrevPeakLevel = _vuPeakLevel
-                }
                 _vuPeakLevel = newLevel
             }
-            
-            // 如果新电平连上一轮峰值也超过了，清除上一轮峰值
-            if newLevel > _vuPrevPeakLevel && _vuPrevPeakLevel > 0 {
-                _vuPrevPeakLevel = 0
-            }
 
-            // 电平从 0 开始的新一轮（_vuLevel 已更新），清除上一轮峰值
-            if _vuPrevPeakLevel > 0 && _vuLevel == 0 {
-                _vuPrevPeakLevel = 0
+            // 当前这波请求的峰值（每次请求都更新）
+            if newLevel > _vuPrevPeakLevel {
+                _vuPrevPeakLevel = newLevel
             }
+        }
+    }
+
+    /// 清除当前波次峰值（电平完全衰减到 0 时调用）
+    func clearCurrentPeak() {
+        lock.withLock {
+            _vuPrevPeakLevel = 0
         }
     }
 
     /// 每帧衰减 VU 电平
     func decayVU() {
         lock.withLock {
-            // 衰减开始时捕获峰值位置（充满时不捕获）
-            if _vuLevel > 0 && _vuLevel < 1.0 && _vuPeakLevel == 0 {
-                _vuPeakLevel = _vuLevel
-            }
+            let oldLevel = _vuLevel
             _vuLevel = max(0, _vuLevel - 0.02)
+            // 电平完全衰减到 0，清除当前波次峰值
+            if oldLevel > 0 && _vuLevel == 0 {
+                _vuPrevPeakLevel = 0
+            }
         }
     }
     func start(port: UInt16? = nil) throws {
