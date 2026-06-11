@@ -95,8 +95,11 @@ final class ProxyServer: @unchecked Sendable {
             // 更新当前电平
             _vuLevel = newLevel
 
-            // 如果新电平超过了记录中的峰值，更新峰值
+            // 如果新电平超过了记录中的峰值，旧峰值降级为 prevPeak
             if newLevel > _vuPeakLevel {
+                if _vuPeakLevel > 0 && _vuPrevPeakLevel == 0 {
+                    _vuPrevPeakLevel = _vuPeakLevel
+                }
                 _vuPeakLevel = newLevel
             }
             
