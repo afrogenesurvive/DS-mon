@@ -34,6 +34,7 @@ class StatusBarController: NSObject, NSWindowDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(menuIconChanged), name: .showMenuIconDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(indicatorChanged), name: .showIndicatorDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(menuBarTextDisplayChanged), name: .menuBarTextDisplayDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(providerChanged), name: .activeProviderDidChange, object: nil)
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: AppConfig.popoverWidth, height: AppConfig.popoverHeight),
                               styleMask: [.borderless, .fullSizeContentView],
@@ -218,6 +219,11 @@ class StatusBarController: NSObject, NSWindowDelegate {
         updateLabel()
     }
 
+
+    @objc private func providerChanged() {
+        updateLabel()
+        refreshCacheHitRate()
+    }
 }
 
 // MARK: - 菜单栏自定义视图 — LED 条阵列
@@ -342,7 +348,10 @@ class StatusBarView: NSView {
             } else {
                 barColor1 = .gray; barFill1 = 0.05
             }
-            drawSolidBar(ctx: ctx, x: bar1x, barH: barH, fillRatio: barFill1, color: barColor1)
+            let vuPeak = CGFloat(ProxyServer.shared.vuPeakLevel)
+            let vuPrevPeak = CGFloat(ProxyServer.shared.vuPrevPeakLevel)
+            drawSolidBar(ctx: ctx, x: bar1x, barH: barH, fillRatio: barFill1, color: barColor1,
+                        peakRatio: vuPeak, prevPeakRatio: vuPrevPeak)
 
             let bar2x = bar1x + barWidth + columnGap
             let hitRatio = cacheHitRatio ?? 0
@@ -454,7 +463,8 @@ class StatusBarView: NSView {
 
     /// 整条柱状图（从下往上填充）
     private func drawSolidBar(ctx: CGContext, x: CGFloat, barH: CGFloat,
-                              fillRatio: CGFloat, color: NSColor) {
+                              fillRatio: CGFloat, color: NSColor,
+                              peakRatio: CGFloat = 0, prevPeakRatio: CGFloat = 0) {
         let totalH = CGFloat(5) * barHeight + CGFloat(4) * barGap
         let topY = (barH - totalH) / 2
         let barRect = CGRect(x: x, y: topY, width: barWidth, height: totalH)
@@ -476,6 +486,25 @@ class StatusBarView: NSView {
         ctx.setFillColor(color.cgColor)
         ctx.fill(fillRect)
         ctx.restoreGState()
+        
+        // 峰值线 — 当前峰值（本轮最高）
+        if peakRatio > 0 {
+            let peakY = topY + totalH * (1 - min(max(CGFloat(peakRatio), 0), 1))
+            let peakLineRect = CGRect(x: x - 1, y: peakY, width: barWidth + 2, height: 1.5)
+            let peakPath = CGPath(roundedRect: peakLineRect, cornerWidth: 0.75, cornerHeight: 0.75, transform: nil)
+            ctx.setFillColor(color.withAlphaComponent(0.9).cgColor)
+            ctx.addPath(peakPath)
+            ctx.fillPath()
+        }
+        // 上一个峰值线（略淡、略短）
+        if prevPeakRatio > 0 {
+            let prevY = topY + totalH * (1 - min(max(CGFloat(prevPeakRatio), 0), 1))
+            let prevLineRect = CGRect(x: x + 0.5, y: prevY, width: barWidth - 1, height: 1)
+            let prevPath = CGPath(roundedRect: prevLineRect, cornerWidth: 0.5, cornerHeight: 0.5, transform: nil)
+            ctx.setFillColor(color.withAlphaComponent(0.4).cgColor)
+            ctx.addPath(prevPath)
+            ctx.fillPath()
+        }
     }
 
     private func cacheHitColor(_ rate: Double) -> NSColor {
