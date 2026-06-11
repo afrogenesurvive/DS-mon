@@ -89,29 +89,15 @@ final class ProxyServer: @unchecked Sendable {
                 _vuPeakLevel = newLevel
             }
 
-            // 当前这波请求的峰值（每次请求都更新）
-            if newLevel > _vuPrevPeakLevel {
-                _vuPrevPeakLevel = newLevel
-            }
-        }
-    }
-
-    /// 清除当前波次峰值（电平完全衰减到 0 时调用）
-    func clearCurrentPeak() {
-        lock.withLock {
-            _vuPrevPeakLevel = 0
+            // 当前波次峰值（每次新请求清除旧值，重新记录）
+            _vuPrevPeakLevel = newLevel
         }
     }
 
     /// 每帧衰减 VU 电平
     func decayVU() {
         lock.withLock {
-            let oldLevel = _vuLevel
             _vuLevel = max(0, _vuLevel - 0.013)
-            // 电平完全衰减到 0，清除当前波次峰值
-            if oldLevel > 0 && _vuLevel == 0 {
-                _vuPrevPeakLevel = 0
-            }
         }
     }
     func start(port: UInt16? = nil) throws {
