@@ -3,92 +3,19 @@
 Generate Apple ICNS icon from a source PNG image.
 Usage: gen_icns.py <input_png> <output_icns>
 
-On macOS 26+, iconutil no longer supports converting iconset -> icns,
-so we build the ICNS binary format directly.
+Uses sips for resize — embeds the PNG directly into ICNS without 
+Python re-compression. Source image should be opaque RGB or RGBA.
 """
 import struct
-import zlib
 import subprocess
 import sys
 import os
 import tempfile
 
-def add_alpha_channel(png_data):
-    """Convert an RGB PNG to RGBA (add opaque alpha channel)."""
-    pos = 8
-    chunks = []
-    while pos < len(png_data):
-        length = struct.unpack('>I', png_data[pos:pos+4])[0]
-        ctype = png_data[pos+4:pos+8]
-        data = png_data[pos+8:pos+8+length]
-        chunks.append((ctype, data))
-        pos += 12 + length
-    
-    ihdr_data = None
-    for ctype, data in chunks:
-        if ctype == b'IHDR':
-            ihdr_data = data
-            break
-    
-    if ihdr_data is None:
-        raise ValueError("No IHDR chunk found")
-    
-    w, h = struct.unpack('>II', ihdr_data[:8])
-    bit_depth = ihdr_data[8]
-    color_type = ihdr_data[9]
-    
-    if color_type == 6:  # Already RGBA
-        return png_data
-    
-    if color_type != 2:  # Not RGB
-        raise ValueError(f"Unsupported color type: {color_type}")
-    
-    raw_data = b''
-    for ctype, data in chunks:
-        if ctype == b'IDAT':
-            raw_data += data
-    decompressed = zlib.decompress(raw_data)
-    
-    new_rows = []
-    row_len = w * 3 + 1
-    for i in range(h):
-        row_start = i * row_len
-        row = decompressed[row_start:row_start + row_len]
-        filter_byte = row[0:1]
-        rgb = row[1:]
-        new_row = filter_byte + b''.join(rgb[j:j+3] + b'\xff' for j in range(0, len(rgb), 3))
-        new_rows.append(new_row)
-    
-    new_raw = b''.join(new_rows)
-    compressed_new = zlib.compress(new_raw)
-    
-    def make_chunk(ctype, data):
-        c = ctype + data
-        return struct.pack('>I', len(data)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
-    
-    new_ihdr = struct.pack('>IIBBBBB', w, h, bit_depth, 6, 0, 0, 0)
-    output = b'\x89PNG\r\n\x1a\n'
-    output += make_chunk(b'IHDR', new_ihdr)
-    output += make_chunk(b'IDAT', compressed_new)
-    output += make_chunk(b'IEND', b'')
-    return output
-
-
-def resize_png(png_path, size, output_path):
-    """Resize a PNG using sips."""
-    result = subprocess.run(
-        ['sips', '-z', str(size), str(size), png_path, '--out', output_path],
-        capture_output=True
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"sips resize failed: {result.stderr.decode()}")
-
-
 def create_icns(source_png, output_icns):
-    """Create ICNS file from source PNG."""
+    """Create ICNS file from source PNG using sips for resize."""
     tmpdir = tempfile.mkdtemp(prefix='icns_')
     try:
-        # Icon type codes for different sizes
         sizes = [
             (16, b'ic04'),
             (32, b'ic05'),
@@ -100,18 +27,17 @@ def create_icns(source_png, output_icns):
         
         entries = []
         for size, icon_type in sizes:
-            # Resize
             resized_path = os.path.join(tmpdir, f'icon_{size}.png')
-            resize_png(source_png, size, resized_path)
-            
-            # Read and add alpha
+            # sips resize — preserves original format (RGB for dslogo1.png)
+            subprocess.run(
+                ['sips', '-z', str(size), str(size), source_png, '--out', resized_path],
+                capture_output=True, check=True
+            )
             with open(resized_path, 'rb') as f:
                 png_data = f.read()
-            rgba_data = add_alpha_channel(png_data)
-            entries.append((icon_type, rgba_data))
+            entries.append((icon_type, png_data))
         
-        # Build ICNS
-        total_size = 8  # header
+        total_size = 8
         for icon_type, png_data in entries:
             total_size += 8 + len(png_data)
         
@@ -125,11 +51,9 @@ def create_icns(source_png, output_icns):
         
         return output_icns
     finally:
-        # Clean up temp files
         for f in os.listdir(tmpdir):
             os.remove(os.path.join(tmpdir, f))
         os.rmdir(tmpdir)
-
 
 if __name__ == '__main__':
     if len(sys.argv) != 3:
