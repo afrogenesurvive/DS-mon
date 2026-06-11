@@ -1,5 +1,4 @@
 import SwiftUI
-import Cocoa
 import AppKit
 import Charts
 
@@ -246,25 +245,23 @@ class StatusBarView: NSView {
 
         let image = NSImage(size: size)
         image.lockFocus()
-        guard let ctx = NSGraphicsContext.current?.cgContext else {
-            image.unlockFocus()
-            return image
-        }
+        defer { image.unlockFocus() }
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return image }
         ctx.setShouldAntialias(true)
         ctx.setAllowsAntialiasing(true)
 
         let bounds = CGRect(origin: .zero, size: size)
 
-        // 起点和终点：左下到右上
-        let startPoint = CGPoint(x: dotRadius, y: bounds.midY * 0.5)
-        let endPoint = CGPoint(x: bounds.maxX - dotRadius, y: bounds.midY * 1.5)
+        // 起点：左上，终点：右下
+        let startPoint = CGPoint(x: dotRadius, y: bounds.midY - 2)
+        let endPoint = CGPoint(x: bounds.maxX - dotRadius, y: bounds.midY + 2)
 
         // S 形曲线控制点
         let control1 = CGPoint(x: bounds.midX, y: startPoint.y)
         let control2 = CGPoint(x: bounds.midX, y: endPoint.y)
 
-        // 两端圆点
-        ctx.setFillColor(color.cgColor)
+        // 两端圆点（用 NSBezierPath 画圆）
+        color.setFill()
         let startDotRect = CGRect(x: startPoint.x - dotRadius,
                                   y: startPoint.y - dotRadius,
                                   width: dotDiameter,
@@ -273,20 +270,18 @@ class StatusBarView: NSView {
                                 y: endPoint.y - dotRadius,
                                 width: dotDiameter,
                                 height: dotDiameter)
-        ctx.fillEllipse(in: startDotRect)
-        ctx.fillEllipse(in: endDotRect)
+        NSBezierPath(ovalIn: startDotRect).fill()
+        NSBezierPath(ovalIn: endDotRect).fill()
 
-        // S 形曲线
-        let path = CGMutablePath()
+        // S 形曲线（用 NSBezierPath）
+        let path = NSBezierPath()
+        path.lineWidth = lineWidth
+        path.lineCapStyle = .round
         path.move(to: startPoint)
-        path.addCurve(to: endPoint, control1: control1, control2: control2)
-        ctx.setStrokeColor(color.cgColor)
-        ctx.setLineWidth(lineWidth)
-        ctx.setLineCap(.round)
-        ctx.addPath(path)
-        ctx.strokePath()
+        path.curve(to: endPoint, controlPoint1: control1, controlPoint2: control2)
+        color.setStroke()
+        path.stroke()
 
-        image.unlockFocus()
         image.isTemplate = true
         return image
     }()
