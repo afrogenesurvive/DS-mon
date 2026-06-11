@@ -59,7 +59,7 @@ class StatusBarController: NSObject, NSWindowDelegate {
 
     private func startUpdateTimer() {
         stopUpdateTimer()
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             ProxyServer.shared.decayVU()
             Task { @MainActor in self?.updateLabel() }
         }
