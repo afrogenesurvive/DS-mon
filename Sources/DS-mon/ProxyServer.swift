@@ -84,12 +84,9 @@ final class ProxyServer: @unchecked Sendable {
             // 更新当前电平
             _vuLevel = newLevel
 
-            // 历史最高水位（永不下降，只增不减）
-            if newLevel > _vuPeakLevel {
-                _vuPeakLevel = newLevel
-            }
-
-            // 当前波次峰值（每次新请求清除旧值，重新记录）
+            // 当前峰值更新前，旧值归档为上一次峰值
+            _vuPeakLevel = _vuPrevPeakLevel
+            // 当前峰值（每次新请求重新记录）
             _vuPrevPeakLevel = newLevel
         }
     }
