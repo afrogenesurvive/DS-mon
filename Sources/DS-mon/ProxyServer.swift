@@ -92,10 +92,20 @@ final class ProxyServer: @unchecked Sendable {
         }
     }
 
-    /// 每帧衰减 VU 电平
+    /// 每帧衰减 VU 电平（历史记录衰减更慢）
     func decayVU() {
         lock.withLock {
             _vuLevel = max(0, _vuLevel - 0.01)
+            // 历史记录衰减更慢（0.005），让平均线留存更久
+            if !_vuLevelHistory.isEmpty {
+                _vuLevelHistory = _vuLevelHistory.map { max(0, $0 - 0.005) }
+                _vuLevelHistory.removeAll { $0 <= 0 }
+                if !_vuLevelHistory.isEmpty {
+                    _vuAvgLevel = _vuLevelHistory.reduce(0, +) / Double(_vuLevelHistory.count)
+                } else {
+                    _vuAvgLevel = 0
+                }
+            }
         }
     }
     func start(port: UInt16? = nil) throws {
