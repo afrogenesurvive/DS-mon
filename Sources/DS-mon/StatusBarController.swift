@@ -250,7 +250,7 @@ class StatusBarView: NSView {
 
         // 起点圆点（5px 直径）
         ctx.setFillColor(NSColor.black.cgColor)
-        ctx.fillEllipse(in: CGRect(x: 2.5, y: 10.5, width: 5, height: 5))
+        ctx.fillEllipse(in: CGRect(x: 2, y: 10, width: 6, height: 6))
 
         // 路径：右→U拐到中部→左→U拐到右→到终点
         let path = CGMutablePath()
@@ -280,7 +280,7 @@ class StatusBarView: NSView {
 
         // 终点圆点（5px 直径）
         ctx.setFillColor(NSColor.black.cgColor)
-        ctx.fillEllipse(in: CGRect(x: 10.5, y: 2.5, width: 5, height: 5))
+        ctx.fillEllipse(in: CGRect(x: 10, y: 2, width: 6, height: 6))
 
         image.unlockFocus()
         return image
