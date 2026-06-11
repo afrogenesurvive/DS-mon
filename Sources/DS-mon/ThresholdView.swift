@@ -24,6 +24,7 @@ struct ThresholdView: View {
     @State private var providerConfigs: [ProviderConfig] = ProviderManager.shared.providers
     @State private var selectedProviderId: String = ProviderManager.shared.activeProviderId
     @State private var showAddProviderPopup = false
+    @State private var currentProviderModels: [String] = []
 
     // 服务
     @State private var codexRelayEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.codexRelayEnabled)
@@ -226,6 +227,31 @@ struct ThresholdView: View {
             // 右侧：选中提供商设置
             providerSettingsView
                 .frame(maxWidth: .infinity)
+        .onAppear {
+            stats.refresh()
+        }
+        .task(id: selectedProviderId) {
+            guard let provider = providerConfigs.first(where: { $0.id == selectedProviderId }),
+                  provider.pricingOverrides.isEmpty else { return }
+            let apiKey = ProviderManager.shared.apiKey(for: provider)
+            guard !apiKey.isEmpty else { return }
+            let urlStr = provider.baseURL + provider.apiPath + "/models"
+            guard let url = URL(string: urlStr) else { return }
+            var req = URLRequest(url: url)
+            req.setValue("\(provider.authHeaderPrefix) \(apiKey)", forHTTPHeaderField: "Authorization")
+            req.timeoutInterval = 5
+            do {
+                let (data, _) = try await URLSession.shared.data(for: req)
+                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+                if let list = json["data"] as? [[String: Any]] {
+                    currentProviderModels = list.compactMap { $0["id"] as? String }.sorted()
+                } else if let list = json["models"] as? [[String: Any]] {
+                    currentProviderModels = list.compactMap { $0["id"] as? String }.sorted()
+                }
+            } catch {
+                currentProviderModels = []
+            }
+        }
         }
     }
 
@@ -383,9 +409,15 @@ struct ThresholdView: View {
                 modelOverrideSection(provider: provider)
                 Divider()
 
-                // 余额预警（仅当提供商有余额 API）
+                // 开发平台
+                developerPlatformSection(provider: provider)
+                Divider()
+
+                // 余额预警 / 免费开关（当提供商无余额 API 时显示免费开关）
                 if provider.hasBalanceAPI {
                     thresholdSection
+                } else {
+                    freeToggleSection(provider: provider)
                     Divider()
                 }
 
@@ -877,7 +909,7 @@ struct ThresholdView: View {
                     .font(.callout)
                     .frame(width: 90, alignment: .leading)
 
-                let models = provider.pricingOverrides.keys.sorted()
+                let models = provider.pricingOverrides.isEmpty ? currentProviderModels : provider.pricingOverrides.keys.sorted()
                 let currentDefault = providerConfigs.first(where: { $0.id == provider.id })?.defaultModel ?? models.first ?? ""
 
                 Picker(selection: Binding(
@@ -959,6 +991,39 @@ struct ThresholdView: View {
         }
     }
 
+    // MARK: - 开发平台
+
+    private func developerPlatformSection(provider: ProviderConfig) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 4) {
+                Image(systemName: "link.circle.fill")
+                    .foregroundColor(.blue)
+                Text(Strings.developerPlatformSection)
+                    .font(.body).bold()
+            }
+
+            Text(Strings.developerPlatformHint)
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 8) {
+                TextField("https://...", text: Binding(
+                    get: { providerConfigs.first(where: { $0.id == provider.id })?.developerPlatformURL ?? "" },
+                    set: { newVal in
+                        if let idx = providerConfigs.firstIndex(where: { $0.id == provider.id }) {
+                            providerConfigs[idx].developerPlatformURL = newVal
+                            ProviderConfig.saveAll(providerConfigs)
+                            ProviderManager.shared.load()
+                        }
+                    }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.body, design: .monospaced))
+                .disableAutocorrection(true)
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private func saveKey() {
@@ -1013,5 +1078,40 @@ struct ThresholdView: View {
         }
         // 刷新状态
         stats.refresh()
+    }
+
+
+    private func freeToggleSection(provider: ProviderConfig) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                HStack(spacing: 4) {
+                    Image(systemName: "gift.fill")
+                        .foregroundColor(.orange)
+                    Text("免费模式")
+                        .font(.body).bold()
+                }
+                Spacer()
+                Toggle("免费模式", isOn: Binding(
+                    get: { provider.tier == .free },
+                    set: { isFree in
+                        var configs = providerConfigs
+                        if let idx = configs.firstIndex(where: { $0.id == provider.id }) {
+                            configs[idx].tier = isFree ? .free : .premium
+                            providerConfigs = configs
+                            ProviderConfig.saveAll(configs)
+                            ProviderManager.shared.load()
+                            stats.refresh()
+                        }
+                    }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .labelsHidden()
+            }
+            Text("开启后状态栏不显示余额，第三根柱子保持满格绿色")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(.vertical, 4)
     }
 }

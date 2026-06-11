@@ -14,6 +14,14 @@ enum BalanceStrategy: String, Codable, Sendable {
     case none
 }
 
+/// 提供商等级
+enum ProviderTier: String, Codable, Sendable {
+    /// 付费账户，有余额查询 API
+    case premium
+    /// 免费账户，无余额查询
+    case free
+}
+
 /// 单个提供商配置
 struct ProviderConfig: Identifiable, Codable, Equatable, Sendable {
     let id: String
@@ -42,9 +50,14 @@ struct ProviderConfig: Identifiable, Codable, Equatable, Sendable {
     var apiPath: String = "/v1"
     /// RPM 限制（nil = 无限制）
     var rateLimitRPM: Int?
+    /// 提供商等级
+    var tier: ProviderTier
 
     /// 模型定价覆盖（key = 模型ID 或前缀）
     var pricingOverrides: [String: ModelPricing]
+
+    /// 开发平台 URL（如 https://platform.deepseek.com/usage）
+    var developerPlatformURL: String
 
     init(id: String, name: String, baseURL: String,
          authHeaderPrefix: String = "Bearer",
@@ -58,7 +71,9 @@ struct ProviderConfig: Identifiable, Codable, Equatable, Sendable {
          defaultModel: String? = nil,
          pricingOverrides: [String: ModelPricing] = [:],
          apiPath: String = "/v1",
-         rateLimitRPM: Int? = nil)
+         tier: ProviderTier = .premium,
+         rateLimitRPM: Int? = nil,
+         developerPlatformURL: String = "")
     {
         self.id = id
         self.name = name
@@ -74,7 +89,9 @@ struct ProviderConfig: Identifiable, Codable, Equatable, Sendable {
         self.defaultModel = defaultModel
         self.apiPath = apiPath
         self.rateLimitRPM = rateLimitRPM
+        self.tier = tier
         self.pricingOverrides = pricingOverrides
+        self.developerPlatformURL = developerPlatformURL
     }
 
 }
@@ -98,66 +115,8 @@ extension ProviderConfig {
                 "deepseek-chat":     ModelPricing(label: "V4 Flash", hitPrice: 0.02, missPrice: 1.0, outPrice: 2.0),
                 "deepseek-reasoner": ModelPricing(label: "V4 Flash", hitPrice: 0.02, missPrice: 1.0, outPrice: 2.0),
             ],
-            rateLimitRPM: 200
-        ),
-        ProviderConfig(
-            id: "openai",
-            name: "OpenAI",
-            baseURL: "https://api.openai.com",
-            hasBalanceAPI: false,
-            currency: "USD",
-            order: 1,
-            pricingOverrides: [
-                "gpt-4o":         ModelPricing(label: "GPT-4o",        hitPrice: 1.25, missPrice: 2.50,  outPrice: 10.00),
-                "gpt-4o-mini":    ModelPricing(label: "GPT-4o Mini",   hitPrice: 0.075, missPrice: 0.15,  outPrice: 0.60),
-                "gpt-4.5":        ModelPricing(label: "GPT-4.5",       hitPrice: 37.50, missPrice: 75.0,  outPrice: 150.0),
-                "o1":             ModelPricing(label: "o1",            hitPrice: 7.50,  missPrice: 15.0,  outPrice: 60.0),
-                "o3-mini":        ModelPricing(label: "o3-mini",       hitPrice: 0.55,  missPrice: 1.10,  outPrice: 4.40),
-            ],
-            rateLimitRPM: 200
-        ),
-        ProviderConfig(
-            id: "anthropic",
-            name: "Anthropic",
-            baseURL: "https://api.anthropic.com",
-            authHeaderPrefix: "Bearer",
-            hasBalanceAPI: false,
-            currency: "USD",
-            order: 2,
-            pricingOverrides: [
-                "claude-sonnet-4":      ModelPricing(label: "Claude Sonnet 4",  hitPrice: 1.50, missPrice: 3.0, outPrice: 15.0),
-                "claude-haiku-3.5":     ModelPricing(label: "Claude Haiku",     hitPrice: 0.40, missPrice: 0.80, outPrice: 4.0),
-                "claude-opus-4":        ModelPricing(label: "Claude Opus 4",    hitPrice: 7.50, missPrice: 15.0, outPrice: 75.0),
-            ],
-            rateLimitRPM: 200
-        ),
-        ProviderConfig(
-            id: "openrouter",
-            name: "OpenRouter",
-            baseURL: "https://openrouter.ai",
-            hasBalanceAPI: true,
-            balanceURL: "/auth/key",
-            balanceStrategy: .openrouter,
-            currency: "USD",
-            order: 3,
-            pricingOverrides: [:],
-            apiPath: "/api/v1",
-            rateLimitRPM: 200
-        ),
-        ProviderConfig(
-            id: "google",
-            name: "Google Gemini",
-            baseURL: "https://generativelanguage.googleapis.com",
-            authHeaderPrefix: "Bearer",
-            hasBalanceAPI: false,
-            currency: "USD",
-            order: 4,
-            pricingOverrides: [
-                "gemini-2.5-pro": ModelPricing(label: "Gemini 2.5 Pro", hitPrice: 0.625, missPrice: 1.25, outPrice: 10.0),
-                "gemini-2.0-flash": ModelPricing(label: "Gemini 2.0 Flash", hitPrice: 0.05, missPrice: 0.10, outPrice: 0.40),
-            ],
-            apiPath: "/v1beta",
-            rateLimitRPM: 200
+            rateLimitRPM: 200,
+            developerPlatformURL: "https://platform.deepseek.com/usage"
         ),
         ProviderConfig(
             id: "moonshot",
@@ -167,7 +126,7 @@ extension ProviderConfig {
             balanceURL: "/v1/users/me/balance",
             balanceStrategy: .moonshot,
             currency: "CNY",
-            order: 5,
+            order: 1,
             pricingOverrides: [
                 "kimi-k2.6":                  ModelPricing(label: "K2.6",     hitPrice: 2.0, missPrice: 4.0, outPrice: 12.0),
                 "moonshot-v1-8k":             ModelPricing(label: "V1 8K",   hitPrice: 0.06, missPrice: 0.12, outPrice: 0.12),
@@ -175,7 +134,18 @@ extension ProviderConfig {
                 "moonshot-v1-128k":           ModelPricing(label: "V1 128K", hitPrice: 0.96, missPrice: 1.92, outPrice: 1.92),
                 "moonshot-v1-32k-vision-preview": ModelPricing(label: "V1 Vision", hitPrice: 0.24, missPrice: 0.48, outPrice: 0.48),
             ],
-            rateLimitRPM: 200
+            rateLimitRPM: 200,
+            developerPlatformURL: "https://platform.kimi.com/console/account"
+        ),
+        ProviderConfig(
+            id: "agnesai",
+            name: "AgnesAI",
+            baseURL: "https://apihub.agnes-ai.com",
+            hasBalanceAPI: false,
+            currency: "CNY",
+            order: 2,
+            pricingOverrides: [:],
+            tier: .free,
         ),
     ]
 
@@ -237,11 +207,21 @@ extension ProviderConfig {
                 if decoded[idx].defaultModel == nil {
                     decoded[idx].defaultModel = builtIn.defaultModel
                 }
+                // 补充开发平台 URL（如果内置有且用户未设置）
+                if decoded[idx].developerPlatformURL.isEmpty && !builtIn.developerPlatformURL.isEmpty {
+                    decoded[idx].developerPlatformURL = builtIn.developerPlatformURL
+                }
             } else {
                 // 新增：直接添加
                 decoded.append(builtIn)
             }
         }
+
+        // 移除已从内置列表中删除的旧预设（如 OpenAI、Anthropic 等）
+        decoded.removeAll { provider in
+            !builtIns.contains(where: { $0.id == provider.id })
+        }
+
 
         // 迁移 V3: 修复 baseURL 嵌入了 apiPath 的历史遗留数据
         // 这些数据来自早期版本，其中 apiPath 被拼接进了 baseURL

@@ -25,6 +25,7 @@ final class DeepSeekStats {
     private(set) var providerName: String = "DeepSeek"
     private(set) var providerID: String = "deepseek"
     private(set) var hasBalanceAPI: Bool = true
+    private(set) var providerTier: ProviderTier = .premium
 
     /// 余额预警阈值（默认 20）
     var threshold: Double {
@@ -89,6 +90,7 @@ final class DeepSeekStats {
             providerName = provider.name
             providerID = provider.id
             hasBalanceAPI = provider.hasBalanceAPI
+            providerTier = provider.tier
             currency = provider.currency
         } else {
             providerName = "—"
@@ -125,6 +127,7 @@ final class DeepSeekStats {
     // MARK: - 状态
 
     var balanceText: String {
+        if providerTier == .free { return "FREE" }
         if !hasBalanceAPI { return "—" }
         return String(format: Strings.balanceText, balance)
     }
@@ -150,7 +153,7 @@ final class DeepSeekStats {
 
     var defaultModelText: String {
         if let provider = ProviderManager.shared.activeProvider,
-           let model = provider.defaultModel ?? provider.pricingOverrides.keys.sorted().first {
+           let model = provider.defaultModel ?? (provider.pricingOverrides.isEmpty ? models.sorted().first : provider.pricingOverrides.keys.sorted().first) {
             return model
         }
         return "—"
@@ -181,9 +184,16 @@ final class DeepSeekStats {
                 await fetchBalance(apiKey: apiKey)
             } else {
                 // 无余额 API 的提供商：跳过余额查询
-                balance = 0
-                grantedBalance = 0
-                toppedUpBalance = 0
+                if providerTier == .free {
+                    balance = maxBalanceAmount * 2
+                    grantedBalance = 0
+                    toppedUpBalance = 0
+                } else {
+                    balance = 0
+                    grantedBalance = 0
+                    toppedUpBalance = 0
+                }
+                isAvailable = true
                 isAvailable = true
             }
             // 每次 refresh 都重新拉取模型列表

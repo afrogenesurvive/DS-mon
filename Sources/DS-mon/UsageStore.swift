@@ -337,6 +337,31 @@ actor UsageStore {
         return Double(hit) / Double(total)
     }
 
+    /// 今日缓存命中率（0.0 ~ 1.0），无数据时返回 nil
+    nonisolated func todayCacheHitRate() -> Double? {
+        guard let db else { return nil }
+        let cal = Calendar.current
+        let todayStart = cal.startOfDay(for: Date())
+        let todayEnd = cal.date(byAdding: .day, value: 1, to: todayStart)!
+        let sql = """
+        SELECT SUM(MAX(0, prompt_tokens - cached_tokens)),
+               SUM(cached_tokens)
+        FROM usage_log
+        WHERE timestamp >= ? AND timestamp < ?;
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
+        sqlite3_bind_double(stmt, 1, todayStart.timeIntervalSince1970)
+        sqlite3_bind_double(stmt, 2, todayEnd.timeIntervalSince1970)
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        let miss = Int(sqlite3_column_int64(stmt, 0))
+        let hit = Int(sqlite3_column_int64(stmt, 1))
+        let total = miss + hit
+        guard total > 0 else { return nil }
+        return Double(hit) / Double(total)
+    }
+
     /// 本周按日
     func queryDailyBreakdown(providerId: String? = nil) -> [TokenBar] {
         guard let db else { return [] }

@@ -30,6 +30,9 @@ struct StatsPopoverView: View {
         .onReceive(NotificationCenter.default.publisher(for: .usageRecorded)) { _ in
             loadUsage()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .activeProviderDidChange)) { _ in
+            loadUsage()
+        }
     }
 
     private var headerSection: some View {
@@ -40,14 +43,34 @@ struct StatsPopoverView: View {
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
             Spacer()
-            // 活跃提供商名称
-            Text(stats.providerName)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.secondary.opacity(0.1))
-                .cornerRadius(4)
+            // 活跃提供商名称 — 点击打开开发平台
+            let pID = stats.providerID
+            Button(action: {
+                let urlStr = ProviderManager.shared.providers
+                    .first(where: { $0.id == pID })?
+                    .developerPlatformURL ?? ""
+                guard !urlStr.isEmpty, let url = URL(string: urlStr) else { return }
+                // 先尝试默认浏览器，失败再 fallback 到 Safari
+                let ok = NSWorkspace.shared.open(url)
+                if !ok,
+                   let safariURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Safari") {
+                    NSWorkspace.shared.open([url],
+                        withApplicationAt: safariURL,
+                        configuration: NSWorkspace.OpenConfiguration())
+                }
+            }) {
+                Text(stats.providerName)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(.blue)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+            }
+            .buttonStyle(.plain)
+            .background(Color.blue.opacity(0.1))
+            .cornerRadius(4)
+            .help(ProviderManager.shared.providers
+                .first(where: { $0.id == pID })?
+                .developerPlatformURL ?? "")
             statusBadge
         }
         .padding(.horizontal, 14)
@@ -98,10 +121,12 @@ struct StatsPopoverView: View {
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                 Spacer()
-                Text("¥")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .alignmentGuide(.firstTextBaseline) { d in d[.firstTextBaseline] }
+                if stats.providerTier != .free {
+                    Text("¥")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .alignmentGuide(.firstTextBaseline) { d in d[.firstTextBaseline] }
+                }
                 Text(stats.balanceText.replacingOccurrences(of: "¥", with: ""))
                     .font(.system(size: 18, weight: .bold))
                     .monospacedDigit()
@@ -199,7 +224,7 @@ struct StatsPopoverView: View {
                 VStack(spacing: 5) {
                     usageRow("arrow.left.arrow.right", .blue, Strings.requestsLabel, Strings.requestsCount(u.requestCount))
                     usageRow("text.word.spacing", .blue.opacity(0.7), Strings.totalTokensLabel, Strings.tokensShort(u.totalTokens))
-                    usageRow("square.split.2x2", .teal, Strings.cachedTokensLabel, String(format: "%.0f%%", u.cacheHitRate))
+                    if u.cachedTokens > 0 { usageRow("square.split.2x2", .teal, Strings.cachedTokensLabel, String(format: "%.0f%%", u.cacheHitRate)) }
                     if u.reasoningTokens > 0 {
                         usageRow("brain.head.profile", .orange, Strings.reasoningTokensLabel, Strings.tokensShort(u.reasoningTokens))
                     }
@@ -278,6 +303,7 @@ struct StatsPopoverView: View {
 
             actionButton(icon: "arrow.clockwise", label: Strings.refresh, color: .blue) {
                 stats.refresh()
+                loadUsage()
             }
             actionButton(icon: "gearshape", label: Strings.settings, color: .secondary) {
                 StatusBarController.shared.closePopover()

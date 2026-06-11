@@ -81,8 +81,8 @@ enum Strings {
     static var popoverTitle: String { "DS-mon" }
     static var badgeLoading: String { isZH ? "查询中..." : "Loading..." }
     static var badgeNormal: String { isZH ? "正常" : "NORM" }
-    static var badgeError: String { isZH ? "异常" : "ERROR" }
-    static var badgeWarning: String { isZH ? "余额不足50%" : "LOW" }
+    static var badgeError: String { isZH ? "预警" : "WARN" }
+    static var badgeWarning: String { isZH ? "偏低" : "LOW" }
 
     // Balance section
     static var currentBalance: String { isZH ? "当前余额" : "Balance" }
@@ -163,6 +163,10 @@ enum Strings {
     static var relayProviderHint: String { isZH ? "Codex Relay 转发到哪个提供商" : "Which provider Codex Relay routes to" }
     static var relayProviderLabel: String { isZH ? "Relay 提供商" : "Relay Provider" }
     static var relayProviderSame: String { isZH ? "同当前活跃" : "Same as active" }
+    
+    // Dev platform
+    static var developerPlatformSection: String { isZH ? "开发平台" : "Developer Platform" }
+    static var developerPlatformHint: String { isZH ? "提供商开发平台的 URL，如 DeepSeek: platform.deepseek.com" : "URL for the provider's developer platform, e.g. DeepSeek: platform.deepseek.com" }
     static var noBalanceAPI: String { isZH ? "该提供商无余额查询" : "Balance API not available" }
     static var providerBalance: String { isZH ? "余额" : "Balance" }
     static func apiKeyHint(_ name: String) -> String {
