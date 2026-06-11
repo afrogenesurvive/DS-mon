@@ -87,11 +87,6 @@ final class ProxyServer: @unchecked Sendable {
                 _vuPeakLevel = 0
             }
 
-            // 电平从 0 开始的新一轮，清除上一轮峰值
-            if _vuPrevPeakLevel > 0 && _vuLevel == 0 {
-                _vuPrevPeakLevel = 0
-            }
-
             // 更新当前电平
             _vuLevel = newLevel
 
@@ -105,6 +100,11 @@ final class ProxyServer: @unchecked Sendable {
             
             // 如果新电平连上一轮峰值也超过了，清除上一轮峰值
             if newLevel > _vuPrevPeakLevel && _vuPrevPeakLevel > 0 {
+                _vuPrevPeakLevel = 0
+            }
+
+            // 电平从 0 开始的新一轮（_vuLevel 已更新），清除上一轮峰值
+            if _vuPrevPeakLevel > 0 && _vuLevel == 0 {
                 _vuPrevPeakLevel = 0
             }
         }
