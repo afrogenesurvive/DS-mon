@@ -81,28 +81,29 @@ final class ProxyServer: @unchecked Sendable {
             _requestCount += 1
             let newLevel = min(1.0, _vuLevel + 0.5)
 
-            // VU 已从峰值大幅衰减 → 新的一轮开始，旧峰值降级
+            // 电平大幅衰减后新请求 → 新一轮开始，当前峰值归档为上一轮峰值
             if _vuPeakLevel > 0 && _vuLevel < _vuPeakLevel * 0.5 {
                 _vuPrevPeakLevel = _vuPeakLevel
                 _vuPeakLevel = 0
             }
 
-            // 新一轮（电平从 0 开始），清除上一轮峰值线
+            // 电平从 0 开始的新一轮，清除上一轮峰值
             if _vuPrevPeakLevel > 0 && _vuLevel == 0 {
                 _vuPrevPeakLevel = 0
             }
 
+            // 更新当前电平
+            _vuLevel = newLevel
 
-            // 冲破当前峰值 → 降级
-            if newLevel > _vuPeakLevel && _vuPeakLevel > 0 {
-                _vuPrevPeakLevel = _vuPeakLevel
-                _vuPeakLevel = 0
+            // 如果新电平超过了记录中的峰值，更新峰值
+            if newLevel > _vuPeakLevel {
+                _vuPeakLevel = newLevel
             }
-            // 连上一个峰值也冲破了 → 清除
+            
+            // 如果新电平连上一轮峰值也超过了，清除上一轮峰值
             if newLevel > _vuPrevPeakLevel && _vuPrevPeakLevel > 0 {
                 _vuPrevPeakLevel = 0
             }
-            _vuLevel = newLevel
         }
     }
 
