@@ -489,7 +489,7 @@ class StatusBarView: NSView {
         
         // 峰值线 — 当前峰值（本轮最高）
         if peakRatio > 0 {
-            let peakY = topY + totalH * (1 - min(max(CGFloat(peakRatio), 0), 1))
+            let peakY = topY + totalH * min(max(CGFloat(peakRatio), 0), 1)
             let peakLineRect = CGRect(x: x - 1, y: peakY, width: barWidth + 2, height: 1.5)
             let peakPath = CGPath(roundedRect: peakLineRect, cornerWidth: 0.75, cornerHeight: 0.75, transform: nil)
             let peakColor = NSColor.systemRed
@@ -499,7 +499,7 @@ class StatusBarView: NSView {
         }
         // 上一个峰值线（略淡、略短）
         if prevPeakRatio > 0 {
-            let prevY = topY + totalH * (1 - min(max(CGFloat(prevPeakRatio), 0), 1))
+            let prevY = topY + totalH * min(max(CGFloat(prevPeakRatio), 0), 1)
             let prevLineRect = CGRect(x: x + 0.5, y: prevY, width: barWidth - 1, height: 1)
             let prevPath = CGPath(roundedRect: prevLineRect, cornerWidth: 0.5, cornerHeight: 0.5, transform: nil)
             ctx.setFillColor(NSColor.systemRed.withAlphaComponent(0.4).cgColor)
