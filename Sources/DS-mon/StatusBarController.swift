@@ -268,7 +268,7 @@ class StatusBarView: NSView {
     // MARK: 布局常量
     private let barWidth: CGFloat = 5.0
     private let barHeight: CGFloat = 2.0
-    private let barGap: CGFloat = 1.5
+    private let barGap: CGFloat = 0.333
     private let columnGap: CGFloat = 1.0
     private let leadingGap: CGFloat = 1
 
@@ -330,7 +330,7 @@ class StatusBarView: NSView {
             let bar1x = cursorX + leadingGap
             let hasActivity = ProxyServer.shared.hasActiveConnection
 
-            let totalH = CGFloat(5) * barHeight + CGFloat(4) * barGap
+            let totalH = CGFloat(7) * barHeight + CGFloat(6) * barGap
             let topY = (barH - totalH) / 2 - 1
             let barsRight = bar1x + 3 * barWidth + 2 * columnGap + 1
             let containerRect = CGRect(x: bar1x - 1, y: topY, width: barsRight - bar1x + 1, height: totalH + 2)
@@ -364,7 +364,7 @@ class StatusBarView: NSView {
 
             // 本日命中率线（红色细线）
             if let todayHit = self.todayHitRate, todayHit > 0 {
-                let totalH = CGFloat(5) * barHeight + CGFloat(4) * barGap
+                let totalH = CGFloat(7) * barHeight + CGFloat(6) * barGap
                 let topY = (barH - totalH) / 2 - 1
                 let hitY = topY + totalH * min(max(CGFloat(todayHit), 0), 1)
                 let hitLineRect = CGRect(x: bar2x, y: hitY, width: barWidth, height: 1)
@@ -426,7 +426,7 @@ class StatusBarView: NSView {
     /// animPhase 0-5 控制呼吸相位：偶数为亮，奇数为暗
     private func drawBreathingBar(ctx: CGContext, x: CGFloat, barH: CGFloat,
                                   animPhase: Int, color: NSColor, alerting: Bool, blinkOn: Bool) {
-        let totalH = CGFloat(5) * barHeight + CGFloat(4) * barGap
+        let totalH = CGFloat(7) * barHeight + CGFloat(6) * barGap
         let topY = (barH - totalH) / 2
         let barRect = CGRect(x: x, y: topY, width: barWidth, height: totalH)
 
@@ -458,7 +458,7 @@ class StatusBarView: NSView {
 
     /// 一列方块
     private func drawBarRects(ctx: CGContext, x: CGFloat, barH: CGFloat, filled: Int, color: NSColor, bgAlpha: CGFloat) {
-        let totalH = CGFloat(5) * barHeight + CGFloat(4) * barGap
+        let totalH = CGFloat(7) * barHeight + CGFloat(6) * barGap
         let topY = (barH - totalH) / 2
         for i in 0..<5 {
             let y = topY + CGFloat(4 - i) * (barHeight + barGap)
@@ -478,7 +478,7 @@ class StatusBarView: NSView {
     private func drawSolidBar(ctx: CGContext, x: CGFloat, barH: CGFloat,
                               fillRatio: CGFloat, color: NSColor,
                               peakRatio: CGFloat = 0, prevPeakRatio: CGFloat = 0) {
-        let totalH = CGFloat(5) * barHeight + CGFloat(4) * barGap
+        let totalH = CGFloat(7) * barHeight + CGFloat(6) * barGap
         let topY = (barH - totalH) / 2
         let barRect = CGRect(x: x, y: topY, width: barWidth, height: totalH)
         let corner: CGFloat = 1.5
@@ -491,11 +491,11 @@ class StatusBarView: NSView {
 
         // 从下往上填充（逐格）
         if fillRatio > 0 {
-            let filledCount = Int(CGFloat(5) * min(max(fillRatio, 0), 1))
+            let filledCount = Int(CGFloat(7) * min(max(fillRatio, 0), 1))
             let segH = barHeight
             let segGap = barGap
             for i in 0..<filledCount {
-                let y = topY + CGFloat(4 - i) * (segH + segGap)
+                let y = topY + CGFloat(6 - i) * (segH + segGap)
                 let segRect = CGRect(x: x, y: y, width: barWidth, height: segH)
                 let segPath = CGPath(roundedRect: segRect, cornerWidth: 1, cornerHeight: 1, transform: nil)
                 ctx.setFillColor(color.cgColor)
