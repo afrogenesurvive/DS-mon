@@ -499,7 +499,7 @@ class StatusBarView: NSView {
         if prevPeakRatio > 0 {
             let prevY = topY + totalH * min(max(CGFloat(prevPeakRatio), 0), 1)
             let prevLineRect = CGRect(x: x, y: prevY, width: barWidth, height: 1)
-            ctx.setFillColor(NSColor.systemRed.withAlphaComponent(0.4).cgColor)
+            ctx.setFillColor(NSColor.systemRed.withAlphaComponent(0.9).cgColor)
             ctx.fill(prevLineRect)
         }
     }
