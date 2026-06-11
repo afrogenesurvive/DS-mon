@@ -362,6 +362,16 @@ class StatusBarView: NSView {
             drawSolidBar(ctx: ctx, x: bar2x, barH: barH, fillRatio: hitFill,
                        color: cacheHitRatio.map { cacheHitColor($0) } ?? .gray)
 
+            // 本日命中率线（红色细线）
+            if let todayHit = self.todayHitRate, todayHit > 0 {
+                let totalH = CGFloat(5) * barHeight + CGFloat(4) * barGap
+                let topY = (barH - totalH) / 2 - 1
+                let hitY = topY + totalH * min(max(CGFloat(todayHit), 0), 1)
+                let hitLineRect = CGRect(x: bar2x, y: hitY, width: barWidth, height: 1)
+                ctx.setFillColor(NSColor.systemRed.withAlphaComponent(0.9).cgColor)
+                ctx.fill(hitLineRect)
+            }
+
             let bar3x = bar2x + barWidth + columnGap
             let balColor: NSColor = isLowAlerting ? (blinkOn ? .systemRed : .systemRed.withAlphaComponent(0.3)) : (isWarning ? .systemOrange : .systemGreen)
             drawSolidBar(ctx: ctx, x: bar3x, barH: barH, fillRatio: min(max(CGFloat(balanceRatio), 0), 1),
