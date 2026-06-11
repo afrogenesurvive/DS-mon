@@ -1,4 +1,5 @@
 import SwiftUI
+import Cocoa
 import AppKit
 import Charts
 
@@ -236,10 +237,56 @@ class StatusBarView: NSView {
     weak var target: AnyObject?
     var action: Selector?
 
-    private let icon: NSImage? = {
-        guard let url = Bundle.module.url(forResource: "menu_icon", withExtension: "png"),
-              let image = NSImage(contentsOf: url) else { return nil }
-        image.size = NSSize(width: 18, height: 18)
+    private let icon: NSImage = {
+        let size = NSSize(width: 18, height: 18)
+        let dotDiameter: CGFloat = 5
+        let dotRadius = dotDiameter / 2
+        let lineWidth: CGFloat = 2
+        let color = NSColor.orange
+
+        let image = NSImage(size: size)
+        image.lockFocus()
+        guard let ctx = NSGraphicsContext.current?.cgContext else {
+            image.unlockFocus()
+            return image
+        }
+        ctx.setShouldAntialias(true)
+        ctx.setAllowsAntialiasing(true)
+
+        let bounds = CGRect(origin: .zero, size: size)
+
+        // 起点和终点：左下到右上
+        let startPoint = CGPoint(x: dotRadius, y: bounds.midY * 0.5)
+        let endPoint = CGPoint(x: bounds.maxX - dotRadius, y: bounds.midY * 1.5)
+
+        // S 形曲线控制点
+        let control1 = CGPoint(x: bounds.midX, y: startPoint.y)
+        let control2 = CGPoint(x: bounds.midX, y: endPoint.y)
+
+        // 两端圆点
+        ctx.setFillColor(color.cgColor)
+        let startDotRect = CGRect(x: startPoint.x - dotRadius,
+                                  y: startPoint.y - dotRadius,
+                                  width: dotDiameter,
+                                  height: dotDiameter)
+        let endDotRect = CGRect(x: endPoint.x - dotRadius,
+                                y: endPoint.y - dotRadius,
+                                width: dotDiameter,
+                                height: dotDiameter)
+        ctx.fillEllipse(in: startDotRect)
+        ctx.fillEllipse(in: endDotRect)
+
+        // S 形曲线
+        let path = CGMutablePath()
+        path.move(to: startPoint)
+        path.addCurve(to: endPoint, control1: control1, control2: control2)
+        ctx.setStrokeColor(color.cgColor)
+        ctx.setLineWidth(lineWidth)
+        ctx.setLineCap(.round)
+        ctx.addPath(path)
+        ctx.strokePath()
+
+        image.unlockFocus()
         image.isTemplate = true
         return image
     }()
