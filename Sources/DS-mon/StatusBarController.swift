@@ -354,10 +354,9 @@ class StatusBarView: NSView {
             } else {
                 barColor1 = .gray; barFill1 = 0
             }
-            let vuPeak = CGFloat(ProxyServer.shared.vuPeakLevel)
-            let vuPrevPeak = CGFloat(ProxyServer.shared.vuPrevPeakLevel)
+            let vuAvg = CGFloat(ProxyServer.shared.vuAvgLevel)
             drawSolidBar(ctx: ctx, x: bar1x, barH: barH, fillRatio: barFill1, color: barColor1,
-                        peakRatio: vuPeak, prevPeakRatio: vuPrevPeak)
+                        avgRatio: vuAvg)
 
             let bar2x = bar1x + barWidth + columnGap
             let hitRatio = cacheHitRatio ?? 0
@@ -480,7 +479,7 @@ class StatusBarView: NSView {
     /// 整条柱状图（从下往上填充）
     private func drawSolidBar(ctx: CGContext, x: CGFloat, barH: CGFloat,
                               fillRatio: CGFloat, color: NSColor,
-                              peakRatio: CGFloat = 0, prevPeakRatio: CGFloat = 0) {
+                              avgRatio: CGFloat = 0) {
         let totalH = CGFloat(7) * barHeight + CGFloat(6) * barGap
         let topY = (barH - totalH) / 2
         let barRect = CGRect(x: x, y: topY, width: barWidth, height: totalH)
@@ -504,20 +503,12 @@ class StatusBarView: NSView {
             ctx.restoreGState()
         }
 
-        // 峰值线（在填充之上绘制，防止被覆盖）
-        if peakRatio > 0 {
-            let peakY = topY + totalH * min(max(CGFloat(peakRatio), 0), 1)
-            let peakLineRect = CGRect(x: x, y: peakY, width: barWidth, height: 1)
-            let peakColor = NSColor.systemRed
-            ctx.setFillColor(peakColor.withAlphaComponent(0.9).cgColor)
-            ctx.fill(peakLineRect)
-        }
-        // 上一个峰值线
-        if prevPeakRatio > 0 {
-            let prevY = topY + totalH * min(max(CGFloat(prevPeakRatio), 0), 1)
-            let prevLineRect = CGRect(x: x, y: prevY, width: barWidth, height: 1)
+        // 近 5 次请求平均线（红色细线）
+        if avgRatio > 0 {
+            let avgY = topY + totalH * min(max(CGFloat(avgRatio), 0), 1)
+            let avgLineRect = CGRect(x: x, y: avgY, width: barWidth, height: 1)
             ctx.setFillColor(NSColor.systemRed.withAlphaComponent(0.9).cgColor)
-            ctx.fill(prevLineRect)
+            ctx.fill(avgLineRect)
         }
     }
 

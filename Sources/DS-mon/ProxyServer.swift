@@ -40,8 +40,8 @@ final class ProxyServer: @unchecked Sendable {
     private var _port: UInt16 = AppConfig.defaultProxyPort
     private var _requestCount = 0
     private var _vuLevel: Double = 0.0
-    private var _vuPeakLevel: Double = 0.0
-    private var _vuPrevPeakLevel: Double = 0.0
+    private var _vuAvgLevel: Double = 0.0
+    private var _vuLevelHistory: [Double] = []
     private var _activeConnectionCount = 0
     private var _activeCodexConnectionCount = 0
     private var _listenerError: String?
@@ -56,8 +56,7 @@ final class ProxyServer: @unchecked Sendable {
     var port: UInt16 { lock.withLock { _port } }
     var requestCount: Int { lock.withLock { _requestCount } }
     var vuLevel: Double { lock.withLock { _vuLevel } }
-    var vuPeakLevel: Double { lock.withLock { _vuPeakLevel } }
-    var vuPrevPeakLevel: Double { lock.withLock { _vuPrevPeakLevel } }
+    var vuAvgLevel: Double { lock.withLock { _vuAvgLevel } }
     var hasActiveConnection: Bool { lock.withLock { _activeConnectionCount > 0 } }
     var hasActiveCodexConnection: Bool { lock.withLock { !activeCodexConnectionIds.isEmpty } }
     var listenerError: String? { lock.withLock { _listenerError } }
@@ -84,10 +83,12 @@ final class ProxyServer: @unchecked Sendable {
             // 更新当前电平
             _vuLevel = newLevel
 
-            // 当前峰值更新前，旧值归档为上一次峰值
-            _vuPeakLevel = _vuPrevPeakLevel
-            // 当前峰值（每次新请求重新记录）
-            _vuPrevPeakLevel = newLevel
+            // 维护近 5 次请求的滑动平均
+            _vuLevelHistory.append(newLevel)
+            if _vuLevelHistory.count > 5 {
+                _vuLevelHistory.removeFirst()
+            }
+            _vuAvgLevel = _vuLevelHistory.reduce(0, +) / Double(_vuLevelHistory.count)
         }
     }
 
