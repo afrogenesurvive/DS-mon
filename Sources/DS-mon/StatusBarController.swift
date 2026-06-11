@@ -236,69 +236,10 @@ class StatusBarView: NSView {
     weak var target: AnyObject?
     var action: Selector?
 
-    private let icon: NSImage = {
-        let size = NSSize(width: 18, height: 18)
-        let dotDiameter: CGFloat = 5
-        let dotRadius = dotDiameter / 2
-        let lineWidth: CGFloat = 2
-        let cornerRadius: CGFloat = 3
-        let color = NSColor.orange
-
-        let image = NSImage(size: size)
-        image.lockFocus()
-        defer { image.unlockFocus() }
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return image }
-        ctx.setShouldAntialias(true)
-        ctx.setAllowsAntialiasing(true)
-
-        let bounds = CGRect(origin: .zero, size: size)
-
-        // 路径关键点
-        let startPoint = CGPoint(x: dotRadius, y: bounds.height * 0.35)
-        let midTopRight = CGPoint(x: bounds.width * 0.7, y: startPoint.y)
-        let midBottomLeft = CGPoint(x: bounds.width * 0.3, y: bounds.height * 0.65)
-        let endPoint = CGPoint(x: bounds.maxX - dotRadius, y: midBottomLeft.y)
-
-        // 两端圆点
-        color.setFill()
-        let startDotRect = CGRect(x: startPoint.x - dotRadius,
-                                  y: startPoint.y - dotRadius,
-                                  width: dotDiameter,
-                                  height: dotDiameter)
-        let endDotRect = CGRect(x: endPoint.x - dotRadius,
-                                y: endPoint.y - dotRadius,
-                                width: dotDiameter,
-                                height: dotDiameter)
-        NSBezierPath(ovalIn: startDotRect).fill()
-        NSBezierPath(ovalIn: endDotRect).fill()
-
-        // 带圆角的 S 形路径
-        let path = NSBezierPath()
-        path.lineWidth = lineWidth
-        path.lineCapStyle = .round
-        path.move(to: startPoint)
-        // 水平向右到第一个圆角
-        path.line(to: NSPoint(x: midTopRight.x - cornerRadius, y: midTopRight.y))
-        // 第一个圆角（右上转弯）
-        path.curve(
-            to: NSPoint(x: midTopRight.x, y: midTopRight.y + cornerRadius),
-            controlPoint1: NSPoint(x: midTopRight.x, y: midTopRight.y),
-            controlPoint2: NSPoint(x: midTopRight.x, y: midTopRight.y + cornerRadius)
-        )
-        // 垂直向下到第二个圆角起点
-        path.line(to: NSPoint(x: midBottomLeft.x + cornerRadius, y: midBottomLeft.y - cornerRadius))
-        // 第二个圆角（左下转弯）
-        path.curve(
-            to: NSPoint(x: midBottomLeft.x, y: midBottomLeft.y),
-            controlPoint1: NSPoint(x: midBottomLeft.x + cornerRadius, y: midBottomLeft.y),
-            controlPoint2: NSPoint(x: midBottomLeft.x, y: midBottomLeft.y)
-        )
-        // 水平向右到终点
-        path.line(to: endPoint)
-
-        color.setStroke()
-        path.stroke()
-
+    private let icon: NSImage? = {
+        guard let url = Bundle.module.url(forResource: "menu_icon", withExtension: "png"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        image.size = NSSize(width: 18, height: 18)
         image.isTemplate = true
         return image
     }()
