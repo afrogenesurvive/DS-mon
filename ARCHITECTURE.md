@@ -1,180 +1,370 @@
-# DS-mon 架构图
+# DS-mon 架构图（更新版 v2.0）
 
-## 整体架构
+## 项目概述
 
-```mermaid
-graph TB
-    subgraph "🎯 入口层 Entry"
-        A["@main DSmonApp<br/>SwiftUI App"]
-        B["AppDelegate<br/>NSApplicationDelegate"]
-    end
+DS-mon —— macOS 菜单栏 API 余额监控 · 用量统计 · 本地代理转发
+Swift 6 · SwiftUI + AppKit · macOS 15 Sequoia+ · Apple Silicon
 
-    subgraph "📊 数据层 Data"
-        C["DeepSeekStats<br/>@Observable 数据模型"]
-        D["UsageStore<br/>SQLite 存储<br/>/usage.db"]
-        E["ModelPricing<br/>定价模型"]
-        F["UsageRecord / AggregatedUsage<br/>数据记录"]
-    end
+---
 
-    subgraph "🌐 网络层 Network"
-        G["ProxyServer<br/>NWListener 本地代理<br/>port: 18080"]
-    end
+## 1. 整体架构总览
 
-    subgraph "🖥️ 菜单栏 UI (AppKit)"
-        H["StatusBarController<br/>NSStatusItem 管理"]
-        I["StatusBarView<br/>自定义 NSView 绘制"]
-        J["Label Observation<br/>withObservationTracking"]
-    end
+```
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                               🎯 入口层 Entry Layer                                 │
+│                                                                                     │
+│  ┌───────────────────────────────────────────┐                                      │
+│  │          DSmonApp.swift (@main)           │                                      │
+│  │  ┌─────────────────────────────────────┐  │                                      │
+│  │  │        AppDelegate                  │  │                                      │
+│  │  │  ┌──────────────┐ ┌──────────────┐  │  │                                      │
+│  │  │  │  启动初始化     │ │  生命周期管理  │  │                                      │
+│  │  │  │  · 状态栏     │ │  · 停止代理   │  │                                      │
+│  │  │  │  · 恢复代理   │ │  · 关闭 SQLite│  │                                      │
+│  │  │  │  · 启动 Relay │ │  · 停止 Relay │  │                                      │
+│  │  │  └──────────────┘ └──────────────┘  │  │                                      │
+│  │  └─────────────────────────────────────┘  │                                      │
+│  └───────────────────────────────────────────┘                                      │
+└─────────────────────────────────────────────────────────────────────────────────────┘
 
-    subgraph "🪟 Popover UI (SwiftUI)"
-        K["StatsPopoverView<br/>弹出内容"]
-        L["UsageBarChart<br/>Swift Charts 柱状图"]
-        M["StatusDotView<br/>指示灯"]
-    end
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                          📊 数据模型层 Data Model Layer                              │
+│                                                                                     │
+│  ┌─────────────────────────────────────────┐                                        │
+│  │       DeepSeekStats (@Observable)       │                                        │
+│  │  ┌────────┬────────┬────────┬────────┐  │                                        │
+│  │  │ 余额   │ 模型   │ 状态   │ 预警   │  │                                        │
+│  │  │ 数据   │ 列表   │ 管理   │ 阈值   │  │                                        │
+│  │  └────────┴────────┴────────┴────────┘  │                                        │
+│  │  · 每60s自动轮询余额API                 │                                        │
+│  │  · 余额解析策略(DeepSeek/OpenRouter/Kimi)│                                       │
+│  │  · 余额预警呼吸闪烁                     │                                        │
+│  └─────────────────────────────────────────┘                                        │
+│                                                                                     │
+│  ┌─────────────────────────────────────────┐  ┌────────────────────────────────┐    │
+│  │          Provider (提供商配置)            │  │    ProviderManager (@Observable)│    │
+│  │  ┌──────────┬──────────┬──────────┐     │  │  ┌──────────────────────────┐  │    │
+│  │  │ DeepSeek │ Kimi     │ AgnesAI  │     │  │  │ · 提供商切换管理         │  │    │
+│  │  │ (预设)   │ (预设)   │ (预设)   │     │  │  │ · API Key AES-GCM 加密   │  │    │
+│  │  ├──────────┴──────────┴──────────┤     │  │  │ · 旧版 Keychain 迁移      │  │    │
+│  │  │ 自定义定价覆盖 / 余额策略 / API路径  │     │  │  · UserDefaults 持久化     │  │    │
+│  │  └─────────────────────────────────┘     │  │  · Notification广播(切换事件)│  │    │
+│  │                                          │  └──────────────────────────┘  │    │
+│  └─────────────────────────────────────────┘  └────────────────────────────────┘    │
+│                                                                                     │
+│  ┌─────────────────────────────────────────┐                                        │
+│  │      ModelPricing (定价模型)             │                                        │
+│  │  ┌──────────┬──────────┬──────────┐     │                                        │
+│  │  │ hitPrice │ missPrice│ outPrice │     │                                        │
+│  │  │ (缓存命中)│ (未命中)  │ (输出)   │     │                                        │
+│  │  └──────────┴──────────┴──────────┘     │                                        │
+│  │  · 默认定价 + 自定义覆盖                 │                                        │
+│  │  · 模型名前缀匹配                        │                                        │
+│  └─────────────────────────────────────────┘                                        │
+└─────────────────────────────────────────────────────────────────────────────────────┘
 
-    subgraph "⚙️ 设置面板 (SwiftUI)"
-        N["ThresholdView<br/>设置面板"]
-    end
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                          💾 持久化层 Persistence Layer                               │
+│                                                                                     │
+│  ┌─────────────────────────────────────────────────────┐                            │
+│  │            UsageStore (SQLite Actor)                 │                            │
+│  │  ┌───────────────────────────────────────────────┐  │                            │
+│  │  │                  usage_log                     │  │                            │
+│  │  │  ┌──────┬──────┬──────┬──────┬──────┬──────┐  │  │                            │
+│  │  │  │ id   │ ts   │ pid  │model │ tokens│cost │  │  │                            │
+│  │  │  ├──────┼──────┼──────┼──────┼──────┼──────┤  │  │                            │
+│  │  │  │      │      │      │      │      │      │  │  │                            │
+│  │  │  └──────┴──────┴──────┴──────┴──────┴──────┘  │  │                            │
+│  │  └───────────────────────────────────────────────┘  │                            │
+│  │                                                     │                            │
+│  │  ┌───────────────────────────────────────────────┐  │                            │
+│  │  │              聚合查询 API                      │  │                            │
+│  │  │  · queryDaily / queryWeekly / queryMonthly     │  │                            │
+│  │  │  · queryHourlyBreakdown (按小时)               │  │                            │
+│  │  │  · queryDailyBreakdown (按天)                  │  │                            │
+│  │  │  · currentHourCacheHitRate                     │  │                            │
+│  │  │  · todayCacheHitRate                           │  │                            │
+│  │  └───────────────────────────────────────────────┘  │                            │
+│  └─────────────────────────────────────────────────────┘                            │
+│                                                                                     │
+│  ┌──────────────────────────────────────────────┐                                   │
+│  │          SecureStore (AES-GCM 加密)           │                                   │
+│  │  · 256-bit 随机密钥 → ~/.ds-mon/.enc_key    │                                   │
+│  │  · 各提供商 API Key 分别加密 → UserDefaults  │                                   │
+│  │  · 文件权限 600                               │                                   │
+│  └──────────────────────────────────────────────┘                                   │
+└─────────────────────────────────────────────────────────────────────────────────────┘
 
-    subgraph "🌍 国际化"
-        O["Strings<br/>中/英 多语言"]
-        P["Language<br/>auto/zh/en"]
-    end
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                         🌐 网络服务层 Network Service Layer                           │
+│                                                                                     │
+│  ┌─────────────────────────────────────────────────────────┐                        │
+│  │            ProxyServer (NWListener 本地代理)              │                        │
+│  │  ┌─────────────────────────────────────────────────┐    │                        │
+│  │  │  · 端口: 18080 (可配置)                          │    │                        │
+│  │  │  · TCP 监听 + 新连接分发                          │    │                        │
+│  │  │  · VU电平表: 请求活动频率滑动平均(5次)              │    │                        │
+│  │  │  · 活跃连接计数                                   │    │                        │
+│  │  │  · codex-relay TCP健康检测(每15s)                 │    │                        │
+│  │  └─────────────────────────────────────────────────┘    │                        │
+│  └─────────────────────────────────────────────────────────┘                        │
+│                                                                                     │
+│  ┌─────────────────────────────────────────────────────────┐                        │
+│  │        ProxyConnectionHandler (单连接处理器)              │                        │
+│  │                                                         │                        │
+│  │  ┌──────────────────────┐  ┌────────────────────────┐  │                        │
+│  │  │    HTTP 请求接收      │  │    转发上游 & 流式响应    │  │                        │
+│  │  │  · CFHTTPMessage解析  │  │  · SSE 流式读取         │  │                        │
+│  │  │  · 大 body 分块接收   │  │  · 解析 usage 数据      │  │                        │
+│  │  │  · 请求路由判断       │  │  · 写入 SQLite          │  │                        │
+│  │  └──────────────────────┘  └────────────────────────┘  │                        │
+│  │                                                         │                        │
+│  │  ┌─────────────────────────────────────────────────┐    │                        │
+│  │  │              请求路由逻辑                        │    │                        │
+│  │  │                                                 │    │                        │
+│  │  │  POST /v1/chat/completions ────→ 直连上游 API    │    │                        │
+│  │  │  POST /v1/responses    ──────────→ codex-relay   │    │                        │
+│  │  │                                                 │    │                        │
+│  │  │  · 取活跃提供商的 baseURL + API Key              │    │                        │
+│  │  │  · RPM 限流 (按提供商配置)                       │    │                        │
+│  │  │  · 请求日志(proxy.log)                            │    │                        │
+│  │  └─────────────────────────────────────────────────┘    │                        │
+│  └─────────────────────────────────────────────────────────┘                        │
+│                                                                                     │
+│  ┌─────────────────────────────────────────────────────────┐                        │
+│  │       CodexRelayManager (子进程生命周期管理器)             │                        │
+│  │                                                         │                        │
+│  │  · 从 .app bundle 复制 codex-relay 到 ~/.ds-mon/       │                        │
+│  │  · Process 启动/停止（端口 4446）                       │                        │
+│  │  · 环境变量: CODEX_RELAY_API_KEY / PORT / UPSTREAM     │                        │
+│  │  · 模型映射: Codex 模型名 → 提供商默认模型              │                        │
+│  │  · 崩溃自动重启 (cooldown 5s)                          │                        │
+│  │  · 提供商切换→自动重启 relay                           │                        │
+│  │  · stderr → proxy.log 日志                              │                        │
+│  └─────────────────────────────────────────────────────────┘                        │
+└─────────────────────────────────────────────────────────────────────────────────────┘
 
-    subgraph "🌙 Moon Bridge"
-        Q["moonbridge 子进程<br/>Process 管理"]
-        R["moonbridge.yml 配置"]
-    end
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                        🖥️ 菜单栏 & UI 层 Menu Bar & UI Layer                        │
+│                                                                                     │
+│  ┌─────────────────────────────────────────────────────┐                           │
+│  │      StatusBarController (AppKit 状态栏)              │                           │
+│  │  ┌───────────────────────────────────────────────┐  │                           │
+│  │  │  StatusBarView (自定义 NSView 绘制)            │  │                           │
+│  │  │  ┌─────────────────────────────────────────┐  │  │                           │
+│  │  │  │  ┌──────┐ ┌──────┐ ┌──────┐  ┌──────┐ │  │  │                           │
+│  │  │  │  │ 图标  │ │ ① VU │ │ ② 缓存│ │ ③ 余额│ │  │  │                           │
+│  │  │  │  │      │ │ 电平  │ │ 命中率│ │ 比率 │ │  │  │                           │
+│  │  │  │  └──────┘ └──────┘ └──────┘ └──────┘ │  │  │                           │
+│  │  │  │  绿色/蓝色/灰   红→橙→青→绿  绿/橙/红   │  │  │                           │
+│  │  │  └─────────────────────────────────────────┘  │  │                           │
+│  │  │  · 定时器 0.1s 衰减 VU 电平                    │  │                           │
+│  │  │  · 请求完成后 500ms 防抖刷新缓存命中率           │  │                           │
+│  │  │  · 文字模式: 余额/命中率/关闭                   │  │                           │
+│  │  └───────────────────────────────────────────────┘  │                           │
+│  └─────────────────────────────────────────────────────┘                           │
+│                                                                                     │
+│  ┌─────────────────────────────────────────────────────┐                           │
+│  │     StatsPopoverView (SwiftUI 弹出面板)              │                           │
+│  │  ┌──────┬──────────┬──────────┬──────────┬──────┐   │                           │
+│  │  │ 头部  │ 余额区域   │ 信息区域   │ 用量统计  │ 操作栏│                           │
+│  │  │·名称 │ ·总余额   │·预警阈值  │·日/周/月  │·刷新 │                           │
+│  │  │·版本 │ ·赠送余额  │·默认模型  │·请求数    │·设置 │                           │
+│  │  │·状态 │ ·充值余额  │·可用模型  │·Toke ns  │·退出 │                           │
+│  │  │·提供商│          │·账户状态  │·缓存命中率 │      │                           │
+│  │  └──────┴──────────┴──────────┴──────────┴──────┘   │                           │
+│  │                                                     │                           │
+│  │  ┌──────────────────────────────────────────────┐   │                           │
+│  │  │  UsageBarChart (Swift Charts 堆叠柱状图)      │   │                           │
+│  │  │  ┌────────────┬────────────┬────────────┐    │   │                           │
+│  │  │  │  Hit(蓝)    │  Miss(深蓝) │  Out(最深蓝)│   │   │                           │
+│  │  │  │ 缓存命中     │ 缓存未命中   │  输出 tokens│   │   │                           │
+│  │  │  └────────────┴────────────┴────────────┘    │   │                           │
+│  │  │  · 鼠标悬停 tooltip 显示详细数据               │   │                           │
+│  │  │  · 接收 Notification.usageRecorded 自动刷新   │   │                           │
+│  │  └──────────────────────────────────────────────┘   │                           │
+│  └─────────────────────────────────────────────────────┘                           │
+│                                                                                     │
+│  ┌─────────────────────────────────────────────────────┐                           │
+│  │      ThresholdView (SwiftUI 设置面板 - 4标签页)       │                           │
+│  │                                                     │                           │
+│  │  ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌─────┐ │                           │
+│  │  │   通用     │ │   提供商   │ │   服务     │ │ 关于 │ │                           │
+│  │  │           │ │           │ │           │ │     │ │                           │
+│  │  │·菜单栏图标 │ │·提供商列表 │ │·代理开关   │ │版本 │ │                           │
+│  │  │·指示器开关 │ │·API Key   │ │·代理端口   │ │链接 │ │                           │
+│  │  │·文字显示   │ │·设为活跃  │ │·Relay开关  │ │     │ │                           │
+│  │  │·语言选择   │ │·定价覆盖   │ │·Relay状态  │ │     │ │                           │
+│  │  │·余额阈值   │ │·模型查询   │ │           │ │     │ │                           │
+│  │  └───────────┘ └───────────┘ └───────────┘ └─────┘ │                           │
+│  └─────────────────────────────────────────────────────┘                           │
+└─────────────────────────────────────────────────────────────────────────────────────┘
 
-    subgraph "🔗 外部依赖"
-        S["DeepSeek API<br/>api.deepseek.com"]
-        T["Keychain<br/>API Key 安全存储"]
-        U["Codex CLI<br/>客户端"]
-    end
-
-    %% 入口 → 各层
-    A --> B
-    B --> C
-    B --> H
-    B --> Q
-
-    %% 数据流
-    C -->|"读取 API Key"| T
-    C -->|"HTTP 请求"| S
-    C --> H
-
-    %% 代理流
-    U -->|"HTTP 请求转发"| G
-    G -->|"/v1/chat/completions"| S
-    G -->|"/v1/responses"| Q
-    Q --> R
-    G --> D
-
-    %% UI 绑定
-    H --> I
-    H --> K
-    K --> L
-    K --> M
-    H --> N
-
-    %% 数据 → UI
-    D --> K
-    C --> K
-    N --> C
-    N --> G
-    N --> B
-
-    %% 国际化
-    O -.-> K
-    O -.-> N
-    O -.-> H
-
-    %% 通知
-    G -.->|"NotificationCenter<br/>usageRecorded"| K
-    O -.->|"NotificationCenter<br/>languageDidChange"| H
-    N -.->|"NotificationCenter<br/>showMenuIconDidChange"| H
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                         🌍 国际化层 Internationalization Layer                       │
+│                                                                                     │
+│  ┌─────────────────────────────────────────────────────┐                           │
+│  │                 Strings (多语言枚举)                   │                           │
+│  │                                                     │                           │
+│  │  ┌──────────────────────────────────────────────┐   │                           │
+│  │  │  所有文本通过 isZH 计算当前语言自动切换         │   │                           │
+│  │  │  · auto: 跟随系统语言                          │   │                           │
+│  │  │  · zh-Hans: 简体中文                          │   │                           │
+│  │  │  · en: English                                │   │                           │
+│  │  │  · Notification.languageDidChange 广播 + 刷新  │   │                           │
+│  │  └──────────────────────────────────────────────┘   │                           │
+│  └─────────────────────────────────────────────────────┘                           │
+│                                                                                     │
+│  ┌─────────────────────────────────────────────────────┐                           │
+│  │         Constants (应用常量集中管理)                  │                           │
+│  │  ┌──────────────────────────────────────────────┐   │                           │
+│  │  │  · 刷新间隔: 余额60s / 模型3600s / 闪烁1.5s  │   │                           │
+│  │  │  · 代理: 端口18080 / 超时300s / body 256KB   │   │                           │
+│  │  │  · 健康检测: 端口4446 / 重试6次 / 间隔15s     │   │                           │
+│  │  │  · UI: 弹窗 290×500 / 设置 520×480          │   │                           │
+│  │  └──────────────────────────────────────────────┘   │                           │
+│  └─────────────────────────────────────────────────────┘                           │
+└─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 模块依赖关系
+---
 
-```mermaid
-graph LR
-    subgraph "文件级依赖"
-        DSmonApp["DSmonApp.swift"]
-        DeepSeekStats["DeepSeekStats.swift"]
-        ProxyServer["ProxyServer.swift"]
-        UsageStore["UsageStore.swift"]
-        StatsPopoverView["StatsPopoverView.swift"]
-        StatusBarController["StatusBarController.swift"]
-        ThresholdView["ThresholdView.swift"]
-        Strings["Strings.swift"]
-    end
+## 2. 数据流图
 
-    DSmonApp --> StatusBarController
-    DSmonApp --> DeepSeekStats
-    DSmonApp --> ProxyServer
+```
+                    ┌───────────────────────────┐
+                    │      API 客户端 (Codex CLI)  │
+                    │   base_url: localhost:18080  │
+                    └─────────────┬───────────────┘
+                                  │ HTTP POST
+                                  ▼
+                    ┌───────────────────────────┐
+                    │     ProxyServer (18080)    │
+                    │    NWListener TCP 监听      │
+                    └─────────────┬───────────────┘
+                                  │ dispatch
+                                  ▼
+                    ┌───────────────────────────┐
+                    │  ProxyConnectionHandler     │
+                    │  · 解析 HTTP 请求           │
+                    │  · 路由判断                 │
+                    └──────┬─────────────┬───────┘
+                           │             │
+              ┌────────────┘             └────────────┐
+              ▼                                       ▼
+  ┌──────────────────────┐              ┌──────────────────────┐
+  │  直连上游 API         │              │  codex-relay (4446)   │
+  │  (DeepSeek/Kimi/等)   │              │  协议转换器子进程        │
+  │  · 透明转发 HTTP       │              │  · Responses→Chat     │
+  │  · SSE 流式响应        │              │  · 模型映射             │
+  └──────────┬───────────┘              └──────────┬───────────┘
+             │                                     │
+             └─────────────┬───────────────────────┘
+                           ▼
+                    ┌───────────────────────────┐
+                    │  ProxyConnectionHandler     │
+                    │  · 流式转发响应回客户端       │
+                    │  · 解析 SSE usage 字段       │
+                    │  · 写入 UsageStore(SQLite)  │
+                    │  · 触发 requestCompleted    │
+                    └──────┬────────────────────┘
+                           │
+              ┌────────────┼────────────┐
+              ▼            ▼            ▼
+     ┌────────────┐ ┌──────────┐ ┌──────────────┐
+     │ UsageStore  │ │StatusBar  │ │ StatsPopover │
+     │ (SQLite)    │ │Controller │ │ (SwiftUI)    │
+     │             │ │刷新缓存   │ │              │
+     │ insert()    │ │命中率     │ │ loadUsage()  │
+     └────────────┘ └──────────┘ └──────────────┘
 
-    StatusBarController --> DeepSeekStats
-    StatusBarController --> StatsPopoverView
-    StatusBarController --> ThresholdView
-    StatusBarController --> Strings
-
-    StatsPopoverView --> DeepSeekStats
-    StatsPopoverView --> UsageStore
-    StatsPopoverView --> Strings
-
-    ThresholdView --> DeepSeekStats
-    ThresholdView --> Strings
-    ThresholdView --> ProxyServer
-
-    ProxyServer --> UsageStore
-    ProxyServer --> DeepSeekStats
+                    ┌───────────────────────────┐
+                    │     DeepSeekStats          │
+                    │  (每60s自动轮询)            │
+                    │                            │
+                    │  /user/balance  (DeepSeek) │
+                    │  /v1/users/me/balance(Kimi)│
+                    │  /auth/key     (OpenRouter)│
+                    │  /v1/models    (模型列表)   │
+                    └──────────┬────────────────┘
+                               │
+                               ▼
+                    ┌───────────────────────────┐
+                    │    ProviderManager         │
+                    │  · 读取 AES-GCM 加密 Key   │
+                    │  · 构造 Authorization 头   │
+                    └───────────────────────────┘
 ```
 
-## 数据流
+---
 
-```mermaid
-sequenceDiagram
-    participant Client as Codex CLI / 客户端
-    participant Proxy as ProxyServer (18080)
-    participant DS as DeepSeek API
-    participant MB as Moon Bridge (38441)
-    participant Store as UsageStore (SQLite)
-    participant UI as StatsPopoverView
+## 3. 事件/通知系统
 
-    Note over Client,UI: 请求转发流程
-
-    Client->>Proxy: HTTP POST /v1/chat/completions
-    Proxy->>DS: 透明转发请求
-    DS-->>Proxy: SSE 响应流 + usage
-    Proxy-->>Client: 转发响应
-    Proxy->>Store: 写入 UsageRecord
-    Proxy-->>UI: post usageRecorded 通知
-    UI->>Store: 重新查询聚合数据
-
-    Client->>Proxy: HTTP POST /v1/responses
-    Proxy->>MB: 转发到 Moon Bridge
-    MB-->>Proxy: SSE 响应 + event: response.completed
-    Proxy-->>Client: 转发响应
-    Proxy->>Store: 提取 usage 写入
-
-    Note over UI,Store: 数据查询流程
-
-    UI->>Store: queryDaily / queryWeekly / queryMonthly
-    Store-->>UI: AggregatedUsage[]
-    UI->>Store: queryHourlyBreakdown / queryDailyBreakdown
-    Store-->>UI: TokenBar[] (柱状图数据)
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│                       NotificationCenter 消息总线                          │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  .activeProviderDidChange ──────→ ProviderManager → DeepSeekStats.refresh│
+│                                       → CodexRelayManager 重启            │
+│                                       → StatusBarController 更新显示       │
+│                                                                           │
+│  .usageRecorded ──────────────────→ StatsPopoverView 重新查询 SQLite      │
+│                                                                           │
+│  .codexRelayStatusChanged ───────→ ThresholdView 更新 Relay 状态显示      │
+│                                                                           │
+│  .codexRelayRestartNeeded ───────→ AppDelegate → CodexRelayManager.start │
+│                                                                           │
+│  .languageDidChange ────────────→ StatusBarController 重绘 + Popover 刷新 │
+│                                                                           │
+│  .showMenuIconDidChange ────────→ StatusBarController 显示/隐藏菜单栏图标 │
+│                                                                           │
+│  .showIndicatorDidChange ───────→ StatusBarController 显示/隐藏 LED 条    │
+│                                                                           │
+│  .menuBarTextDisplayDidChange ──→ StatusBarController 切换文字模式        │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 关键设计说明
+---
 
-| 关注点 | 方案 |
-|--------|------|
-| **余额监控** | 每 60s 自动轮询 DeepSeek API，余额低于阈值时菜单栏红色闪烁 |
-| **API Key 安全** | 通过 macOS Keychain（Security Framework）存储 |
-| **用量统计** | 本地 HTTP 代理透明拦截 + 解析 SSE 流中的 usage 数据 |
-| **持久化** | SQLite (WAL 模式)，存储 usage 记录并支持按小时/天/周聚合 |
-| **国际化** | 枚举式 Strings + NotificationCenter 通知刷新 UI |
-| **Moon Bridge** | 子进程管理 + `/v1/responses` 路由到本地 38441 端口 |
-| **UI 刷新** | `@Observable` + `withObservationTracking` 增量更新 |
-| **Chart** | Apple Swift Charts 框架，支持交互式 tooltip |
+## 4. 文件依赖关系
+
+```
+DSmonApp.swift
+├── StatusBarController.swift ──── StatusBarView (自定义 NSView)
+│   ├── StatsPopoverView.swift ────── UsageBarChart (Swift Charts)
+│   ├── ThresholdView.swift ──────── 4 标签页设置面板
+│   └── Strings.swift
+│
+├── DeepSeekStats.swift
+│   ├── Provider.swift
+│   └── ProviderManager.swift ────── SecureStore (AES-GCM)
+│
+├── ProxyServer.swift
+│   └── ProxyConnectionHandler.swift
+│       ├── UsageStore.swift ───────── ModelPricing.swift
+│       └── RateLimiter (RPM 限流)
+│
+├── CodexRelayManager.swift
+│   └── Process (codex-relay 子进程)
+│
+├── Constants.swift
+└── Strings.swift
+```
+
+---
+
+## 5. 关键设计决策
+
+| 决策 | 方案 | 理由 |
+|------|------|------|
+| 加密存储 | AES-GCM (CryptoKit) + 本地 256-bit 密钥 | 替代已废弃的 Keychain，更可控 |
+| 用量存储 | SQLite WAL 模式 | 轻量、查询灵活、支持复杂聚合 |
+| 代理实现 | NWListener (Network.framework) | 原生 Swift，低开销，支持 TCP |
+| 协议转换 | 独立 Rust 二进制 (codex-relay) 子进程 | 隔离复杂性，崩溃不影响主进程 |
+| UI 刷新 | @Observable + 0.1s 定时器轮询 | 避免 withObservationTracking 在状态栏的复杂回调 |
+| 余额解析 | 策略模式 (DeepSeek/OpenRouter/Moonshot) | 不同提供商余额 API 格式各异 |
+| 模型定价 | 前缀匹配 + 自定义覆盖 | 支持模型家族（如 deepseek-v4-*）统一定价 |
+| 国际化 | 枚举计算属性 (Strings.isZH ? ... : ...) | 无需 .strings 文件，编译期检查 |
+| 子进程管理 | Process + terminationHandler | 原生 macOS 进程管理，支持崩溃检测 |

@@ -28,6 +28,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         StatusBarController.shared.setup()
         restoreProxy()
         CodexRelayManager.shared.restore()
+        SyncManager.shared.start()
 
         // 监听崩溃通知，自动重启 codex-relay
         NotificationCenter.default.addObserver(

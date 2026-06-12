@@ -26,6 +26,52 @@ struct ThresholdView: View {
     @State private var showAddProviderPopup = false
     @State private var currentProviderModels: [String] = []
 
+    // 同步
+    @State private var syncEnabled: Bool = SyncManager.shared.config.enabled
+    @State private var syncMode: SyncConfig.SyncMode = SyncManager.shared.config.mode
+    @State private var syncListenPort: UInt16 = SyncManager.shared.config.listenPort
+    @State private var syncTargetAddress: String = SyncManager.shared.config.targetAddress
+    @State private var syncInterval: Double = SyncManager.shared.config.syncInterval
+    
+    @State private var syncConnectionStatus: SyncConnectionStatus = SyncManager.shared.observableStatus
+    
+    private var syncStatusColor: Color {
+        switch syncConnectionStatus {
+        case .listening: return .green
+        case .connected: return .green
+        case .connecting: return .orange
+        case .error: return .red
+        case .idle: return .secondary
+        }
+    }
+    
+    private var syncStatusText: String {
+        switch syncConnectionStatus {
+        case .listening(let port): return "\(Strings.syncStatusListening) :\(port)"
+        case .connected: return Strings.syncStatusConnected
+        case .connecting: return Strings.syncStatusConnected + "..."
+        case .error(let err): return "\(Strings.syncStatusError): \(err)"
+        case .idle: return Strings.syncStatusDisconnected
+        }
+    }
+    
+    private func switchMode(to mode: SyncConfig.SyncMode) {
+        syncMode = mode
+        saveSyncConfig()
+    }
+    
+    private func saveSyncConfig() {
+        var c = SyncManager.shared.config
+        c.mode = syncMode
+        c.listenPort = syncListenPort
+        c.targetAddress = syncTargetAddress
+        c.syncInterval = syncInterval
+        SyncManager.shared.config = c
+        if syncEnabled {
+            SyncManager.shared.start()
+        }
+    }
+
     // 服务
     @State private var codexRelayEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.codexRelayEnabled)
     @State private var codexRelayReachable: Bool? = ProxyServer.shared.codexRelayReachable
@@ -448,6 +494,8 @@ struct ThresholdView: View {
             proxySection
             Divider().padding(.horizontal, 16)
             codexRelaySection
+            Divider().padding(.horizontal, 16)
+            syncSection
             Spacer()
         }
     }
@@ -887,6 +935,141 @@ struct ThresholdView: View {
             }
         }
         .padding(20)
+    }
+
+    // MARK: - 同步
+
+    private var syncSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .foregroundColor(.teal)
+                Text(Strings.syncSection)
+                    .font(.body).bold()
+                Spacer()
+                HStack(spacing: 4) {
+                    Circle().fill(syncStatusColor).frame(width: 6, height: 6)
+                    Text(syncStatusText)
+                        .font(.caption)
+                        .foregroundColor(syncStatusColor)
+                }
+            }
+
+            // 启用开关
+            HStack {
+                Toggle(isOn: $syncEnabled) {
+                    Text(Strings.syncToggle)
+                        .font(.callout)
+                }
+                .toggleStyle(.switch)
+                .onChange(of: syncEnabled) { _, newVal in
+                    var c = SyncManager.shared.config
+                    c.enabled = newVal
+                    SyncManager.shared.config = c
+                    if newVal { SyncManager.shared.start() }
+                    else { SyncManager.shared.stop() }
+                }
+                Spacer()
+            }
+
+            // 模式选择（禁用同步后可用）
+            HStack(spacing: 16) {
+                Button(action: { switchMode(to: .server) }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: syncMode == .server ? "circle.fill" : "circle")
+                            .font(.caption)
+                        Text(Strings.syncModeServer)
+                            .font(.callout)
+                    }
+                    .foregroundColor(syncMode == .server ? .accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(syncEnabled)
+
+                Button(action: { switchMode(to: .client) }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: syncMode == .client ? "circle.fill" : "circle")
+                            .font(.caption)
+                        Text(Strings.syncModeClient)
+                            .font(.callout)
+                    }
+                    .foregroundColor(syncMode == .client ? .accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(syncEnabled)
+            }
+
+            // 服务器模式：端口
+            if syncMode == .server {
+                HStack(spacing: 8) {
+                    Text(Strings.syncListenPortLabel)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("18888", value: $syncListenPort, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        .multilineTextAlignment(.trailing)
+                        .disabled(syncEnabled)
+                        .onSubmit { saveSyncConfig() }
+                }
+                Text(Strings.syncPortHint)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            // 客户端模式：服务器地址
+            if syncMode == .client {
+                HStack(spacing: 8) {
+                    Text(Strings.syncTargetLabel)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("1.2.3.4:6000", text: $syncTargetAddress)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.caption, design: .monospaced))
+                        .disabled(syncEnabled)
+                        .onSubmit { saveSyncConfig() }
+                }
+                Text(Strings.syncAddressHint)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            // 同步间隔
+            HStack(spacing: 8) {
+                Text(Strings.syncIntervalLabel)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("30", value: $syncInterval, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 60)
+                    .multilineTextAlignment(.trailing)
+                    .onSubmit { saveSyncConfig() }
+                Stepper("", value: $syncInterval, in: 5...300, step: 5)
+                    .labelsHidden()
+                    .onChange(of: syncInterval) { _, _ in saveSyncConfig() }
+            }
+
+            // 手动触发同步
+            if syncEnabled && syncMode == .client {
+                Button(action: {
+                    SyncManager.shared.performSyncAndWait()
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                        Text("立即同步")
+                    }
+                    .font(.caption)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(20)
+        .onReceive(SyncManager.shared.$observableStatus) { status in
+            syncConnectionStatus = status
+        }
+        .onReceive(SyncManager.shared.$syncCount) { _ in
+            stats.refresh()
+        }
     }
 
     // MARK: - 默认模型

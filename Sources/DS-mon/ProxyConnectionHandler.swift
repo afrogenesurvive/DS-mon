@@ -166,7 +166,8 @@ final class ProxyConnectionHandler: @unchecked Sendable {
         if toCodexRelay {
             let savedPort = UserDefaults.standard.integer(forKey: Strings.Keys.codexRelayPort)
             let port = savedPort >= AppConfig.minProxyPort ? UInt16(savedPort) : AppConfig.codexRelayHealthPort
-            upstreamBase = "http://127.0.0.1:\(port)"
+            upstreamBase = "http://localhost:\(port)"
+            appendLog("→ relay 转发: localhost:\(port) | \(path) | 模型: \(requestModel)")
             activeProviderId = providerInfo?.providerId ?? ""
         } else {
             if let info = providerInfo {
@@ -210,6 +211,7 @@ final class ProxyConnectionHandler: @unchecked Sendable {
             let elapsed = Date().timeIntervalSince(start) * 1000
             let httpResp = resp as? HTTPURLResponse
             let statusCode = httpResp?.statusCode ?? 502
+            if toCodexRelay { appendLog("← relay 响应状态码: \(statusCode)") }
             let respHeaders = (httpResp?.allHeaderFields as? [String: String]) ?? [:]
 
             // 发送响应头
@@ -269,6 +271,7 @@ final class ProxyConnectionHandler: @unchecked Sendable {
                 logResponsesUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, providerId: activeProviderId)
                 let preview = String(data: accumulatedBody.prefix(800), encoding: .utf8) ?? "(非文本)"
                 debugLog("← \(path) body(\(accumulatedBody.count)B) preview:\n\(preview)")
+                appendLog("← relay body \(accumulatedBody.count)B | \(preview.replacingOccurrences(of: "\n", with: " ").prefix(200))")
             }
         } catch {
             let msg: String
@@ -284,6 +287,7 @@ final class ProxyConnectionHandler: @unchecked Sendable {
                 msg = "Upstream error: \(error.localizedDescription)"
             }
             print("[ProxyServer] \(msg)")
+            appendLog("✗ relay 错误: \(msg)")
             if !headersSent {
                 sendError(code: 502, body: msg)
             } else {
@@ -375,6 +379,7 @@ final class ProxyConnectionHandler: @unchecked Sendable {
 
         let details = usage["output_tokens_details"] as? [String: Any]
         let record = UsageRecord(
+            uuid: UUID().uuidString,
             timestamp: Date(),
             providerId: providerId,
             model: model,
@@ -397,6 +402,7 @@ final class ProxyConnectionHandler: @unchecked Sendable {
         }
         let details = usage["completion_tokens_details"] as? [String: Any]
         let record = UsageRecord(
+            uuid: UUID().uuidString,
             timestamp: Date(),
             providerId: providerId,
             model: model,
@@ -436,6 +442,24 @@ final class ProxyConnectionHandler: @unchecked Sendable {
         conn.send(content: packet, completion: .contentProcessed { [weak conn] _ in
             conn?.cancel()
         })
+    }
+
+
+    private func appendLog(_ message: String) {
+        let logPath = NSHomeDirectory() + "/Library/Caches/com.dsmon.app/proxy.log"
+        let ts = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        let logLine = "[\(ts)] \(message)\n"
+        if let d = logLine.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: logPath) {
+                if let fh = FileHandle(forWritingAtPath: logPath) {
+                    fh.seekToEndOfFile()
+                    fh.write(d)
+                    fh.closeFile()
+                }
+            } else {
+                try? d.write(to: URL(fileURLWithPath: logPath))
+            }
+        }
     }
 
     private func debugLog(_ msg: @autoclosure () -> String) {

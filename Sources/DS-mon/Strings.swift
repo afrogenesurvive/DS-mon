@@ -47,6 +47,11 @@ enum Strings {
         static let showBalance     = "show_balance"
         static let menuBarTextDisplay = "menu_bar_text_display"
         static let modelPricingOverrides = "model_pricing_overrides"
+        static let syncEnabled = "sync_enabled"
+        static let syncMode = "sync_mode"
+        static let syncListenPort = "sync_listen_port"
+        static let syncTargetAddress = "sync_target_address"
+        static let syncInterval = "sync_interval"
     }
 
     /// 判断当前是否为中文界面。直接读取 UserDefaults，无需缓存。
@@ -250,4 +255,20 @@ enum Strings {
     static var chartHit: String { isZH ? "Hit" : "Hit" }
     static var chartOut: String { isZH ? "Out" : "Out" }
     static var chartTotal: String { isZH ? "合计" : "Total" }
+
+    // MARK: - 同步
+    static var syncSection: String { isZH ? "数据同步" : "Data Sync" }
+    static var syncToggle: String { isZH ? "启用同步" : "Enable Sync" }
+    static var syncModeServer: String { isZH ? "服务器" : "Server" }
+    static var syncModeClient: String { isZH ? "客户端" : "Client" }
+    static var syncListenPortLabel: String { isZH ? "本机监听端口" : "Listen Port" }
+    static var syncTargetLabel: String { isZH ? "目标服务器" : "Server Address" }
+    static var syncIntervalLabel: String { isZH ? "同步间隔（秒）" : "Sync Interval (s)" }
+    static var syncStatusListening: String { isZH ? "监听中" : "Listening" }
+    static var syncStatusConnected: String { isZH ? "已连接" : "Connected" }
+    static var syncStatusDisconnected: String { isZH ? "未连接" : "Disconnected" }
+    static var syncStatusError: String { isZH ? "错误" : "Error" }
+    static var syncModeHint: String { isZH ? "服务器模式：本机监听端口，供其他设备连接；客户端模式：主动连接服务器拉取/推送数据" : "Server: listen for incoming connections; Client: connect to server to sync data" }
+    static var syncPortHint: String { isZH ? "需要确保端口未被占用，且防火墙已放行" : "Ensure port is not in use and firewall allows it" }
+    static var syncAddressHint: String { isZH ? "客户端填写目标服务器 IP:端口，如 1.2.3.4:6000" : "Client: target server IP:port, e.g. 1.2.3.4:6000" }
 }

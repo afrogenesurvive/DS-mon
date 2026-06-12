@@ -79,6 +79,11 @@ cat > "$APP/Contents/Info.plist" << PLIST
 	<true/>
 	<key>DSMonBuildTimestamp</key>
 	<string>$(date "+%Y-%m-%d %H:%M:%S")</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 </dict>
 </plist>
 PLIST

@@ -78,7 +78,8 @@ struct ModelPricing: Codable, Equatable, Sendable {
 
 // MARK: - 数据模型
 
-struct UsageRecord: Sendable {
+struct UsageRecord: Codable, Sendable {
+    let uuid: String
     let timestamp: Date
     let providerId: String
     let model: String
@@ -167,9 +168,15 @@ actor UsageStore {
             cost REAL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage_log(timestamp);
+        -- 同步去重索引：用 (timestamp, model, provider_id, prompt_tokens, completion_tokens) 唯一标识一条记录
+        sqlite3_exec(handle, "CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_dedup ON usage_log(timestamp, model, provider_id, prompt_tokens, completion_tokens)", nil, nil, nil)
         """
         sqlite3_exec(handle, createSQL, nil, nil, nil)
         sqlite3_exec(handle, "ALTER TABLE usage_log ADD COLUMN cost REAL DEFAULT 0;", nil, nil, nil)
+        // 迁移 V4: 添加 uuid 列
+        sqlite3_exec(handle, "ALTER TABLE usage_log ADD COLUMN uuid TEXT DEFAULT ''", nil, nil, nil)
+        sqlite3_exec(handle, "UPDATE usage_log SET uuid = hex(randomblob(16)) || '-' || hex(randomblob(16)) WHERE uuid = '' OR uuid IS NULL", nil, nil, nil)
+        sqlite3_exec(handle, "CREATE INDEX IF NOT EXISTS idx_usage_uuid ON usage_log(uuid)", nil, nil, nil)
 
         backfillCost(handle!)
     }
@@ -235,31 +242,146 @@ actor UsageStore {
             pricing: pricing
         )
         let sql = """
-        INSERT INTO usage_log (timestamp, provider_id, model, endpoint, prompt_tokens, completion_tokens,
+        INSERT INTO usage_log (uuid, timestamp, provider_id, model, endpoint, prompt_tokens, completion_tokens,
           total_tokens, cached_tokens, reasoning_tokens, latency_ms, status_code, cost)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
             print("[UsageStore] insert prepare failed: " + (sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"))
             return
         }
-        sqlite3_bind_double(stmt, 1, record.timestamp.timeIntervalSince1970)
-        sqlite3_bind_text(stmt, 2, record.providerId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        sqlite3_bind_text(stmt, 3, record.model, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        sqlite3_bind_text(stmt, 4, record.endpoint, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        sqlite3_bind_int64(stmt, 5, Int64(record.promptTokens))
-        sqlite3_bind_int64(stmt, 6, Int64(record.completionTokens))
-        sqlite3_bind_int64(stmt, 7, Int64(record.totalTokens))
-        sqlite3_bind_int64(stmt, 8, Int64(record.cachedTokens))
-        sqlite3_bind_int64(stmt, 9, Int64(record.reasoningTokens))
-        sqlite3_bind_double(stmt, 10, record.latencyMs)
-        sqlite3_bind_int64(stmt, 11, Int64(record.statusCode))
-        sqlite3_bind_double(stmt, 12, cost)
+        sqlite3_bind_text(stmt, 1, record.uuid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_double(stmt, 2, record.timestamp.timeIntervalSince1970)
+        sqlite3_bind_text(stmt, 3, record.providerId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(stmt, 4, record.model, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(stmt, 5, record.endpoint, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_int64(stmt, 6, Int64(record.promptTokens))
+        sqlite3_bind_int64(stmt, 7, Int64(record.completionTokens))
+        sqlite3_bind_int64(stmt, 8, Int64(record.totalTokens))
+        sqlite3_bind_int64(stmt, 9, Int64(record.cachedTokens))
+        sqlite3_bind_int64(stmt, 10, Int64(record.reasoningTokens))
+        sqlite3_bind_double(stmt, 11, record.latencyMs)
+        sqlite3_bind_int64(stmt, 12, Int64(record.statusCode))
+        sqlite3_bind_double(stmt, 13, cost)
         sqlite3_step(stmt)
         sqlite3_finalize(stmt)
     }
 
+    // MARK: - 同步接口
+
+    /// 查询某个时间戳之后的所有记录（增量拉取用）
+    func queryRecords(since: Date) -> [UsageRecord] {
+        guard let db else { return [] }
+        let sql = """
+        SELECT uuid, timestamp, provider_id, model, endpoint,
+               prompt_tokens, completion_tokens, total_tokens,
+               cached_tokens, reasoning_tokens, latency_ms, status_code
+        FROM usage_log
+        WHERE timestamp > ?
+        ORDER BY timestamp ASC;
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        sqlite3_bind_double(stmt, 1, since.timeIntervalSince1970)
+        defer { sqlite3_finalize(stmt) }
+
+        var records: [UsageRecord] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let uuid = String(cString: sqlite3_column_text(stmt, 0))
+            let ts = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1))
+            records.append(UsageRecord(
+                uuid: uuid,
+                timestamp: ts,
+                providerId: String(cString: sqlite3_column_text(stmt, 2)),
+                model: String(cString: sqlite3_column_text(stmt, 3)),
+                endpoint: String(cString: sqlite3_column_text(stmt, 4)),
+                promptTokens: Int(sqlite3_column_int64(stmt, 5)),
+                completionTokens: Int(sqlite3_column_int64(stmt, 6)),
+                totalTokens: Int(sqlite3_column_int64(stmt, 7)),
+                cachedTokens: Int(sqlite3_column_int64(stmt, 8)),
+                reasoningTokens: Int(sqlite3_column_int64(stmt, 9)),
+                latencyMs: sqlite3_column_double(stmt, 10),
+                statusCode: Int(sqlite3_column_int64(stmt, 11))
+            ))
+        }
+        return records
+    }
+
+    /// 批量插入（同步用），按 uuid 去重
+    func insertRecords(_ records: [UsageRecord]) {
+        guard let db else { return }
+        let sql = """
+        INSERT OR IGNORE INTO usage_log (uuid, timestamp, provider_id, model, endpoint,
+          prompt_tokens, completion_tokens, total_tokens, cached_tokens,
+          reasoning_tokens, latency_ms, status_code, cost)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(stmt) }
+
+        sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
+        for record in records {
+            let cost = ModelPricing.computeCost(
+                promptTokens: record.promptTokens,
+                completionTokens: record.completionTokens,
+                cachedTokens: record.cachedTokens,
+                pricing: ModelPricing.forModel(record.model)
+            )
+            sqlite3_bind_text(stmt, 1, record.uuid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_double(stmt, 2, record.timestamp.timeIntervalSince1970)
+            sqlite3_bind_text(stmt, 3, record.providerId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(stmt, 4, record.model, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(stmt, 5, record.endpoint, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_int64(stmt, 6, Int64(record.promptTokens))
+            sqlite3_bind_int64(stmt, 7, Int64(record.completionTokens))
+            sqlite3_bind_int64(stmt, 8, Int64(record.totalTokens))
+            sqlite3_bind_int64(stmt, 9, Int64(record.cachedTokens))
+            sqlite3_bind_int64(stmt, 10, Int64(record.reasoningTokens))
+            sqlite3_bind_double(stmt, 11, record.latencyMs)
+            sqlite3_bind_int64(stmt, 12, Int64(record.statusCode))
+            sqlite3_bind_double(stmt, 13, cost)
+            sqlite3_step(stmt)
+            sqlite3_reset(stmt)
+            sqlite3_clear_bindings(stmt)
+        }
+        sqlite3_exec(db, "COMMIT", nil, nil, nil)
+    }
+
+    /// 查询本地最大时间戳（用于增量同步的 since 参数）
+    func maxTimestamp() -> Date {
+        guard let db else { return Date.distantPast }
+        let sql = "SELECT MAX(timestamp) FROM usage_log;"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return Date.distantPast }
+        defer { sqlite3_finalize(stmt) }
+        if sqlite3_step(stmt) == SQLITE_ROW, sqlite3_column_type(stmt, 0) != SQLITE_NULL {
+            return Date(timeIntervalSince1970: sqlite3_column_double(stmt, 0))
+        }
+        return Date.distantPast
+    }
+
+    /// 清理重复的记录（按 timestamp+model+provider_id+prompt_tokens+completion_tokens 组合去重）
+    /// 保留最早的一条，在服务端启动时调用
+    func deduplicate() -> Int {
+        guard let db else { return 0 }
+        let countSQL = "SELECT COUNT(*) FROM (SELECT 1 FROM usage_log GROUP BY timestamp, model, provider_id, prompt_tokens, completion_tokens HAVING COUNT(*) > 1);"
+        var countStmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, countSQL, -1, &countStmt, nil) == SQLITE_OK else { return 0 }
+        defer { sqlite3_finalize(countStmt) }
+        var dupCount = 0
+        if sqlite3_step(countStmt) == SQLITE_ROW {
+            dupCount = Int(sqlite3_column_int64(countStmt, 0))
+        }
+        guard dupCount > 0 else { return 0 }
+    
+        let delSQL = "DELETE FROM usage_log WHERE rowid NOT IN (SELECT MIN(rowid) FROM usage_log GROUP BY timestamp, model, provider_id, prompt_tokens, completion_tokens);"
+        sqlite3_exec(db, delSQL, nil, nil, nil)
+        print("[UsageStore] deduplicate: removed \(dupCount) duplicate record groups (by content)")
+        return dupCount
+    }
+    
     // MARK: - 聚合查询
 
     func queryDaily(limit: Int = 30, providerId: String? = nil) -> [AggregatedUsage] {

@@ -15,3 +15,6 @@ etc/
 usr/
 .qoder/
 .qoder-config.json
+.codewhale/
+.codegraph/
+.codewhale/

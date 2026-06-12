@@ -142,8 +142,10 @@ final class ProxyServer: @unchecked Sendable {
                     }
                 },
                 onRequestStarted: { [weak self] isCodex in
-                    guard let self, isCodex else { return }
-                    let _ = self.lock.withLock { self.activeCodexConnectionIds.insert(connId) }
+                    guard let self else { return }
+                    if isCodex {
+                        let _ = self.lock.withLock { self.activeCodexConnectionIds.insert(connId) }
+                    }
                 }
             ) { [weak self] in
                 self?.recordRequest()
@@ -198,9 +200,21 @@ final class ProxyServer: @unchecked Sendable {
                 let enabled = UserDefaults.standard.bool(forKey: Strings.Keys.codexRelayEnabled)
                 if enabled {
                     let reachable = lock.withLock { _codexRelayReachable }
-                    if reachable != true {
-                        checkCodexRelayHealth()
+                    let healthLogPath = NSHomeDirectory() + "/Library/Caches/com.dsmon.app/proxy.log"
+                    let healthTs = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+                    let healthLine = "[\(healthTs)] [健康检测] reachable=\(reachable ?? false) 开始检测\n"
+                    if let d = healthLine.data(using: .utf8) {
+                        if FileManager.default.fileExists(atPath: healthLogPath) {
+                            if let fh = FileHandle(forWritingAtPath: healthLogPath) {
+                                fh.seekToEndOfFile()
+                                fh.write(d)
+                                fh.closeFile()
+                            }
+                        } else {
+                            try? d.write(to: URL(fileURLWithPath: healthLogPath))
+                        }
                     }
+                    checkCodexRelayHealth()
                 }
                 try? await Task.sleep(for: .seconds(AppConfig.codexRelayMonitorInterval))
             }
@@ -213,7 +227,7 @@ final class ProxyServer: @unchecked Sendable {
             // 直接检查 TCP 端口是否开放，不依赖 HTTP 端点
             let success: Bool
             let msg: String?
-            let host = NWEndpoint.Host("127.0.0.1")
+            let host = NWEndpoint.Host("localhost")
             let nwPort = NWEndpoint.Port(rawValue: port)!
             let conn = NWConnection(host: host, port: nwPort, using: .tcp)
             _ = Int(AppConfig.codexRelayHealthTimeout * 1000)
@@ -235,10 +249,24 @@ final class ProxyServer: @unchecked Sendable {
                 }
             }
             conn.cancel()
+            let healthLogPath = NSHomeDirectory() + "/Library/Caches/com.dsmon.app/proxy.log"
+            let healthTs = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+            let healthLine = "[\(healthTs)] [健康检测] localhost:\(port) → \(result)\n"
+            if let d = healthLine.data(using: .utf8) {
+                if FileManager.default.fileExists(atPath: healthLogPath) {
+                    if let fh = FileHandle(forWritingAtPath: healthLogPath) {
+                        fh.seekToEndOfFile()
+                        fh.write(d)
+                        fh.closeFile()
+                    }
+                } else {
+                    try? d.write(to: URL(fileURLWithPath: healthLogPath))
+                }
+            }
             if result == .ready {
                 success = true; msg = nil
             } else {
-                success = false; msg = "codex-relay not responding on port \(port)"
+                success = false; msg = "codex-relay not responding on port \(port) (state: \(result))"
             }
 
             let prev = lock.withLock {
@@ -275,7 +303,7 @@ final class ProxyServer: @unchecked Sendable {
         Task {
             for attempt in 1...retries {
                 // TCP 端口检查，不依赖 HTTP
-                let host = NWEndpoint.Host("127.0.0.1")
+                let host = NWEndpoint.Host("localhost")
                 guard let nwPort = NWEndpoint.Port(rawValue: port) else { continue }
                 let conn = NWConnection(host: host, port: nwPort, using: .tcp)
                 let result: NWConnection.State = await withCheckedContinuation { continuation in
