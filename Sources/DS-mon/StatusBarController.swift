@@ -334,15 +334,28 @@ class StatusBarView: NSView {
             let totalH = CGFloat(7) * barHeight + CGFloat(6) * barGap
             let topY = (barH - totalH) / 2 - 1
             let barsRight = bar1x + 3 * barWidth + 2 * columnGap + 1
-            let containerRect = CGRect(x: bar1x - 1, y: topY, width: barsRight - bar1x + 1, height: totalH + 2)
-            let containerPath = CGPath(roundedRect: containerRect, cornerWidth: 1.5, cornerHeight: 1.5, transform: nil)
 
-            // 极浅背景
-            ctx.setFillColor(NSColor.gray.withAlphaComponent(0.06).cgColor)
+            // 统一容器（裁剪路径 + 背景）
+            let containerRect = CGRect(x: bar1x - 1, y: topY - 1, width: barsRight - bar1x + 2, height: totalH + 4)
+            let containerPath = CGPath(roundedRect: containerRect, cornerWidth: 2, cornerHeight: 2, transform: nil)
+
+            // 容器背景 + 1px 边框（随系统浅色/深色）
+            let borderColor: NSColor = isDarkMode ? NSColor.white : NSColor.black
+            let bgColor: NSColor = isDarkMode ? NSColor.white : NSColor.black
+            ctx.setFillColor(bgColor.withAlphaComponent(0.06).cgColor)
             ctx.addPath(containerPath)
             ctx.fillPath()
+            ctx.setStrokeColor(borderColor.withAlphaComponent(0.25).cgColor)
+            ctx.setLineWidth(1.0)
+            ctx.addPath(containerPath)
+            ctx.strokePath()
 
-            // 条①：VU 电平表 — 反映最近访问频率
+            // 用容器裁剪，让三条柱子填充不溢出圆角
+            ctx.saveGState()
+            ctx.addPath(containerPath)
+            ctx.clip()
+
+            // 条①：VU 电平表
             let vuLevel = CGFloat(ProxyServer.shared.vuLevel)
             let isCodex = ProxyServer.shared.hasActiveCodexConnection
             let vuActive = hasActivity || vuLevel > 0
@@ -366,8 +379,6 @@ class StatusBarView: NSView {
 
             // 本日命中率线（红色细线）
             if let todayHit = self.todayHitRate, todayHit > 0 {
-                let totalH = CGFloat(7) * barHeight + CGFloat(6) * barGap
-                let topY = (barH - totalH) / 2 - 1
                 let hitY = topY + totalH * min(max(CGFloat(todayHit), 0), 1)
                 let hitLineRect = CGRect(x: bar2x, y: hitY, width: barWidth, height: 1)
                 ctx.setFillColor(NSColor.systemRed.withAlphaComponent(0.9).cgColor)
@@ -378,6 +389,9 @@ class StatusBarView: NSView {
             let balColor: NSColor = isLowAlerting ? (blinkOn ? .systemRed : .systemRed.withAlphaComponent(0.3)) : (isWarning ? .systemOrange : .systemGreen)
             drawSolidBar(ctx: ctx, x: bar3x, barH: barH, fillRatio: min(max(CGFloat(balanceRatio), 0), 1),
                        color: balColor)
+
+            ctx.restoreGState()
+
             cursorX = barsRight + 4  // 条区结束 + padding
         }
 
@@ -482,25 +496,18 @@ class StatusBarView: NSView {
                               avgRatio: CGFloat = 0) {
         let totalH = CGFloat(7) * barHeight + CGFloat(6) * barGap
         let topY = (barH - totalH) / 2
-        let barRect = CGRect(x: x, y: topY, width: barWidth, height: totalH)
-        let corner: CGFloat = 1.5
 
-        // 背景
-        let bgPath = CGPath(roundedRect: barRect, cornerWidth: corner, cornerHeight: corner, transform: nil)
-        ctx.setFillColor(color.withAlphaComponent(0.15).cgColor)
-        ctx.addPath(bgPath)
-        ctx.fillPath()
+        // 柱状背景
+        let bgRect = CGRect(x: x, y: topY, width: barWidth, height: totalH)
+        ctx.setFillColor(color.withAlphaComponent(0.12).cgColor)
+        ctx.fill(bgRect)
 
-        // 从下往上填充（平滑连续）
+        // 从下往上填充
         if fillRatio > 0 {
             let fillH = totalH * min(max(fillRatio, 0), 1)
             let fillRect = CGRect(x: x, y: topY, width: barWidth, height: fillH)
-            ctx.saveGState()
-            ctx.addPath(bgPath)
-            ctx.clip()
             ctx.setFillColor(color.cgColor)
             ctx.fill(fillRect)
-            ctx.restoreGState()
         }
 
         // 近 5 次请求平均线（红色细线）
