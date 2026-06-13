@@ -1,20 +1,46 @@
+# ============================================
+# DS-mon .gitignore
+# ============================================
+
+# --- Build artifacts ---
 .build/
 build/
 *.zip
+
+# --- macOS ---
 .DS_Store
+
+# --- Image assets (only track specific ones) ---
 *.png
 !Sources/**/*.png
 !screenshot.png
-.rustup/
+
+# --- Development tooling / CI artifacts ---
 .reasonix/
 reasonix.toml
-codex-relay
-codex-relay-src/target/
-codex-relay-cache-hit.patch
-etc/
-usr/
 .qoder/
 .qoder-config.json
 .codewhale/
 .codegraph/
-.codewhale/
+opencode
+
+# --- Rust toolchain (not project dependency) ---
+.rustup/
+
+# --- Shell / system ---
+etc/
+usr/
+src/
+gunzip/
+docs/
+search-index/
+vector-index/
+
+# --- codex-relay ---
+codex-relay
+codex-relay-cache-hit.patch
+codex-relay-src/target/
+codex-relay-src/.DS_Store
+
+# --- Homebrew tap (tracked in separate repo) ---
+homebrew-tap/
