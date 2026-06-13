@@ -57,6 +57,8 @@ final class SyncManager: @unchecked Sendable {
     @MainActor @Published private(set) var observableStatus: SyncConnectionStatus = .idle
     /// 同步完成计数器，每次同步完成后递增（用于触发 UI 刷新）
     @MainActor @Published private(set) var syncCount: UInt = 0
+    /// 最后同步时间
+    @MainActor @Published private(set) var lastSyncTime: Date? = nil
 
     private var listener: NWListener?
     private var syncTimer: Timer?
@@ -291,6 +293,7 @@ final class SyncManager: @unchecked Sendable {
                 await MainActor.run {
                     self.observableStatus = .connected(addr)
                     self.syncCount &+= 1
+                    self.lastSyncTime = Date()
                 }
             } catch let error as SyncError {
                 syncLog("[Sync] Client: error \(error)")

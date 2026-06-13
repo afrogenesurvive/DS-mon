@@ -34,6 +34,7 @@ struct ThresholdView: View {
     @State private var syncInterval: Double = SyncManager.shared.config.syncInterval
     
     @State private var syncConnectionStatus: SyncConnectionStatus = SyncManager.shared.observableStatus
+    @State private var lastSyncTime: Date? = SyncManager.shared.lastSyncTime
     
     private var syncStatusColor: Color {
         switch syncConnectionStatus {
@@ -1062,12 +1063,25 @@ struct ThresholdView: View {
                 }
                 .buttonStyle(.bordered)
             }
+
+            // 最后同步时间
+            if let t = lastSyncTime {
+                HStack(spacing: 4) {
+                    Image(systemName: "clock")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Text("最后同步: ") + Text(t, style: .time) + Text(" ") + Text(t, style: .date)
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+            }
         }
         .padding(20)
         .onReceive(SyncManager.shared.$observableStatus) { status in
             syncConnectionStatus = status
         }
         .onReceive(SyncManager.shared.$syncCount) { _ in
+            lastSyncTime = SyncManager.shared.lastSyncTime
             stats.refresh()
         }
     }
