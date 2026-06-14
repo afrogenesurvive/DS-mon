@@ -1,6 +1,12 @@
 import Foundation
 import SwiftUI
 
+private let directStatsSession: URLSession = {
+    let c = URLSessionConfiguration.default
+    c.connectionProxyDictionary = [:]
+    return URLSession(configuration: c)
+}()
+
 /// DS-mon 数据模型
 @MainActor
 @Observable
@@ -214,7 +220,7 @@ final class DeepSeekStats {
         req.setValue("\(provider.authHeaderPrefix) \(apiKey)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = AppConfig.balanceRequestTimeout
         do {
-            let (data, resp) = try await URLSession.shared.data(for: req)
+            let (data, resp) = try await directStatsSession.data(for: req)
             guard let http = resp as? HTTPURLResponse else {
                 errorMessage = Strings.invalidResponse
                 return
@@ -357,7 +363,7 @@ final class DeepSeekStats {
         req.setValue("\(provider.authHeaderPrefix) \(apiKey)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = AppConfig.modelsRequestTimeout
         do {
-            let (data, resp) = try await URLSession.shared.data(for: req)
+            let (data, resp) = try await directStatsSession.data(for: req)
             guard let http = resp as? HTTPURLResponse else { modelsLog("not HTTP"); return false }
             guard http.statusCode == 200 else {
                 let body = String(data: data, encoding: .utf8) ?? ""

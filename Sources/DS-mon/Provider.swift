@@ -42,8 +42,6 @@ struct ProviderConfig: Identifiable, Codable, Equatable, Sendable {
     /// 显示排序
     var order: Int
 
-    /// Codex Relay 使用的提供商 ID（nil = 使用当前活跃提供商）
-    var relayProviderId: String?
     /// 默认模型（nil = 使用定价列表第一个）
     var defaultModel: String?
     /// API 路径前缀，如 "/v1"（Relay 使用）
@@ -67,7 +65,6 @@ struct ProviderConfig: Identifiable, Codable, Equatable, Sendable {
          currency: String = "CNY",
          isEnabled: Bool = true,
          order: Int = 0,
-         relayProviderId: String? = nil,
          defaultModel: String? = nil,
          pricingOverrides: [String: ModelPricing] = [:],
          apiPath: String = "/v1",
@@ -85,7 +82,6 @@ struct ProviderConfig: Identifiable, Codable, Equatable, Sendable {
         self.currency = currency
         self.isEnabled = isEnabled
         self.order = order
-        self.relayProviderId = relayProviderId
         self.defaultModel = defaultModel
         self.apiPath = apiPath
         self.rateLimitRPM = rateLimitRPM

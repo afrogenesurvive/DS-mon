@@ -4,8 +4,6 @@ extension Notification.Name {
     static let languageDidChange = Notification.Name("languageDidChange")
     static let showMenuIconDidChange = Notification.Name("showMenuIconDidChange")
     static let usageRecorded = Notification.Name("usageRecorded")
-    static let codexRelayStatusChanged = Notification.Name("codexRelayStatusChanged")
-    static let codexRelayRestartNeeded = Notification.Name("codexRelayRestartNeeded")
     static let showIndicatorDidChange = Notification.Name("showIndicatorDidChange")
     static let showBalanceDidChange = Notification.Name("showBalanceDidChange")
     static let menuBarTextDisplayDidChange = Notification.Name("menuBarTextDisplayDidChange")
@@ -40,8 +38,6 @@ enum Strings {
         static let maxBalanceAmount = "max_balance_amount"
         static let proxyPort        = "proxy_port"
         static let proxyEnabled     = "proxy_enabled"
-        static let codexRelayEnabled  = "codex_relay_enabled"
-        static let codexRelayPort   = "codex_relay_port"
         static let showMenuIcon     = "show_menu_icon"
         static let showIndicator   = "show_indicator"
         static let showBalance     = "show_balance"
@@ -140,7 +136,6 @@ enum Strings {
     }
     static var keychainSaveFailed: String { isZH ? "保存 API Key 失败" : "Failed to save API Key" }
 
-    // codex-relay 协议转换器
 
     // Settings tabs
     static var menuBarDisplay: String { isZH ? "菜单栏显示" : "Menu Bar Display" }
@@ -165,9 +160,6 @@ enum Strings {
     static var defaultModelLabel: String { isZH ? "默认模型" : "Model" }
     static var defaultModelLabel2: String { isZH ? "默认模型" : "Default Model" }
     static var modelOverrideSection: String { isZH ? "模型覆写" : "Model Override" }
-    static var relayProviderHint: String { isZH ? "Codex Relay 转发到哪个提供商" : "Which provider Codex Relay routes to" }
-    static var relayProviderLabel: String { isZH ? "Relay 提供商" : "Relay Provider" }
-    static var relayProviderSame: String { isZH ? "同当前活跃" : "Same as active" }
     
     // Dev platform
     static var developerPlatformSection: String { isZH ? "开发平台" : "Developer Platform" }
@@ -182,12 +174,6 @@ enum Strings {
     static var keySaved: String { isZH ? "API Key 已保存" : "API Key saved" }
     static var aboutDesc: String { isZH ? "实时监控 DeepSeek API 使用情况" : "Monitors DeepSeek API usage in real-time" }
 
-    // codex-relay 协议转换器
-    static var codexRelaySection: String { isZH ? "协议转换器" : "Protocol Relay" }
-    static var codexRelayToggle: String { isZH ? "启用协议转换" : "Enable Relay" }
-    static var codexRelayRunning: String { isZH ? "运行中" : "Running" }
-    static var codexRelayStopped: String { isZH ? "已停止" : "Stopped" }
-    static var codexRelayTooltip: String { isZH ? "将 Codex 的 Responses API 转换为 Chat Completions API，适配 DeepSeek 等供应商。\nCodex CLI 需配置 base_url = http://localhost:18080/v1 才能通过代理使用。" : "Translates Codex Responses API to Chat Completions for DeepSeek and other providers.\nCodex CLI: set base_url = http://localhost:18080/v1 to route through the proxy." }
 
     // Proxy
     static var proxySection: String { isZH ? "本地代理" : "Proxy" }

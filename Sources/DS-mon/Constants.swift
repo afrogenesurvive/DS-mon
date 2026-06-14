@@ -15,15 +15,6 @@ enum AppConfig {
     static let maxProxyPort: Int = 65535
     static let proxyRequestTimeout: TimeInterval = 300
 
-    // 🩺 健康检测
-    static let codexRelayHealthPort: UInt16 = 4446
-    static let codexRelayHealthTimeout: TimeInterval = 3
-    static let codexRelayHealthRetryTimeout: TimeInterval = 1
-    static let codexRelayHealthRetries: Int = 6
-    static let codexRelayHealthRetryInterval: TimeInterval = 0.5
-    static let codexRelayMonitorInitialDelay: TimeInterval = 10
-    static let codexRelayMonitorInterval: TimeInterval = 15
-
     // 💰 余额
     static let defaultBalanceThreshold: Double = 20
     static let defaultMaxBalanceAmount: Double = 100
@@ -42,5 +33,4 @@ enum AppConfig {
     // 🧹 进程管理
     static let portReleaseDelay: useconds_t = 300_000  // 300ms
     static let portReleaseWait: useconds_t = 500_000   // 500ms
-    static let codexRelayStartupWait: TimeInterval = 0.5
 }

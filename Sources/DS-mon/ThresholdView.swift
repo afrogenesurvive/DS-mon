@@ -74,10 +74,6 @@ struct ThresholdView: View {
     }
 
     // 服务
-    @State private var codexRelayEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.codexRelayEnabled)
-    @State private var codexRelayReachable: Bool? = ProxyServer.shared.codexRelayReachable
-    @State private var codexRelayStatusMsg: String? = ProxyServer.shared.codexRelayError
-    @State private var showCodexRelayInfo = false
     @State private var proxyEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.proxyEnabled)
     @State private var proxyPort: Int = {
         let p = UserDefaults.standard.integer(forKey: Strings.Keys.proxyPort)
@@ -152,17 +148,6 @@ struct ThresholdView: View {
             providerConfigs = ProviderManager.shared.providers
             selectedProviderId = ProviderManager.shared.activeProviderId
             proxyError = ProxyServer.shared.listenerError
-            if codexRelayEnabled {
-                codexRelayReachable = ProxyServer.shared.codexRelayReachable
-                codexRelayStatusMsg = ProxyServer.shared.codexRelayError
-                if codexRelayReachable == nil {
-                    ProxyServer.shared.checkCodexRelayHealthWithRetry()
-                }
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .codexRelayStatusChanged)) { _ in
-            codexRelayReachable = ProxyServer.shared.codexRelayReachable
-            codexRelayStatusMsg = ProxyServer.shared.codexRelayError
         }
     }
 
@@ -288,7 +273,9 @@ struct ThresholdView: View {
             req.setValue("\(provider.authHeaderPrefix) \(apiKey)", forHTTPHeaderField: "Authorization")
             req.timeoutInterval = 5
             do {
-                let (data, _) = try await URLSession.shared.data(for: req)
+                let config = URLSessionConfiguration.default
+                config.connectionProxyDictionary = [:]
+                let (data, _) = try await URLSession(configuration: config).data(for: req)
                 guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
                 if let list = json["data"] as? [[String: Any]] {
                     currentProviderModels = list.compactMap { $0["id"] as? String }.sorted()
@@ -494,7 +481,6 @@ struct ThresholdView: View {
         VStack(alignment: .leading, spacing: 0) {
             proxySection
             Divider().padding(.horizontal, 16)
-            codexRelaySection
             Divider().padding(.horizontal, 16)
             syncSection
             Spacer()
@@ -864,80 +850,6 @@ struct ThresholdView: View {
         .padding(20)
     }
 
-    // MARK: - 协议转换器
-
-    private var codexRelaySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .foregroundColor(.purple)
-                Text(Strings.codexRelaySection)
-                    .font(.body).bold()
-                Spacer()
-                HStack(spacing: 4) {
-                    if let r = codexRelayReachable {
-                        Circle().fill(r ? Color.green : Color.red).frame(width: 6, height: 6)
-                        Text(r ? Strings.codexRelayRunning : Strings.codexRelayStopped)
-                            .font(.caption)
-                            .foregroundColor(r ? .green : .red)
-                    } else {
-                        Text(Strings.codexRelayStopped)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                Text(CodexRelayManager.version)
-                    .font(.system(size: 9))
-                    .foregroundColor(.secondary)
-            }
-
-            HStack {
-                Toggle(isOn: $codexRelayEnabled) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 4) {
-                            Text(Strings.codexRelayToggle)
-                                .font(.callout)
-                            Image(systemName: "info.circle.fill")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .onTapGesture { showCodexRelayInfo = true }
-                                .popover(isPresented: $showCodexRelayInfo) {
-                                    Text(Strings.codexRelayTooltip)
-                                        .font(.system(size: 12))
-                                        .lineSpacing(4)
-                                        .padding(14)
-                                        .frame(maxWidth: 280)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                        .multilineTextAlignment(.leading)
-                                }
-                        }
-                    }
-                }
-                .toggleStyle(.switch)
-                .onChange(of: codexRelayEnabled) { _, newVal in
-                    UserDefaults.standard.set(newVal, forKey: Strings.Keys.codexRelayEnabled)
-                    CodexRelayAction(newVal ? "start" : "stop")
-                    if !newVal {
-                        codexRelayReachable = false
-                        codexRelayStatusMsg = nil
-                    }
-                }
-            }
-
-            if let msg = codexRelayStatusMsg, codexRelayEnabled {
-                HStack(spacing: 4) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                    Text(msg)
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                }
-            }
-        }
-        .padding(20)
-    }
-
     // MARK: - 同步
 
     private var syncSection: some View {
@@ -1142,49 +1054,6 @@ struct ThresholdView: View {
                     .font(.body).bold()
             }
 
-            Text(Strings.relayProviderHint)
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            // Relay 提供商下拉选择
-            HStack {
-                Text(Strings.relayProviderLabel)
-                    .font(.callout)
-                    .frame(width: 90, alignment: .leading)
-                
-                let currentRelayId = providerConfigs.first(where: { $0.id == provider.id })?.relayProviderId ?? ""
-                let availableProviders = ProviderManager.shared.enabledProviders
-                
-                Picker(selection: Binding(
-                    get: { currentRelayId },
-                    set: { newVal in
-                        var configs = providerConfigs
-                        if let idx = configs.firstIndex(where: { $0.id == provider.id }) {
-                            configs[idx].relayProviderId = newVal.isEmpty ? nil : newVal
-                            providerConfigs = configs
-                            ProviderConfig.saveAll(configs)
-                            ProviderManager.shared.load()
-                            // 重启 relay
-                            if CodexRelayManager.shared.isRunning {
-                                Task { @MainActor in
-                                    CodexRelayManager.shared.stop()
-                                    try? await Task.sleep(for: .milliseconds(300))
-                                    CodexRelayManager.shared.start()
-                                }
-                            }
-                        }
-                    }
-                ), label: EmptyView()) {
-                    Text(Strings.relayProviderSame).tag("")
-                    ForEach(availableProviders) { p in
-                        if p.id != provider.id {
-                            Text(p.name).tag(p.id)
-                        }
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
         }
     }
 

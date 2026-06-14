@@ -265,6 +265,7 @@ class StatusBarView: NSView {
     // MARK: 动画
     private var animCounter: Int { Int(Date().timeIntervalSinceReferenceDate / 1.0) % 2 == 0 ? 0 : 1 }  // 呼吸节奏 ~2s/cycle
 
+
     // MARK: 布局常量
     private let barWidth: CGFloat = 5.0
     private let barHeight: CGFloat = 2.0
@@ -322,6 +323,8 @@ class StatusBarView: NSView {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let barH = bounds.height
         guard barH > 0 else { return }
+        
+
 
         let leftX: CGFloat = showIcon ? 21 : 2
         var cursorX = leftX
@@ -336,7 +339,7 @@ class StatusBarView: NSView {
             let barsRight = bar1x + 3 * barWidth + 2 * columnGap + 1
 
             // 统一容器（裁剪路径 + 背景）
-            let containerRect = CGRect(x: bar1x - 1, y: topY - 1, width: barsRight - bar1x + 2, height: totalH + 4)
+            let containerRect = CGRect(x: bar1x - 1.5, y: topY - 1, width: barsRight - bar1x + 2, height: totalH + 4)
             let containerPath = CGPath(roundedRect: containerRect, cornerWidth: 2, cornerHeight: 2, transform: nil)
 
             // 容器背景 + 1px 边框（随系统浅色/深色）
@@ -350,6 +353,8 @@ class StatusBarView: NSView {
             ctx.addPath(containerPath)
             ctx.strokePath()
 
+
+
             // 用容器裁剪，让三条柱子填充不溢出圆角
             ctx.saveGState()
             ctx.addPath(containerPath)
@@ -357,12 +362,12 @@ class StatusBarView: NSView {
 
             // 条①：VU 电平表
             let vuLevel = CGFloat(ProxyServer.shared.vuLevel)
-            let isCodex = ProxyServer.shared.hasActiveCodexConnection
+            let isCodex = ProxyServer.shared.hasActiveConnection
             let vuActive = hasActivity || vuLevel > 0
             let barColor1: NSColor
             let barFill1: CGFloat
             if vuActive {
-                barColor1 = isCodex ? NSColor(red: 0x10/255.0, green: 0xB9/255.0, blue: 0x81/255.0, alpha: 1) : NSColor(red: 0x3B/255.0, green: 0x82/255.0, blue: 0xF6/255.0, alpha: 1)
+                barColor1 = isCodex ? NSColor(red: 0x34/255.0, green: 0xD3/255.0, blue: 0x99/255.0, alpha: 1) : NSColor(red: 0x55/255.0, green: 0x99/255.0, blue: 0xFF/255.0, alpha: 1)
                 barFill1 = vuLevel
             } else {
                 barColor1 = .gray; barFill1 = 0
