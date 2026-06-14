@@ -36,11 +36,8 @@ docs/
 search-index/
 vector-index/
 
-# --- codex-relay ---
-codex-relay
-codex-relay-cache-hit.patch
+# --- codex-relay (deprecated, keep target/ ignored) ---
 codex-relay-src/target/
-codex-relay-src/.DS_Store
 
 # --- Homebrew tap (tracked in separate repo) ---
 homebrew-tap/
