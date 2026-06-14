@@ -19,14 +19,6 @@ jobs:
         uses: actions/checkout@v4
 
 
-      - name: Build codex-relay
-        run: |
-          brew install rust
-          cd codex-relay-src
-          cargo build --release
-          cp target/release/codex-relay "$OLDPWD/codex-relay"
-          chmod +x "$OLDPWD/codex-relay"
-
       - name: Package .app (build.sh)
         run: bash scripts/build.sh "${GITHUB_REF_NAME#v}"
 
