@@ -237,8 +237,9 @@ class StatusBarView: NSView {
     var action: Selector?
 
     private let icon: NSImage? = {
-        guard let url = Bundle.module.url(forResource: "menu_icon", withExtension: "png"),
-              let image = NSImage(contentsOf: url) else { return nil }
+        let url = Bundle.main.url(forResource: "menu_icon", withExtension: "png")
+            ?? Bundle.module.url(forResource: "menu_icon", withExtension: "png")
+        guard let url, let image = NSImage(contentsOf: url) else { return nil }
         image.size = NSSize(width: 18, height: 18)
         image.isTemplate = true
         return image
