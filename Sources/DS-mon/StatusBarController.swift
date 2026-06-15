@@ -38,8 +38,8 @@ class StatusBarController: NSObject, NSWindowDelegate {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: AppConfig.popoverWidth, height: AppConfig.popoverHeight),
                               styleMask: [.borderless, .fullSizeContentView],
                               backing: .buffered, defer: false)
-        window.backgroundColor = .clear
-        window.isOpaque = false
+        window.backgroundColor = NSColor.windowBackgroundColor
+        window.isOpaque = true
         window.contentView = buildPopoverContentView(stats: s)
         window.level = .popUpMenu
         window.hasShadow = true
@@ -191,14 +191,12 @@ class StatusBarController: NSObject, NSWindowDelegate {
     private func buildPopoverContentView(stats: DeepSeekStats) -> NSView {
         let host = NSHostingView(rootView: StatsPopoverView(stats: stats))
         host.frame = NSRect(x: 0, y: 0, width: AppConfig.popoverWidth, height: AppConfig.popoverHeight)
-        let container = NSVisualEffectView(frame: host.frame)
-        container.material = .popover
-        container.blendingMode = .behindWindow
-        container.state = .active
-        container.addSubview(host)
+        let container = NSView(frame: host.frame)
         container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         container.layer?.cornerRadius = 10
         container.layer?.masksToBounds = true
+        container.addSubview(host)
         return container
     }
 
