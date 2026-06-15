@@ -143,7 +143,6 @@ final class ProxyConnectionHandler: @unchecked Sendable {
 
         let targetURL: URL
         if let info = providerInfo {
-            appendLog("[buildURL] using apiPath=\(info.apiPath) defaultModel=\(info.defaultModel ?? "nil")")
             upstreamBase = info.baseURL
             pendingAuthHeader = info.authHeader
             activeProviderId = info.providerId

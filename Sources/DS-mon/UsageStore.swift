@@ -21,7 +21,7 @@ struct ModelPricing: Codable, Equatable, Sendable {
 
     static func forModel(_ model: String, providerId: String? = nil) -> ModelPricing {
         // 查该提供商的定价
-        let provider = providerId.flatMap { _ in ProviderConfig.default }
+        let provider = providerId != nil ? ProviderConfig.default : nil
         if let provider {
             for (key, pricing) in provider.pricingOverrides {
                 if model == key || model.hasPrefix(key) { return pricing }
