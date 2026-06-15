@@ -113,7 +113,7 @@ struct AggregatedUsage: Sendable {
 actor UsageStore {
     static let shared = UsageStore()
 
-    nonisolated(unsafe) private var db: OpaquePointer?
+    private var db: OpaquePointer?
 
     private static let insertColumns = """
     uuid, timestamp, provider_id, model, endpoint,
@@ -435,7 +435,7 @@ actor UsageStore {
     }
 
     /// 当前小时的缓存命中率（0.0 ~ 1.0），无数据时返回 nil
-    nonisolated func mostRecentCacheHitRate() -> Double? {
+    func mostRecentCacheHitRate() -> Double? {
         guard let db else { return nil }
         let sql = """
         SELECT prompt_tokens, cached_tokens
@@ -453,22 +453,14 @@ actor UsageStore {
         return Double(cached) / Double(prompt)
     }
 
-    nonisolated func currentHourCacheHitRate() -> Double? {
-        let cal = Calendar.current
-        let now = Date()
-        let hourStart = cal.date(from: cal.dateComponents([.year, .month, .day, .hour], from: now))!
-        let hourEnd = cal.date(byAdding: .hour, value: 1, to: hourStart)!
-        return cacheHitRate(start: hourStart, end: hourEnd)
-    }
-
-    nonisolated func todayCacheHitRate() -> Double? {
+    func todayCacheHitRate() -> Double? {
         let cal = Calendar.current
         let todayStart = cal.startOfDay(for: Date())
         let todayEnd = cal.date(byAdding: .day, value: 1, to: todayStart)!
         return cacheHitRate(start: todayStart, end: todayEnd)
     }
 
-    nonisolated private func cacheHitRate(start: Date, end: Date) -> Double? {
+    private func cacheHitRate(start: Date, end: Date) -> Double? {
         guard let db else { return nil }
         let sql = """
         SELECT SUM(MAX(0, prompt_tokens - cached_tokens)),

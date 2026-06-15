@@ -127,8 +127,8 @@ class StatusBarController: NSObject, NSWindowDelegate {
         hitRateDebounceTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
-            let cacheHit = UsageStore.shared.mostRecentCacheHitRate()
-            let todayHit = UsageStore.shared.todayCacheHitRate()
+            let cacheHit = await UsageStore.shared.mostRecentCacheHitRate()
+            let todayHit = await UsageStore.shared.todayCacheHitRate()
             self.statusView?.cacheHitRatio = cacheHit
             self.statusView?.todayHitRate = todayHit
             self.statusView?.needsDisplay = true

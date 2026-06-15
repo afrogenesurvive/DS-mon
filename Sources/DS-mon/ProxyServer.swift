@@ -1,14 +1,9 @@
 import Foundation
 import Network
 
-// MARK: - 本地 HTTP 代理服务器
-
-/// 在本地端口监听 HTTP 请求，透明转发到上游 API，
-/// 并自动记录 chat completions 的 usage 数据到 UsageStore。
-///
-/// 职责：
-///   - NWListener 生命周期管理
-///   - 新连接分发给 ProxyConnectionHandler
+/// 本地 HTTP 代理服务器。
+/// 使用 @unchecked Sendable + NSLock（NWListener 回调在后台队列，无法 actor-isolate）。
+/// 所有状态通过 lock.withLock 同步访问。
 final class ProxyServer: @unchecked Sendable {
     static let shared = ProxyServer()
 
@@ -22,8 +17,9 @@ final class ProxyServer: @unchecked Sendable {
     private var _vuLevelHistory: [Double] = []
     private var _activeConnectionCount = 0
     private var _listenerError: String?
-    /// 活跃的连接处理器，防止被 ARC 提前释放（用 ObjectIdentifier 做 key，避免 Hashable 约束）
     private var connectionHandlers: [ObjectIdentifier: ProxyConnectionHandler] = [:]
+    /// 活跃连接 task 追踪（防止 ARC 提前释放，任务取消时清理）
+    private var connectionTasks: Set<Task<Void, Never>> = []
 
     var isRunning: Bool { lock.withLock { _isRunning } }
     var port: UInt16 { lock.withLock { _port } }
@@ -40,36 +36,24 @@ final class ProxyServer: @unchecked Sendable {
         }
     }
 
-    // MARK: - Start / Stop
-
-    /// 记录一次请求（VU 电平表用）
     func recordRequest() {
         lock.withLock {
             _requestCount += 1
             let newLevel = min(1.0, _vuLevel + 0.5)
-
             _vuLevel = newLevel
-
             _vuLevelHistory.append(newLevel)
-            if _vuLevelHistory.count > 5 {
-                _vuLevelHistory.removeFirst()
-            }
+            if _vuLevelHistory.count > 5 { _vuLevelHistory.removeFirst() }
             _vuAvgLevel = _vuLevelHistory.reduce(0, +) / Double(_vuLevelHistory.count)
         }
     }
 
-    /// 每帧衰减 VU 电平（历史记录衰减更慢）
     func decayVU() {
         lock.withLock {
             _vuLevel = max(0, _vuLevel - 0.01)
             if !_vuLevelHistory.isEmpty {
                 _vuLevelHistory = _vuLevelHistory.map { max(0, $0 - 0.005) }
                 _vuLevelHistory.removeAll { $0 <= 0 }
-                if !_vuLevelHistory.isEmpty {
-                    _vuAvgLevel = _vuLevelHistory.reduce(0, +) / Double(_vuLevelHistory.count)
-                } else {
-                    _vuAvgLevel = 0
-                }
+                _vuAvgLevel = _vuLevelHistory.isEmpty ? 0 : _vuLevelHistory.reduce(0, +) / Double(_vuLevelHistory.count)
             }
         }
     }
@@ -141,7 +125,11 @@ final class ProxyServer: @unchecked Sendable {
     func stop() {
         listener?.cancel()
         listener = nil
-        lock.withLock { _isRunning = false; _listenerError = nil }
+        lock.withLock {
+            _isRunning = false; _listenerError = nil
+            connectionHandlers.removeAll()
+            connectionTasks.removeAll()
+        }
         UserDefaults.standard.set(false, forKey: Strings.Keys.proxyEnabled)
         print("[ProxyServer] Stopped")
     }
