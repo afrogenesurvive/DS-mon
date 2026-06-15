@@ -51,38 +51,53 @@ struct UsageBarChart: View {
     }
 
     private var chartView: some View {
-        let chart = Chart(segments) { seg in
-            BarMark(
-                x: .value("Time", seg.label),
-                y: .value("Tokens", seg.value)
-            )
-            .foregroundStyle(by: .value("Type", seg.type))
+        Chart {
+            ForEach(segments) { seg in
+                BarMark(
+                    x: .value("Time", seg.label),
+                    y: .value("Tokens", seg.value)
+                )
+                .foregroundStyle(by: .value("Type", seg.type))
+            }
+            ForEach(data) { bar in
+                LineMark(
+                    x: .value("Time", bar.label),
+                    y: .value("Requests", bar.requestCount)
+                )
+                .foregroundStyle(.orange)
+                .lineStyle(StrokeStyle(lineWidth: 1.5))
+                PointMark(
+                    x: .value("Time", bar.label),
+                    y: .value("Requests", bar.requestCount)
+                )
+                .foregroundStyle(.orange)
+                .symbolSize(12)
+            }
         }
-        return chart
-            .chartForegroundStyleScale(foregroundScale)
-            .chartLegend(position: .bottom, spacing: 4)
-            .chartXAxis {
-                if data.count <= 12 {
-                    AxisMarks { value in
-                        AxisValueLabel(anchor: .top)
+        .chartForegroundStyleScale(foregroundScale)
+        .chartLegend(position: .bottom, spacing: 4)
+        .chartXAxis {
+            if data.count <= 12 {
+                AxisMarks { value in
+                    AxisValueLabel(anchor: .top)
+                        .font(.system(size: 7))
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks { val in
+                AxisGridLine()
+                    .foregroundStyle(.tertiary)
+                if let n = val.as(Int.self) {
+                    AxisValueLabel(anchor: .leading) {
+                        Text(Strings.tokensShort(n))
                             .font(.system(size: 7))
+                            .foregroundColor(.secondary)
                     }
                 }
             }
-            .chartYAxis {
-                AxisMarks { val in
-                    AxisGridLine()
-                        .foregroundStyle(.tertiary)
-                    if let n = val.as(Int.self) {
-                        AxisValueLabel(anchor: .leading) {
-                            Text(Strings.tokensShort(n))
-                                .font(.system(size: 7))
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-            }
-            .chartOverlay { proxy in chartOverlay(proxy: proxy) }
+        }
+        .chartOverlay { proxy in chartOverlay(proxy: proxy) }
     }
 
     private var foregroundScale: KeyValuePairs<String, Color> {
@@ -153,6 +168,7 @@ struct UsageBarChart: View {
                     .foregroundColor(.primary)
             }
             Divider()
+            tooltipRow(Strings.requestsLabel, "\(bar.requestCount)")
             tooltipRow(Strings.chartHit, bar.hitTokens, color: Color(red: 0.53, green: 0.81, blue: 0.98))
             tooltipRow(Strings.chartMiss, bar.missTokens, color: Color(red: 0.37, green: 0.63, blue: 0.92))
             tooltipRow(Strings.chartOut, bar.outTokens, color: Color(red: 0.22, green: 0.46, blue: 0.85))

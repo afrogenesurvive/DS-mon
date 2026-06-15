@@ -405,7 +405,8 @@ actor UsageStore {
         SELECT CAST(strftime('%H', timestamp, 'unixepoch', 'localtime') AS INTEGER) AS h,
                SUM(MAX(0, prompt_tokens - cached_tokens)),
                SUM(cached_tokens),
-               SUM(completion_tokens)
+               SUM(completion_tokens),
+               COUNT(*)
         FROM usage_log
         WHERE timestamp >= ?\(whereClause)
         GROUP BY h ORDER BY h ASC;
@@ -415,19 +416,20 @@ actor UsageStore {
         sqlite3_bind_double(stmt, 1, startTS)
         defer { sqlite3_finalize(stmt) }
 
-        var map: [Int: (Int, Int, Int)] = [:]
+        var map: [Int: (Int, Int, Int, Int)] = [:]
         while sqlite3_step(stmt) == SQLITE_ROW {
             let h = Int(sqlite3_column_int64(stmt, 0))
             let m = Int(sqlite3_column_int64(stmt, 1))
             let hit = Int(sqlite3_column_int64(stmt, 2))
             let o = Int(sqlite3_column_int64(stmt, 3))
-            map[h] = (m, hit, o)
+            let cnt = Int(sqlite3_column_int64(stmt, 4))
+            map[h] = (m, hit, o, cnt)
         }
 
         var results: [TokenBar] = []
         for h in 0..<24 {
-            let vals = map[h] ?? (0, 0, 0)
-            results.append(TokenBar(label: String(format: "%02d:00", h), missTokens: vals.0, hitTokens: vals.1, outTokens: vals.2))
+            let vals = map[h] ?? (0, 0, 0, 0)
+            results.append(TokenBar(label: String(format: "%02d:00", h), missTokens: vals.0, hitTokens: vals.1, outTokens: vals.2, requestCount: vals.3))
         }
         return results
     }
@@ -498,7 +500,8 @@ actor UsageStore {
         SELECT date(timestamp, 'unixepoch', 'localtime') AS day,
                SUM(MAX(0, prompt_tokens - cached_tokens)),
                SUM(cached_tokens),
-               SUM(completion_tokens)
+               SUM(completion_tokens),
+               COUNT(*)
         FROM usage_log
         WHERE timestamp >= ?\(whereClause)
         GROUP BY day ORDER BY day ASC;
@@ -508,21 +511,22 @@ actor UsageStore {
         sqlite3_bind_double(stmt, 1, startTS)
         defer { sqlite3_finalize(stmt) }
 
-        var map: [String: (Int, Int, Int)] = [:]
+        var map: [String: (Int, Int, Int, Int)] = [:]
         while sqlite3_step(stmt) == SQLITE_ROW {
             let day = String(cString: sqlite3_column_text(stmt, 0))
             let m = Int(sqlite3_column_int64(stmt, 1))
             let h = Int(sqlite3_column_int64(stmt, 2))
             let o = Int(sqlite3_column_int64(stmt, 3))
-            map[day] = (m, h, o)
+            let cnt = Int(sqlite3_column_int64(stmt, 4))
+            map[day] = (m, h, o, cnt)
         }
 
         var results: [TokenBar] = []
         for i in 0..<7 {
             guard let day = cal.date(byAdding: .day, value: i, to: weekStart) else { continue }
             let key = Self.dayLookupFormatter.string(from: day)
-            let vals = map[key] ?? (0, 0, 0)
-            results.append(TokenBar(label: day.formatted(Self.labelFormat), missTokens: vals.0, hitTokens: vals.1, outTokens: vals.2))
+            let vals = map[key] ?? (0, 0, 0, 0)
+            results.append(TokenBar(label: day.formatted(Self.labelFormat), missTokens: vals.0, hitTokens: vals.1, outTokens: vals.2, requestCount: vals.3))
         }
         return results
     }
@@ -539,7 +543,8 @@ actor UsageStore {
         SELECT strftime('%G-V%V', timestamp, 'unixepoch', 'localtime') AS week,
                SUM(MAX(0, prompt_tokens - cached_tokens)),
                SUM(cached_tokens),
-               SUM(completion_tokens)
+               SUM(completion_tokens),
+               COUNT(*)
         FROM usage_log
         WHERE timestamp >= ?\(whereClause)
         GROUP BY week ORDER BY week ASC;
@@ -549,21 +554,22 @@ actor UsageStore {
         sqlite3_bind_double(stmt, 1, startTS)
         defer { sqlite3_finalize(stmt) }
 
-        var map: [String: (Int, Int, Int)] = [:]
+        var map: [String: (Int, Int, Int, Int)] = [:]
         while sqlite3_step(stmt) == SQLITE_ROW {
             let weekStr = String(cString: sqlite3_column_text(stmt, 0))
             let m = Int(sqlite3_column_int64(stmt, 1))
             let h = Int(sqlite3_column_int64(stmt, 2))
             let o = Int(sqlite3_column_int64(stmt, 3))
-            map[weekStr] = (m, h, o)
+            let cnt = Int(sqlite3_column_int64(stmt, 4))
+            map[weekStr] = (m, h, o, cnt)
         }
 
         var results: [TokenBar] = []
         var cursor = monthStart
         while cursor <= monthEnd {
             let wk = _isoWeekKey(cursor)
-            let vals = map[wk] ?? (0, 0, 0)
-            results.append(TokenBar(label: cursor.formatted(Self.labelFormat), missTokens: vals.0, hitTokens: vals.1, outTokens: vals.2))
+            let vals = map[wk] ?? (0, 0, 0, 0)
+            results.append(TokenBar(label: cursor.formatted(Self.labelFormat), missTokens: vals.0, hitTokens: vals.1, outTokens: vals.2, requestCount: vals.3))
             cursor = cal.date(byAdding: .weekOfYear, value: 1, to: cursor) ?? cursor
         }
         return results
@@ -633,5 +639,6 @@ struct TokenBar: Identifiable, Sendable {
     let missTokens: Int
     let hitTokens: Int
     let outTokens: Int
+    let requestCount: Int
     var id: String { label }
 }
