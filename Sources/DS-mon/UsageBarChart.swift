@@ -72,7 +72,8 @@ struct UsageBarChart: View {
                     y: .value("Requests", Double(bar.requestCount) * scale)
                 )
                 .foregroundStyle(.orange)
-                .lineStyle(StrokeStyle(lineWidth: 1.5))
+                .lineStyle(StrokeStyle(lineWidth: 1))
+                .interpolationMethod(.catmullRom)
                 PointMark(
                     x: .value("Time", bar.label),
                     y: .value("Requests", Double(bar.requestCount) * scale)
