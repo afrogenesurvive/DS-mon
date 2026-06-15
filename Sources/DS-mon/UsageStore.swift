@@ -452,36 +452,22 @@ actor UsageStore {
     }
 
     nonisolated func currentHourCacheHitRate() -> Double? {
-        guard let db else { return nil }
         let cal = Calendar.current
         let now = Date()
         let hourStart = cal.date(from: cal.dateComponents([.year, .month, .day, .hour], from: now))!
         let hourEnd = cal.date(byAdding: .hour, value: 1, to: hourStart)!
-        let sql = """
-        SELECT SUM(MAX(0, prompt_tokens - cached_tokens)),
-               SUM(cached_tokens)
-        FROM usage_log
-        WHERE timestamp >= ? AND timestamp < ?;
-        """
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
-        sqlite3_bind_double(stmt, 1, hourStart.timeIntervalSince1970)
-        sqlite3_bind_double(stmt, 2, hourEnd.timeIntervalSince1970)
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        let miss = Int(sqlite3_column_int64(stmt, 0))
-        let hit = Int(sqlite3_column_int64(stmt, 1))
-        let total = miss + hit
-        guard total > 0 else { return nil }
-        return Double(hit) / Double(total)
+        return cacheHitRate(start: hourStart, end: hourEnd)
     }
 
-    /// 今日缓存命中率（0.0 ~ 1.0），无数据时返回 nil
     nonisolated func todayCacheHitRate() -> Double? {
-        guard let db else { return nil }
         let cal = Calendar.current
         let todayStart = cal.startOfDay(for: Date())
         let todayEnd = cal.date(byAdding: .day, value: 1, to: todayStart)!
+        return cacheHitRate(start: todayStart, end: todayEnd)
+    }
+
+    nonisolated private func cacheHitRate(start: Date, end: Date) -> Double? {
+        guard let db else { return nil }
         let sql = """
         SELECT SUM(MAX(0, prompt_tokens - cached_tokens)),
                SUM(cached_tokens)
@@ -490,8 +476,8 @@ actor UsageStore {
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
-        sqlite3_bind_double(stmt, 1, todayStart.timeIntervalSince1970)
-        sqlite3_bind_double(stmt, 2, todayEnd.timeIntervalSince1970)
+        sqlite3_bind_double(stmt, 1, start.timeIntervalSince1970)
+        sqlite3_bind_double(stmt, 2, end.timeIntervalSince1970)
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
         let miss = Int(sqlite3_column_int64(stmt, 0))
