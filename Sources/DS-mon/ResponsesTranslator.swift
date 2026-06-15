@@ -1,32 +1,13 @@
 import Foundation
 
-// MARK: - 模型名称映射
-
-private nonisolated(unsafe) var modelMapCache: [String: String]? = nil
-
 func mapModelName(_ name: String) -> String {
-    let map = loadModelMap()
-    return map[name] ?? name
-}
-
-private func loadModelMap() -> [String: String] {
-    if let cached = modelMapCache { return cached }
-    guard let env = ProcessInfo.processInfo.environment["CODEX_RELAY_MODEL_MAP"],
-          !env.isEmpty else {
-        modelMapCache = [:]
-        return [:]
+    if let override = ProviderManager.activeModelOverrideModel {
+        return override
     }
-    var map: [String: String] = [:]
-    for pair in env.split(separator: ",") {
-        let parts = pair.split(separator: ":", maxSplits: 1)
-        if parts.count == 2 {
-            let key = parts[0].trimmingCharacters(in: .whitespaces)
-            let val = parts[1].trimmingCharacters(in: .whitespaces)
-            if !key.isEmpty { map[key] = val }
-        }
+    if let defaultModel = ProviderManager.activeModelDefaultModel {
+        return defaultModel
     }
-    modelMapCache = map
-    return map
+    return name
 }
 
 // MARK: - 工具转换 (Responses API → Chat Completions)

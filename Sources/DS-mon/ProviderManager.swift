@@ -69,7 +69,10 @@ final class ProviderManager {
     /// UserDefaults key 前缀
     private static let keyStorePrefix = "encrypted_api_key_"
 
-    /// 当前活跃提供商
+    /// 活跃提供商的 codex 模型覆写目标模型名（非隔离访问）
+    nonisolated(unsafe) static var activeModelOverrideModel: String? = nil
+    /// 活跃提供商的默认模型（非隔离访问）
+    nonisolated(unsafe) static var activeModelDefaultModel: String? = nil
     var activeProvider: ProviderConfig? {
         providers.first { $0.id == activeProviderId && $0.isEnabled }
     }
@@ -100,6 +103,20 @@ final class ProviderManager {
         } else {
             activeProviderId = providers.first(where: { $0.isEnabled })?.id ?? "deepseek"
         }
+        syncModelOverrides()
+    }
+
+    private func syncModelOverrides() {
+        Self.activeModelDefaultModel = activeProvider?.defaultModel
+            ?? activeProvider?.pricingOverrides.keys.sorted().first
+
+        if let overrideId = activeProvider?.modelOverrideProviderId,
+           let target = providers.first(where: { $0.id == overrideId && $0.isEnabled }) {
+            Self.activeModelOverrideModel = target.defaultModel
+                ?? target.pricingOverrides.keys.sorted().first
+        } else {
+            Self.activeModelOverrideModel = nil
+        }
     }
 
     func save() {
@@ -113,6 +130,7 @@ final class ProviderManager {
         guard providers.contains(where: { $0.id == id && $0.isEnabled }) else { return }
         activeProviderId = id
         save()
+        syncModelOverrides()
         NotificationCenter.default.post(name: .activeProviderDidChange, object: nil)
     }
 
@@ -126,14 +144,6 @@ final class ProviderManager {
         }
         save()
         NotificationCenter.default.post(name: .activeProviderDidChange, object: nil)
-    }
-
-    func restoreBuiltIn(id: String) {
-        guard let builtIn = ProviderConfig.builtIn(id: id) else { return }
-        if !providers.contains(where: { $0.id == id }) {
-            providers.append(builtIn)
-            save()
-        }
     }
 
     // MARK: - API Key 加密存储

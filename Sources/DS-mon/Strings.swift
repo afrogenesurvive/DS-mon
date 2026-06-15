@@ -149,10 +149,6 @@ enum Strings {
     static var activeProviderLabel: String { isZH ? "活跃提供商" : "Active Provider" }
     static var setActiveProvider: String { isZH ? "设为活跃" : "Set Active" }
     static var activeProviderBadge: String { isZH ? "活跃中" : "Active" }
-    static var addProviderTitle: String { isZH ? "添加提供商" : "Add Provider" }
-    static var addProviderHint: String { isZH ? "恢复内置提供商" : "Restore built-in provider" }
-    static var addProviderCustomHint: String { isZH ? "自定义提供商可通过代码配置" : "Custom providers can be configured via code" }
-    static var allProvidersAdded: String { isZH ? "所有内置提供商已添加" : "All built-in providers added" }
     static var selectProviderHint: String { isZH ? "请选择一个提供商" : "Select a provider" }
     static var removeProvider: String { isZH ? "移除提供商" : "Remove Provider" }
     static var defaultModelSection: String { isZH ? "默认模型" : "Default Model" }
@@ -160,7 +156,10 @@ enum Strings {
     static var defaultModelLabel: String { isZH ? "默认模型" : "Model" }
     static var defaultModelLabel2: String { isZH ? "默认模型" : "Default Model" }
     static var modelOverrideSection: String { isZH ? "模型覆写" : "Model Override" }
-    
+    static var modelOverrideHint: String { isZH ? "codex 对话将使用所选提供商的默认模型" : "Codex conversations will use the selected provider's default model" }
+    static var modelOverrideNone: String { isZH ? "不覆写" : "No Override" }
+    static var modelOverrideNoProvider: String { isZH ? "无其他可用提供商" : "No other providers available" }
+
     // Dev platform
     static var developerPlatformSection: String { isZH ? "开发平台" : "Developer Platform" }
     static var developerPlatformHint: String { isZH ? "提供商开发平台的 URL，如 DeepSeek: platform.deepseek.com" : "URL for the provider's developer platform, e.g. DeepSeek: platform.deepseek.com" }

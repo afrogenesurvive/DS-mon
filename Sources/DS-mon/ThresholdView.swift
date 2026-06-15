@@ -23,7 +23,6 @@ struct ThresholdView: View {
     @State private var pricingResetMsg = false
     @State private var providerConfigs: [ProviderConfig] = ProviderManager.shared.providers
     @State private var selectedProviderId: String = ProviderManager.shared.activeProviderId
-    @State private var showAddProviderPopup = false
     @State private var currentProviderModels: [String] = []
 
     // 同步
@@ -319,70 +318,8 @@ struct ThresholdView: View {
             .listStyle(.plain)
             .frame(minHeight: 120)
 
-            // 添加 / 恢复提供商按钮
-            HStack(spacing: 4) {
-                Button(action: { showAddProviderPopup = true }) {
-                    Image(systemName: "plus.circle")
-                        .font(.caption)
-                }
-                .buttonStyle(.plain)
-                .help(Strings.addProviderHint)
-                .popover(isPresented: $showAddProviderPopup) {
-                    addProviderMenu
-                }
-
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-
             Spacer()
         }
-    }
-
-    private var addProviderMenu: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(Strings.addProviderTitle)
-                .font(.headline)
-                .padding(.bottom, 4)
-
-            ForEach(ProviderConfig.builtIns.filter { builtIn in
-                !providerConfigs.contains(where: { $0.id == builtIn.id })
-            }) { provider in
-                Button(action: {
-                    providerConfigs.append(provider)
-                    ProviderConfig.saveAll(providerConfigs)
-                    ProviderManager.shared.load()
-                }) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "plus.circle.fill")
-                            .foregroundColor(.accentColor)
-                        Text(provider.name)
-                            .font(.callout)
-                        Text(provider.baseURL)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                }
-                .buttonStyle(.plain)
-            }
-
-            if ProviderConfig.builtIns.allSatisfy({ builtIn in
-                providerConfigs.contains(where: { $0.id == builtIn.id })
-            }) {
-                Text(Strings.allProvidersAdded)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            Divider()
-
-            Text(Strings.addProviderCustomHint)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-        }
-        .padding(14)
-        .frame(width: 240)
     }
 
     private var providerSettingsView: some View {
@@ -1046,7 +983,20 @@ struct ThresholdView: View {
     // MARK: - 模型覆写
 
     private func modelOverrideSection(provider: ProviderConfig) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let overrideId = Binding<String?>(
+            get: { providerConfigs.first(where: { $0.id == provider.id })?.modelOverrideProviderId },
+            set: { newVal in
+                if let idx = providerConfigs.firstIndex(where: { $0.id == provider.id }) {
+                    providerConfigs[idx].modelOverrideProviderId = newVal
+                    ProviderConfig.saveAll(providerConfigs)
+                    ProviderManager.shared.load()
+                }
+            }
+        )
+
+        let availableProviders = providerConfigs.filter { $0.id != provider.id && $0.isEnabled }
+
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 4) {
                 Image(systemName: "arrow.triangle.swap")
                     .foregroundColor(.purple)
@@ -1054,6 +1004,30 @@ struct ThresholdView: View {
                     .font(.body).bold()
             }
 
+            Text(Strings.modelOverrideHint)
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            if availableProviders.isEmpty {
+                Text(Strings.modelOverrideNoProvider)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                Picker("", selection: Binding(
+                    get: { overrideId.wrappedValue ?? "" },
+                    set: { newVal in
+                        overrideId.wrappedValue = newVal.isEmpty ? nil : newVal
+                    }
+                )) {
+                    Text(Strings.modelOverrideNone).tag("")
+                    ForEach(availableProviders) { p in
+                        let model = p.defaultModel ?? p.pricingOverrides.keys.sorted().first ?? "?"
+                        Text("\(p.name) (\(model))").tag(p.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: 240)
+            }
         }
     }
 

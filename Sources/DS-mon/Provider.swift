@@ -54,6 +54,9 @@ struct ProviderConfig: Identifiable, Codable, Equatable, Sendable {
     /// 模型定价覆盖（key = 模型ID 或前缀）
     var pricingOverrides: [String: ModelPricing]
 
+    /// 模型名称覆写（请求的模型名 -> 实际发送的模型名）
+    var modelOverrideProviderId: String?
+
     /// 开发平台 URL（如 https://platform.deepseek.com/usage）
     var developerPlatformURL: String
 
@@ -66,11 +69,12 @@ struct ProviderConfig: Identifiable, Codable, Equatable, Sendable {
          isEnabled: Bool = true,
          order: Int = 0,
          defaultModel: String? = nil,
-         pricingOverrides: [String: ModelPricing] = [:],
-         apiPath: String = "/v1",
-         tier: ProviderTier = .premium,
-         rateLimitRPM: Int? = nil,
-         developerPlatformURL: String = "")
+          pricingOverrides: [String: ModelPricing] = [:],
+          modelOverrideProviderId: String? = nil,
+          apiPath: String = "/v1",
+          tier: ProviderTier = .premium,
+          rateLimitRPM: Int? = nil,
+          developerPlatformURL: String = "")
     {
         self.id = id
         self.name = name
@@ -87,6 +91,7 @@ struct ProviderConfig: Identifiable, Codable, Equatable, Sendable {
         self.rateLimitRPM = rateLimitRPM
         self.tier = tier
         self.pricingOverrides = pricingOverrides
+        self.modelOverrideProviderId = modelOverrideProviderId
         self.developerPlatformURL = developerPlatformURL
     }
 

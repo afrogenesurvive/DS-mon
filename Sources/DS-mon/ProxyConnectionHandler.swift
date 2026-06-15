@@ -139,11 +139,11 @@ final class ProxyConnectionHandler: @unchecked Sendable {
         var activeProviderId: String = ""
 
         // 从主 actor 获取活跃提供商信息
-        let providerInfo = await MainActor.run { () -> (baseURL: String, authHeader: String?, providerId: String, apiPath: String)? in
+        let providerInfo = await MainActor.run { () -> (baseURL: String, authHeader: String?, providerId: String, apiPath: String, defaultModel: String?)? in
             guard let p = ProviderManager.shared.activeProvider else { return nil }
             let key = ProviderManager.shared.activeAPIKey
             let auth = key.isEmpty ? nil : "\(p.authHeaderPrefix) \(key)"
-            return (p.baseURL, auth, p.id, p.apiPath)
+            return (p.baseURL, auth, p.id, p.apiPath, p.defaultModel)
         }
 
         // RPM 限流检查
@@ -182,21 +182,43 @@ final class ProxyConnectionHandler: @unchecked Sendable {
             return
         }
 
+        let targetURL: URL
         if let info = providerInfo {
+            appendLog("[buildURL] using apiPath=\(info.apiPath) defaultModel=\(info.defaultModel ?? "nil")")
             upstreamBase = info.baseURL
             pendingAuthHeader = info.authHeader
             activeProviderId = info.providerId
+
+            let baseWithoutSlash = info.baseURL.hasSuffix("/")
+                ? String(info.baseURL.dropLast())
+                : info.baseURL
+            let apiWithSlash: String
+            if info.apiPath.isEmpty {
+                apiWithSlash = ""
+            } else if info.apiPath.hasPrefix("/") {
+                apiWithSlash = info.apiPath
+            } else {
+                apiWithSlash = "/" + info.apiPath
+            }
+            let pathWithoutApi = path.hasPrefix(apiWithSlash)
+                ? String(path.dropFirst(apiWithSlash.count))
+                : path
+            let fullPath = "\(apiWithSlash)\(pathWithoutApi.hasPrefix("/") ? pathWithoutApi : "/" + pathWithoutApi)"
+            guard let url = URL(string: "\(baseWithoutSlash)\(fullPath)") else {
+                sendError(code: 502, body: "Bad upstream URL"); return
+            }
+            targetURL = url
         } else {
             upstreamBase = "https://api.deepseek.com"
-        }
-
-        guard let targetURL = URL(string: "\(upstreamBase)\(path)") else {
-            sendError(code: 502, body: "Bad upstream URL"); return
+            guard let url = URL(string: "\(upstreamBase)\(path)") else {
+                sendError(code: 502, body: "Bad upstream URL"); return
+            }
+            targetURL = url
         }
 
         var req = URLRequest(url: targetURL)
         req.httpMethod = method
-        req.httpBody = body.isEmpty ? nil : body
+        req.httpBody = applyDefaultModel(body, providerInfo?.defaultModel)
         req.timeoutInterval = AppConfig.proxyRequestTimeout
 
         for (key, value) in headers {
@@ -440,6 +462,19 @@ final class ProxyConnectionHandler: @unchecked Sendable {
         }
     }
 
+    // MARK: - 模型覆写
+
+    /// 将请求 body 中的 model 替换为提供商的默认模型（仅 Chat Completions 路径）
+    private func applyDefaultModel(_ body: Data, _ defaultModel: String?) -> Data {
+        guard !body.isEmpty else { return body }
+        let model = defaultModel ?? ProviderManager.activeModelDefaultModel
+        appendLog("[applyDefault] param=\(defaultModel ?? "nil") active=\(ProviderManager.activeModelDefaultModel ?? "nil") resolved=\(model ?? "nil")")
+        guard let model, !model.isEmpty else { return body }
+        guard var json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return body }
+        json["model"] = model
+        return (try? JSONSerialization.data(withJSONObject: json)) ?? body
+    }
+
     // MARK: - 响应辅助
 
     private func sendError(code: Int, body: String) {
@@ -487,7 +522,7 @@ extension ProxyConnectionHandler {
     /// 直接处理 /v1/responses 请求：翻译 → URLSession 发送 → 返回响应
     private func handleResponsesDirectly(
         method: String, path: String, headers: [String: String], body: Data,
-        providerInfo: (baseURL: String, authHeader: String?, providerId: String, apiPath: String)?,
+        providerInfo: (baseURL: String, authHeader: String?, providerId: String, apiPath: String, defaultModel: String?)?,
         requestModel: String
     ) async {
         // 解析 Responses API 请求
