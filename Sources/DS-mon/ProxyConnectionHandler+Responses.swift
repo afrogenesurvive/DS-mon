@@ -13,7 +13,7 @@ extension ProxyConnectionHandler {
               let reqData = try? JSONSerialization.data(withJSONObject: reqJSON),
               let responsesReq = try? JSONDecoder().decode(ResponsesRequest.self, from: reqData)
         else {
-            appendLog("[Responses] 无法解析请求: \(requestModel)")
+            //appendLog("[Responses] 无法解析请求: \(requestModel)")
             sendError(code: 400, body: "Invalid request body")
             onRequestCompleted()
             onFinished?()
@@ -57,13 +57,13 @@ extension ProxyConnectionHandler {
             return
         }
 
-        appendLog("[Responses] URL: \(url.absoluteString)")
-        appendLog("[Responses] 翻译: \(chatReq.model) stream=\(isStreaming) tools=\(chatReq.tools?.count ?? 0) msgs=\(chatReq.messages.count)")
+        //appendLog("[Responses] URL: \(url.absoluteString)")
+        //appendLog("[Responses] 翻译: \(chatReq.model) stream=\(isStreaming) tools=\(chatReq.tools?.count ?? 0) msgs=\(chatReq.messages.count)")
 
         // 编码 Chat Completions 请求
         if let chatBodyDebug = try? JSONEncoder().encode(chatReq),
            let bodyStr = String(data: chatBodyDebug, encoding: .utf8) {
-            appendLog("[Responses] 请求body: \(bodyStr.prefix(2000))")
+            //appendLog("[Responses] 请求body: \(bodyStr.prefix(2000))")
         }
         guard let chatBody = try? JSONEncoder().encode(chatReq) else {
             sendError(code: 502, body: "Failed to encode chat request")
@@ -114,7 +114,7 @@ extension ProxyConnectionHandler {
             _ = (httpResp?.allHeaderFields as? [String: String]) ?? [:]
 
             if statusCode != 200 {
-                appendLog("[Responses] 上游错误 status=\(statusCode)")
+                //appendLog("[Responses] 上游错误 status=\(statusCode)")
                 sendError(code: 502, body: "Upstream error: \(statusCode)")
                 onRequestCompleted()
                 onFinished?()
@@ -212,7 +212,7 @@ extension ProxyConnectionHandler {
             sessions.saveWithId(id: responseId, messages: fullHistory)
 
         } catch {
-            appendLog("[Responses] 流错误: \(error.localizedDescription)")
+            //appendLog("[Responses] 流错误: \(error.localizedDescription)")
             if !headersSent {
                 sendError(code: 502, body: "Upstream error: \(error.localizedDescription)")
             } else {
@@ -234,7 +234,7 @@ extension ProxyConnectionHandler {
 
             guard statusCode == 200 else {
                 let bodyText = String(data: data, encoding: .utf8) ?? ""
-                appendLog("[Responses] 上游错误 \(statusCode): \(bodyText.prefix(200))")
+                //appendLog("[Responses] 上游错误 \(statusCode): \(bodyText.prefix(200))")
                 sendError(code: 502, body: "Upstream error: \(statusCode)")
                 onRequestCompleted()
                 onFinished?()
@@ -242,7 +242,7 @@ extension ProxyConnectionHandler {
             }
 
             guard let chatResp = try? JSONDecoder().decode(ChatResponse.self, from: data) else {
-                appendLog("[Responses] 解析上游响应失败")
+                //appendLog("[Responses] 解析上游响应失败")
                 sendError(code: 502, body: "Failed to parse upstream response")
                 onRequestCompleted()
                 onFinished?()
@@ -273,7 +273,7 @@ extension ProxyConnectionHandler {
             })
 
         } catch {
-            appendLog("[Responses] 阻塞请求错误: \(error.localizedDescription)")
+            //appendLog("[Responses] 阻塞请求错误: \(error.localizedDescription)")
             sendError(code: 502, body: "Upstream error: \(error.localizedDescription)")
         }
         onRequestCompleted()

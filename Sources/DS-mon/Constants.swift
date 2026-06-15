@@ -4,7 +4,7 @@ import Foundation
 
 enum AppConfig {
     // ⏱ 刷新间隔
-    static let balanceRefreshInterval: TimeInterval = 60
+    static let balanceRefreshInterval: TimeInterval = 300
     static let modelsRefreshInterval: TimeInterval = 3600
     static let balanceRequestTimeout: TimeInterval = 8
     static let modelsRequestTimeout: TimeInterval = 5
