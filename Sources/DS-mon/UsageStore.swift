@@ -278,7 +278,6 @@ actor UsageStore {
         defer { sqlite3_finalize(stmt) }
         bindRecord(stmt!, record, cost: cost)
         sqlite3_step(stmt)
-        sqlite3_finalize(stmt)
     }
 
     // MARK: - 同步接口
