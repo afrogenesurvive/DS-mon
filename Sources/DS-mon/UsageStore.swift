@@ -164,8 +164,10 @@ actor UsageStore {
 
         sqlite3_exec(handle, "PRAGMA journal_mode=WAL", nil, nil, nil)
 
-        // 迁移 V1: 添加 provider_id 列（如果不存在）
-        sqlite3_exec(handle, "ALTER TABLE usage_log ADD COLUMN provider_id TEXT DEFAULT ''", nil, nil, nil)
+        // 迁移 V1: 添加 provider_id 列（忽略"列已存在"错误）
+        if sqlite3_exec(handle, "ALTER TABLE usage_log ADD COLUMN provider_id TEXT DEFAULT ''", nil, nil, nil) != SQLITE_OK {
+            // duplicate column - silently ignored
+        }
         // 迁移 V2: 旧版数据（provider_id 为空）统一迁移给 DeepSeek（只执行一次）
         let migratedV2Key = "usage_store_migrated_v2"
         if !UserDefaults.standard.bool(forKey: migratedV2Key) {
@@ -194,13 +196,16 @@ actor UsageStore {
         """
         sqlite3_exec(handle, createSQL, nil, nil, nil)
         sqlite3_exec(handle, "CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_dedup ON usage_log(timestamp, model, provider_id, prompt_tokens, completion_tokens)", nil, nil, nil)
-        sqlite3_exec(handle, "ALTER TABLE usage_log ADD COLUMN cost REAL DEFAULT 0;", nil, nil, nil)
-        // 迁移 V4: 添加 uuid 列
-        sqlite3_exec(handle, "ALTER TABLE usage_log ADD COLUMN uuid TEXT DEFAULT ''", nil, nil, nil)
+        // 迁移 V4: 添加 uuid 列（忽略"列已存在"错误）
+        if sqlite3_exec(handle, "ALTER TABLE usage_log ADD COLUMN uuid TEXT DEFAULT ''", nil, nil, nil) != SQLITE_OK {
+            // duplicate column - silently ignored
+        }
         sqlite3_exec(handle, "UPDATE usage_log SET uuid = hex(randomblob(16)) || '-' || hex(randomblob(16)) WHERE uuid = '' OR uuid IS NULL", nil, nil, nil)
         sqlite3_exec(handle, "CREATE INDEX IF NOT EXISTS idx_usage_uuid ON usage_log(uuid)", nil, nil, nil)
-        // 迁移 V5: 添加 user_agent 列
-        sqlite3_exec(handle, "ALTER TABLE usage_log ADD COLUMN user_agent TEXT DEFAULT ''", nil, nil, nil)
+        // 迁移 V5: 添加 user_agent 列（忽略"列已存在"错误）
+        if sqlite3_exec(handle, "ALTER TABLE usage_log ADD COLUMN user_agent TEXT DEFAULT ''", nil, nil, nil) != SQLITE_OK {
+            // duplicate column - silently ignored
+        }
 
         backfillCost(handle!)
     }
@@ -345,6 +350,39 @@ actor UsageStore {
             sqlite3_clear_bindings(stmt)
         }
         sqlite3_exec(db, "COMMIT", nil, nil, nil)
+    }
+
+    func recentRecords(limit: Int = 5) -> [UsageRecord] {
+        guard let db else { return [] }
+        let sql = """
+        SELECT timestamp, model, endpoint, latency_ms, status_code, user_agent, uuid
+        FROM usage_log
+        ORDER BY timestamp DESC
+        LIMIT ?;
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        sqlite3_bind_int(stmt, 1, Int32(limit))
+        defer { sqlite3_finalize(stmt) }
+        var results: [UsageRecord] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            results.append(UsageRecord(
+                uuid: String(cString: sqlite3_column_text(stmt, 6)),
+                timestamp: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 0)),
+                providerId: "",
+                model: String(cString: sqlite3_column_text(stmt, 1)),
+                endpoint: String(cString: sqlite3_column_text(stmt, 2)),
+                promptTokens: 0,
+                completionTokens: 0,
+                totalTokens: 0,
+                cachedTokens: 0,
+                reasoningTokens: 0,
+                latencyMs: sqlite3_column_double(stmt, 3),
+                statusCode: Int(sqlite3_column_int64(stmt, 4)),
+                userAgent: String(cString: sqlite3_column_text(stmt, 5))
+            ))
+        }
+        return results
     }
 
     /// 查询本地最大时间戳（用于增量同步的 since 参数）

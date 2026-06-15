@@ -13,7 +13,7 @@ final class ProxyConnectionHandler: @unchecked Sendable {
     let conn: NWConnection
     private let store: UsageStore
     let onRequestCompleted: () -> Void
-    private var usageLogger: UsageLogger { UsageLogger(store: store, onComplete: onRequestCompleted) }
+    lazy var usageLogger = UsageLogger(store: store, onComplete: onRequestCompleted)
     private let onConnectionStateChanged: ((NWConnection.State) -> Void)?
     private let onRequestStarted: ((_ isResponses: Bool) -> Void)?
 
@@ -136,7 +136,8 @@ final class ProxyConnectionHandler: @unchecked Sendable {
         if isResponsesApi {
             await handleResponsesDirectly(
                 method: method, path: path, headers: headers, body: body,
-                providerInfo: providerInfo, requestModel: requestModel
+                providerInfo: providerInfo, requestModel: requestModel,
+                userAgent: userAgent
             )
             return
         }

@@ -6,7 +6,7 @@ extension ProxyConnectionHandler {
     func handleResponsesDirectly(
         method: String, path: String, headers: [String: String], body: Data,
         providerInfo: (baseURL: String, authHeader: String?, providerId: String, apiPath: String, defaultModel: String?)?,
-        requestModel: String
+        requestModel: String, userAgent: String
     ) async {
         // 解析 Responses API 请求
         guard let reqJSON = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
@@ -83,12 +83,14 @@ extension ProxyConnectionHandler {
             await handleResponsesStreaming(
                 urlReq: urlReq, responseId: sessions.newId(),
                 model: chatReq.model, chatReq: chatReq,
-                sessions: sessions, start: start
+                sessions: sessions, start: start,
+                requestBody: body, providerId: info.providerId, userAgent: userAgent
             )
         } else {
             await handleResponsesBlocking(
                 urlReq: urlReq, responseId: sessions.newId(),
-                model: chatReq.model, start: start
+                model: chatReq.model, start: start,
+                requestBody: body, providerId: info.providerId, userAgent: userAgent
             )
         }
     }
@@ -96,7 +98,8 @@ extension ProxyConnectionHandler {
     /// 处理流式 Responses API 请求
     func handleResponsesStreaming(
         urlReq: URLRequest, responseId: String, model: String,
-        chatReq: ChatRequest, sessions: ResponsesSessionStore, start: Date
+        chatReq: ChatRequest, sessions: ResponsesSessionStore, start: Date,
+        requestBody: Data, providerId: String, userAgent: String
     ) async {
         var state = StreamTranslationState()
         var headersSent = false
@@ -206,6 +209,9 @@ extension ProxyConnectionHandler {
             }
             sessions.saveWithId(id: responseId, messages: fullHistory)
 
+            let elapsed = Date().timeIntervalSince(start) * 1000
+            usageLogger.logChatUsage(requestBody: requestBody, responseBody: accumulatedBody, latencyMs: elapsed, statusCode: 200, providerId: providerId, userAgent: userAgent)
+
         } catch {
             //appendLog("[Responses] 流错误: \(error.localizedDescription)")
             if !headersSent {
@@ -220,7 +226,8 @@ extension ProxyConnectionHandler {
 
     /// 处理非流式 Responses API 请求
     func handleResponsesBlocking(
-        urlReq: URLRequest, responseId: String, model: String, start: Date
+        urlReq: URLRequest, responseId: String, model: String, start: Date,
+        requestBody: Data, providerId: String, userAgent: String
     ) async {
         do {
             let (data, resp) =             try await AppConfig.directURLSession.data(for: urlReq)
@@ -265,6 +272,9 @@ extension ProxyConnectionHandler {
             conn.send(content: responseData, completion: .contentProcessed { [weak conn] _ in
                 conn?.cancel()
             })
+
+            let elapsed = Date().timeIntervalSince(start) * 1000
+            usageLogger.logChatUsage(requestBody: requestBody, responseBody: data, latencyMs: elapsed, statusCode: 200, providerId: providerId, userAgent: userAgent)
 
         } catch {
             //appendLog("[Responses] 阻塞请求错误: \(error.localizedDescription)")

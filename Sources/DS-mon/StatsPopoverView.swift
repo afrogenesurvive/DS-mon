@@ -194,6 +194,7 @@ struct StatsPopoverView: View {
     @State private var usagePeriod: Int = 0  // 0=today, 1=week, 2=month
     @State private var usageData: AggregatedUsage?
     @State private var chartData: [TokenBar] = []
+    @State private var showChart = true
 
     private var usageSection: some View {
         VStack(spacing: 8) {
@@ -202,6 +203,12 @@ struct StatsPopoverView: View {
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                 Spacer()
+                Button(action: { showChart.toggle() }) {
+                    Image(systemName: showChart ? "list.bullet" : "chart.bar.fill")
+                        .font(.system(size: 10))
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 4)
                 HStack(spacing: 2) {
                     pillTab(Strings.todayLabel, tag: 0)
                     pillTab(Strings.weekLabel, tag: 1)
@@ -224,9 +231,13 @@ struct StatsPopoverView: View {
                 }
 
                 if !chartData.isEmpty {
-                    UsageBarChart(data: chartData, frameWidth: 262)
-                        .frame(height: 120)
-                        .padding(.top, 10)
+                    if showChart {
+                        UsageBarChart(data: chartData, frameWidth: 262)
+                            .frame(height: 120)
+                            .padding(.top, 10)
+                    } else {
+                        RequestListView(frameWidth: 262)
+                    }
                 }
             } else {
                 HStack {
