@@ -191,10 +191,9 @@ actor UsageStore {
             cost REAL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage_log(timestamp);
-        -- 同步去重索引：用 (timestamp, model, provider_id, prompt_tokens, completion_tokens) 唯一标识一条记录
-        sqlite3_exec(handle, "CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_dedup ON usage_log(timestamp, model, provider_id, prompt_tokens, completion_tokens)", nil, nil, nil)
         """
         sqlite3_exec(handle, createSQL, nil, nil, nil)
+        sqlite3_exec(handle, "CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_dedup ON usage_log(timestamp, model, provider_id, prompt_tokens, completion_tokens)", nil, nil, nil)
         sqlite3_exec(handle, "ALTER TABLE usage_log ADD COLUMN cost REAL DEFAULT 0;", nil, nil, nil)
         // 迁移 V4: 添加 uuid 列
         sqlite3_exec(handle, "ALTER TABLE usage_log ADD COLUMN uuid TEXT DEFAULT ''", nil, nil, nil)

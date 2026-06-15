@@ -60,11 +60,6 @@ extension ProxyConnectionHandler {
         //appendLog("[Responses] URL: \(url.absoluteString)")
         //appendLog("[Responses] 翻译: \(chatReq.model) stream=\(isStreaming) tools=\(chatReq.tools?.count ?? 0) msgs=\(chatReq.messages.count)")
 
-        // 编码 Chat Completions 请求
-        if let chatBodyDebug = try? JSONEncoder().encode(chatReq),
-           let bodyStr = String(data: chatBodyDebug, encoding: .utf8) {
-            //appendLog("[Responses] 请求body: \(bodyStr.prefix(2000))")
-        }
         guard let chatBody = try? JSONEncoder().encode(chatReq) else {
             sendError(code: 502, body: "Failed to encode chat request")
             onRequestCompleted()
@@ -233,8 +228,7 @@ extension ProxyConnectionHandler {
             let statusCode = httpResp?.statusCode ?? 502
 
             guard statusCode == 200 else {
-                let bodyText = String(data: data, encoding: .utf8) ?? ""
-                //appendLog("[Responses] 上游错误 \(statusCode): \(bodyText.prefix(200))")
+                //appendLog("[Responses] 上游错误 \(statusCode)")
                 sendError(code: 502, body: "Upstream error: \(statusCode)")
                 onRequestCompleted()
                 onFinished?()
