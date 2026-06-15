@@ -9,31 +9,11 @@ import Network
 ///   2. 路由到上游（DeepSeek API）
 ///   3. 流式转发响应
 ///   4. 记录用量数据到 UsageStore
-// MARK: - 简单 RPM 限流器（按提供商）
-private final class RateLimiter: @unchecked Sendable {
-    static let shared = RateLimiter()
-    private var buckets: [String: [Date]] = [:]
-    private let lock = NSLock()
-
-    func check(providerId: String, rpmLimit: Int?) -> Bool {
-        guard let limit = rpmLimit, limit > 0 else { return true }
-        lock.lock()
-        defer { lock.unlock() }
-        let now = Date()
-        let window = now.addingTimeInterval(-60)
-        var timestamps = buckets[providerId] ?? []
-        timestamps.removeAll { $0 < window }
-        guard timestamps.count < limit else { return false }
-        timestamps.append(now)
-        buckets[providerId] = timestamps
-        return true
-    }
-}
-
 final class ProxyConnectionHandler: @unchecked Sendable {
     private let conn: NWConnection
     private let store: UsageStore
     private let onRequestCompleted: () -> Void
+    private var usageLogger: UsageLogger { UsageLogger(store: store, onComplete: onRequestCompleted) }
     private let onConnectionStateChanged: ((NWConnection.State) -> Void)?
     private let onRequestStarted: ((_ isResponses: Bool) -> Void)?
 
@@ -278,9 +258,9 @@ final class ProxyConnectionHandler: @unchecked Sendable {
             // 记录用量
             let isChatCompletion = statusCode == 200 && path.contains("/chat/completions")
             if isChatCompletion {
-                logChatUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, statusCode: statusCode, providerId: activeProviderId, userAgent: userAgent)
+                usageLogger.logChatUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, statusCode: statusCode, providerId: activeProviderId, userAgent: userAgent)
             } else {
-                logResponsesUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, providerId: activeProviderId, userAgent: userAgent)
+                usageLogger.logResponsesUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, providerId: activeProviderId, userAgent: userAgent)
                 let preview = String(data: accumulatedBody.prefix(800), encoding: .utf8) ?? "(非文本)"
                 debugLog("← \(path) body(\(accumulatedBody.count)B) preview:\n\(preview)")
                 appendLog("← body \(accumulatedBody.count)B | \(preview.replacingOccurrences(of: "\n", with: " ").prefix(200))")
@@ -304,141 +284,6 @@ final class ProxyConnectionHandler: @unchecked Sendable {
                 sendError(code: 502, body: msg)
             } else {
                 conn.cancel()
-            }
-        }
-    }
-
-    // MARK: - 用量记录
-
-    /// Chat Completions 用量 — 非流式 JSON 或 SSE 流式
-    private func logChatUsage(requestBody: Data, responseBody: Data, latencyMs: Double, statusCode: Int, providerId: String = "", userAgent: String = "") {
-        if let respJSON = try? JSONSerialization.jsonObject(with: responseBody) as? [String: Any],
-           let usage = respJSON["usage"] as? [String: Any] {
-            writeUsage(requestBody: requestBody, usage: usage, latencyMs: latencyMs, statusCode: statusCode, providerId: providerId, userAgent: userAgent)
-            return
-        }
-
-        // SSE 流式 — 倒序找最后一个带 usage 的 data chunk
-        guard let sseText = String(data: responseBody, encoding: .utf8) else { return }
-        let lines = sseText.components(separatedBy: "\n")
-        for line in lines.reversed() {
-            guard line.hasPrefix("data: "), line != "data: [DONE]" else { continue }
-            let jsonStr = String(line.dropFirst(6))
-            if let chunkData = jsonStr.data(using: .utf8),
-               let json = try? JSONSerialization.jsonObject(with: chunkData) as? [String: Any],
-               let usage = json["usage"] as? [String: Any] {
-                writeUsage(requestBody: requestBody, usage: usage, latencyMs: latencyMs, statusCode: statusCode, providerId: providerId, userAgent: userAgent)
-                return
-            }
-        }
-    }
-
-    /// Responses API 用量 — 支持 SSE 流式和阻塞式 JSON
-    private func logResponsesUsage(requestBody: Data, responseBody: Data, latencyMs: Double, providerId: String = "", userAgent: String = "") {
-        guard let text = String(data: responseBody, encoding: .utf8) else { return }
-        var usage: [String: Any]?
-
-        // 方案 1: SSE — event: response.completed 之后的 data:
-        let lines = text.components(separatedBy: "\n")
-        var foundEvent = false
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed == "event: response.completed" { foundEvent = true; continue }
-            if foundEvent, trimmed.hasPrefix("data: ") {
-                let jsonStr = String(trimmed.dropFirst(6))
-                if let data = jsonStr.data(using: .utf8),
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let responseObj = json["response"] as? [String: Any] {
-                    usage = responseObj["usage"] as? [String: Any]
-                }
-                break
-            }
-        }
-
-        // 方案 2: 阻塞式 JSON
-        if usage == nil,
-           let json = try? JSONSerialization.jsonObject(with: responseBody) as? [String: Any] {
-            usage = json["usage"] as? [String: Any]
-        }
-
-        // 方案 3: SSE 倒序
-        if usage == nil {
-            for line in lines.reversed() {
-                guard line.hasPrefix("data: "), line != "data: [DONE]" else { continue }
-                let jsonStr = String(line.dropFirst(6))
-                if let data = jsonStr.data(using: .utf8),
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let u = json["usage"] as? [String: Any] {
-                    usage = u; break
-                }
-            }
-        }
-
-        guard let usage else { return }
-
-        var model = "unknown"
-        if let reqJSON = try? JSONSerialization.jsonObject(with: requestBody) as? [String: Any] {
-            model = reqJSON["model"] as? String ?? "unknown"
-        }
-
-        let cachedTokens: Int = {
-            if let details = usage["input_tokens_details"] as? [String: Any],
-               let cached = details["cached_tokens"] as? Int { return cached }
-            if let cached = usage["prompt_cache_hit_tokens"] as? Int { return cached }
-            if let cached = usage["cached_tokens"] as? Int { return cached }
-            return 0
-        }()
-
-        let details = usage["output_tokens_details"] as? [String: Any]
-        let record = UsageRecord(
-            uuid: UUID().uuidString,
-            timestamp: Date(),
-            providerId: providerId,
-            model: model,
-            endpoint: "/v1/responses",
-            promptTokens: usage["input_tokens"] as? Int ?? 0,
-            completionTokens: usage["output_tokens"] as? Int ?? 0,
-            totalTokens: usage["total_tokens"] as? Int ?? 0,
-            cachedTokens: cachedTokens,
-            reasoningTokens: details?["reasoning_tokens"] as? Int ?? 0,
-            latencyMs: latencyMs,
-            statusCode: 200,
-            userAgent: userAgent
-        )
-        insertAndNotify(record)
-    }
-
-    private func writeUsage(requestBody: Data, usage: [String: Any], latencyMs: Double, statusCode: Int, providerId: String = "", userAgent: String = "") {
-        var model = "unknown"
-        if let reqJSON = try? JSONSerialization.jsonObject(with: requestBody) as? [String: Any] {
-            model = reqJSON["model"] as? String ?? "unknown"
-        }
-        let details = usage["completion_tokens_details"] as? [String: Any]
-        let record = UsageRecord(
-            uuid: UUID().uuidString,
-            timestamp: Date(),
-            providerId: providerId,
-            model: model,
-            endpoint: "/v1/chat/completions",
-            promptTokens: usage["prompt_tokens"] as? Int ?? 0,
-            completionTokens: usage["completion_tokens"] as? Int ?? 0,
-            totalTokens: usage["total_tokens"] as? Int ?? 0,
-            cachedTokens: usage["prompt_cache_hit_tokens"] as? Int ?? 0,
-            reasoningTokens: details?["reasoning_tokens"] as? Int ?? 0,
-            latencyMs: latencyMs,
-            statusCode: statusCode,
-            userAgent: userAgent
-        )
-        insertAndNotify(record)
-    }
-
-    private func insertAndNotify(_ record: UsageRecord) {
-        Task { [weak self] in
-            guard let self else { return }
-            await store.insert(record)
-            onRequestCompleted()
-            Task { @MainActor in
-                NotificationCenter.default.post(name: .usageRecorded, object: nil)
             }
         }
     }
