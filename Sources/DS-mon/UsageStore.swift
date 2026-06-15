@@ -115,6 +115,30 @@ actor UsageStore {
 
     nonisolated(unsafe) private var db: OpaquePointer?
 
+    private static let insertColumns = """
+    uuid, timestamp, provider_id, model, endpoint,
+    prompt_tokens, completion_tokens, total_tokens, cached_tokens,
+    reasoning_tokens, latency_ms, status_code, cost, user_agent
+    """
+    private static let insertValues = "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+
+    private func bindRecord(_ stmt: OpaquePointer, _ record: UsageRecord, cost: Double) {
+        sqlite3_bind_text(stmt, 1, record.uuid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_double(stmt, 2, record.timestamp.timeIntervalSince1970)
+        sqlite3_bind_text(stmt, 3, record.providerId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(stmt, 4, record.model, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(stmt, 5, record.endpoint, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_int64(stmt, 6, Int64(record.promptTokens))
+        sqlite3_bind_int64(stmt, 7, Int64(record.completionTokens))
+        sqlite3_bind_int64(stmt, 8, Int64(record.totalTokens))
+        sqlite3_bind_int64(stmt, 9, Int64(record.cachedTokens))
+        sqlite3_bind_int64(stmt, 10, Int64(record.reasoningTokens))
+        sqlite3_bind_double(stmt, 11, record.latencyMs)
+        sqlite3_bind_int64(stmt, 12, Int64(record.statusCode))
+        sqlite3_bind_double(stmt, 13, cost)
+        sqlite3_bind_text(stmt, 14, record.userAgent, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+    }
+
     private static let dayLookupFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
@@ -243,29 +267,16 @@ actor UsageStore {
             pricing: pricing
         )
         let sql = """
-        INSERT INTO usage_log (uuid, timestamp, provider_id, model, endpoint, prompt_tokens, completion_tokens,
-          total_tokens, cached_tokens, reasoning_tokens, latency_ms, status_code, cost, user_agent)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        INSERT INTO usage_log (\(Self.insertColumns))
+        VALUES (\(Self.insertValues));
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
             print("[UsageStore] insert prepare failed: " + (sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"))
             return
         }
-        sqlite3_bind_text(stmt, 1, record.uuid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        sqlite3_bind_double(stmt, 2, record.timestamp.timeIntervalSince1970)
-        sqlite3_bind_text(stmt, 3, record.providerId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        sqlite3_bind_text(stmt, 4, record.model, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        sqlite3_bind_text(stmt, 5, record.endpoint, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        sqlite3_bind_int64(stmt, 6, Int64(record.promptTokens))
-        sqlite3_bind_int64(stmt, 7, Int64(record.completionTokens))
-        sqlite3_bind_int64(stmt, 8, Int64(record.totalTokens))
-        sqlite3_bind_int64(stmt, 9, Int64(record.cachedTokens))
-        sqlite3_bind_int64(stmt, 10, Int64(record.reasoningTokens))
-        sqlite3_bind_double(stmt, 11, record.latencyMs)
-        sqlite3_bind_int64(stmt, 12, Int64(record.statusCode))
-        sqlite3_bind_double(stmt, 13, cost)
-        sqlite3_bind_text(stmt, 14, record.userAgent, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        defer { sqlite3_finalize(stmt) }
+        bindRecord(stmt!, record, cost: cost)
         sqlite3_step(stmt)
         sqlite3_finalize(stmt)
     }
@@ -315,10 +326,8 @@ actor UsageStore {
     func insertRecords(_ records: [UsageRecord]) {
         guard let db else { return }
         let sql = """
-        INSERT OR IGNORE INTO usage_log (uuid, timestamp, provider_id, model, endpoint,
-          prompt_tokens, completion_tokens, total_tokens, cached_tokens,
-          reasoning_tokens, latency_ms, status_code, cost, user_agent)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        INSERT OR IGNORE INTO usage_log (\(Self.insertColumns))
+        VALUES (\(Self.insertValues));
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
@@ -332,21 +341,8 @@ actor UsageStore {
                 cachedTokens: record.cachedTokens,
                 pricing: ModelPricing.forModel(record.model)
             )
-            sqlite3_bind_text(stmt, 1, record.uuid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_bind_double(stmt, 2, record.timestamp.timeIntervalSince1970)
-            sqlite3_bind_text(stmt, 3, record.providerId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_bind_text(stmt, 4, record.model, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_bind_text(stmt, 5, record.endpoint, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_bind_int64(stmt, 6, Int64(record.promptTokens))
-            sqlite3_bind_int64(stmt, 7, Int64(record.completionTokens))
-            sqlite3_bind_int64(stmt, 8, Int64(record.totalTokens))
-            sqlite3_bind_int64(stmt, 9, Int64(record.cachedTokens))
-            sqlite3_bind_int64(stmt, 10, Int64(record.reasoningTokens))
-            sqlite3_bind_double(stmt, 11, record.latencyMs)
-            sqlite3_bind_int64(stmt, 12, Int64(record.statusCode))
-            sqlite3_bind_double(stmt, 13, cost)
-            sqlite3_bind_text(stmt, 14, record.userAgent, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_step(stmt)
+            bindRecord(stmt!, record, cost: cost)
+            sqlite3_step(stmt!)
             sqlite3_reset(stmt)
             sqlite3_clear_bindings(stmt)
         }
