@@ -5,7 +5,6 @@ extension Notification.Name {
     static let showMenuIconDidChange = Notification.Name("showMenuIconDidChange")
     static let usageRecorded = Notification.Name("usageRecorded")
     static let showIndicatorDidChange = Notification.Name("showIndicatorDidChange")
-    static let showBalanceDidChange = Notification.Name("showBalanceDidChange")
     static let menuBarTextDisplayDidChange = Notification.Name("menuBarTextDisplayDidChange")
 }
 
@@ -73,10 +72,6 @@ enum Strings {
     }
 
     // Status bar
-    static var statusNormal: String { isZH ? "正常" : "NORM" }
-    static var statusLowBalance: String { isZH ? "余额低" : "LOWBAL" }
-    static var statusError: String { isZH ? "异常" : "ERROR" }
-    static var statusWarning: String { isZH ? "余额低" : "WARN" }
 
     // Popover header
     static var popoverTitle: String { "DS-mon" }
@@ -111,13 +106,8 @@ enum Strings {
     static var settingsTitle: String { isZH ? "设置" : "Settings" }
     static var balanceAlert: String { isZH ? "余额预警" : "Balance Alert" }
     static var alertHint: String { isZH ? "余额低于此值时菜单栏红色闪烁" : "Menu bar flashes red when balance drops below" }
-    static var maxBalanceLabel: String { isZH ? "环形上限" : "Ring Max" }
     static var maxBalanceHint: String { isZH ? "菜单栏环形百分比以此为基准，默认 ¥100" : "Ring percentage is relative to this amount, default ¥100" }
     static var apiKeyLabel: String { isZH ? "API Key" : "API Key" }
-    static var apiKeyPlaceholder: String { "sk-..." }
-    static var saveButton: String { isZH ? "保存" : "Save" }
-    static var savedHint: String { isZH ? "已保存，正在刷新..." : "Saved, refreshing..." }
-    static var saveFailedHint: String { isZH ? "保存失败，请重试" : "Save failed, please retry" }
 
     // DeepSeekStats errors
     static var noAPIKey: String { isZH ? "未设置 API Key" : "API Key not set" }
@@ -146,12 +136,12 @@ enum Strings {
     static var textDisplayLabel: String { isZH ? "菜单栏文字" : "Menu Bar Text" }
 
     // Provider
+    static var providerTitle: String { isZH ? "DeepSeek 账户" : "DeepSeek Account" }
     static var defaultModelLabel2: String { isZH ? "默认模型" : "Default Model" }
     static func apiKeyHint(_ name: String) -> String {
         isZH ? "\(name) 的 API Key 将用于代理转发" : "API Key for \(name) will be used for proxy forwarding"
     }
     static var save: String { isZH ? "保存" : "Save" }
-    static var keySaved: String { isZH ? "API Key 已保存" : "API Key saved" }
     static var aboutDesc: String { isZH ? "实时监控 DeepSeek API 使用情况" : "Monitors DeepSeek API usage in real-time" }
 
 
@@ -171,7 +161,7 @@ enum Strings {
     static var cachedTokensLabel: String { isZH ? "缓存命中" : "Cache Hit" }
     static var reasoningTokensLabel: String { isZH ? "推理 Tokens" : "Reasoning" }
     static var costLabel: String { isZH ? "预估费用" : "Est. Cost" }
-    static var latencyLabel: String { isZH ? "平均延迟" : "Avg Latency" }
+    static var latencyLabel: String { isZH ? "响应时间" : "Response Time" }
     static var todayLabel: String { isZH ? "今日" : "Today" }
     static var weekLabel: String { isZH ? "周" : "Week" }
     static var monthLabel: String { isZH ? "月" : "Month" }
@@ -205,16 +195,6 @@ enum Strings {
     static var balanceText: String { isZH ? "¥%.2f" : "¥%.2f" }
     static var grantedText: String { isZH ? "赠送 ¥%.2f" : "Granted ¥%.2f" }
     static var toppedUpText: String { isZH ? "充值 ¥%.2f" : "Topped Up ¥%.2f" }
-
-    // Pricing
-    static var pricingSection: String { isZH ? "模型定价" : "Model Pricing" }
-    static var pricingNote: String { isZH ? "修改仅对新请求生效。计价单位为 ¥/1M tokens。" : "Changes apply to new requests only. Prices in ¥/1M tokens." }
-    static var pricingHit: String { isZH ? "缓存命中 (Input)" : "Cache Hit (Input)" }
-    static var pricingMiss: String { isZH ? "缓存未命中 (Input)" : "Cache Miss (Input)" }
-    static var pricingOut: String { isZH ? "输出 (Output)" : "Output" }
-    static var pricingDefault: String { isZH ? "使用默认定价" : "Using default pricing" }
-    static var pricingReset: String { isZH ? "恢复默认" : "Reset to Default" }
-    static var pricingResetDone: String { isZH ? "已恢复默认定价" : "Reset to default pricing" }
 
     // Chart
     static var chartMiss: String { isZH ? "Miss" : "Miss" }

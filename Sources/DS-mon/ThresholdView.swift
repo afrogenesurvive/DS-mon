@@ -12,9 +12,7 @@ struct ThresholdView: View {
 
     @State private var thresholdValue: Double = 20
     @State private var maxBalanceValue: Double = AppConfig.defaultMaxBalanceAmount
-    @State private var apiKeyInput = ""
-    @State private var saved = false
-    @State private var saveFailed = false
+    @State private var selectedDefaultModel: String?
 
     @State private var syncEnabled: Bool = SyncManager.shared.config.enabled
     @State private var syncMode: SyncConfig.SyncMode = SyncManager.shared.config.mode
@@ -71,12 +69,14 @@ struct ThresholdView: View {
 
     enum SettingsTab: String, CaseIterable {
         case general  = "通用"
+        case provider = "DeepSeek"
         case services = "服务"
         case about    = "关于"
 
         var icon: String {
             switch self {
             case .general:  return "switch.2"
+            case .provider: return "cube.fill"
             case .services: return "network"
             case .about:    return "info.circle"
             }
@@ -116,6 +116,7 @@ struct ThresholdView: View {
             ScrollView {
                 switch selectedTab {
                 case .general:  generalView
+                case .provider: providerView
                 case .services: servicesView
                 case .about:    aboutView
                 }
@@ -127,7 +128,6 @@ struct ThresholdView: View {
             thresholdValue = stats.threshold
             maxBalanceValue = UserDefaults.standard.double(forKey: Strings.Keys.maxBalanceAmount)
             if maxBalanceValue <= 0 { maxBalanceValue = AppConfig.defaultMaxBalanceAmount }
-            apiKeyInput = ProviderManager.shared.apiKey(for: ProviderManager.shared.activeProvider!)
             proxyError = ProxyServer.shared.listenerError
         }
     }
@@ -222,9 +222,19 @@ struct ThresholdView: View {
                 Strings.notifyLanguageChanged()
             }
 
-            Divider()
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+    }
 
-            // API Key
+    // MARK: - 提供商
+
+    private var providerView: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Label(Strings.providerTitle, systemImage: "cube.fill")
+                .font(.body).bold()
+                .padding(.top, 20)
+
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 4) {
                     Image(systemName: "key.fill")
@@ -233,26 +243,17 @@ struct ThresholdView: View {
                         .font(.body).bold()
                 }
 
+                let provider = ProviderManager.shared.provider
                 HStack(spacing: 8) {
                     SecureField("sk-...", text: Binding(
-                        get: { ProviderManager.shared.apiKey(for: ProviderManager.shared.activeProvider!) },
+                        get: { ProviderManager.shared.apiKey(for: provider) },
                         set: { newValue in
-                            _ = ProviderManager.shared.saveAPIKey(newValue, for: ProviderManager.shared.activeProvider!)
+                            _ = ProviderManager.shared.saveAPIKey(newValue, for: provider)
                             stats.refresh()
                         }
                     ))
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.body, design: .monospaced))
-
-                    if saved {
-                        Text(Strings.savedHint)
-                            .font(.caption)
-                            .foregroundColor(.green)
-                    } else if saveFailed {
-                        Text(Strings.saveFailedHint)
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    }
                 }
 
                 Text(Strings.apiKeyHint("DeepSeek"))
@@ -262,11 +263,44 @@ struct ThresholdView: View {
 
             Divider()
 
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 4) {
+                    Image(systemName: "star.fill")
+                        .foregroundColor(.yellow)
+                    Text(Strings.defaultModelLabel2)
+                        .font(.body).bold()
+                }
+
+                let models = ProviderConfig.default.pricingOverrides.keys.sorted()
+                Picker("", selection: Binding(
+                    get: { selectedDefaultModel ?? models.first ?? "" },
+                    set: { newVal in
+                        selectedDefaultModel = newVal.isEmpty ? nil : newVal
+                        var cfg = ProviderConfig.load()
+                        cfg.defaultModel = selectedDefaultModel
+                        cfg.save()
+                        ProviderManager.shared.load()
+                    }
+                )) {
+                    ForEach(models, id: \.self) { model in
+                        Text(model).tag(model)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Divider()
+
             thresholdSection
 
             Spacer()
         }
         .padding(.horizontal, 24)
+        .onAppear {
+            let cfg = ProviderConfig.load()
+            selectedDefaultModel = cfg.defaultModel
+        }
     }
 
     // MARK: - 服务

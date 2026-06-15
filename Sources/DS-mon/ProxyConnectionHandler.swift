@@ -134,6 +134,7 @@ final class ProxyConnectionHandler: @unchecked Sendable {
 
     private func forward(method: String, path: String, headers: [String: String], body: Data) async {
         let isResponsesApi = path.contains("/v1/responses")
+        let userAgent = headers["User-Agent"] ?? headers["user-agent"] ?? ""
         let upstreamBase: String
         var pendingAuthHeader: String?
         var activeProviderId: String = ""
@@ -299,9 +300,9 @@ final class ProxyConnectionHandler: @unchecked Sendable {
             // 记录用量
             let isChatCompletion = statusCode == 200 && path.contains("/chat/completions")
             if isChatCompletion {
-                logChatUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, statusCode: statusCode, providerId: activeProviderId)
+                logChatUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, statusCode: statusCode, providerId: activeProviderId, userAgent: userAgent)
             } else {
-                logResponsesUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, providerId: activeProviderId)
+                logResponsesUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, providerId: activeProviderId, userAgent: userAgent)
                 let preview = String(data: accumulatedBody.prefix(800), encoding: .utf8) ?? "(非文本)"
                 debugLog("← \(path) body(\(accumulatedBody.count)B) preview:\n\(preview)")
                 appendLog("← body \(accumulatedBody.count)B | \(preview.replacingOccurrences(of: "\n", with: " ").prefix(200))")
@@ -332,10 +333,10 @@ final class ProxyConnectionHandler: @unchecked Sendable {
     // MARK: - 用量记录
 
     /// Chat Completions 用量 — 非流式 JSON 或 SSE 流式
-    private func logChatUsage(requestBody: Data, responseBody: Data, latencyMs: Double, statusCode: Int, providerId: String = "") {
+    private func logChatUsage(requestBody: Data, responseBody: Data, latencyMs: Double, statusCode: Int, providerId: String = "", userAgent: String = "") {
         if let respJSON = try? JSONSerialization.jsonObject(with: responseBody) as? [String: Any],
            let usage = respJSON["usage"] as? [String: Any] {
-            writeUsage(requestBody: requestBody, usage: usage, latencyMs: latencyMs, statusCode: statusCode, providerId: providerId)
+            writeUsage(requestBody: requestBody, usage: usage, latencyMs: latencyMs, statusCode: statusCode, providerId: providerId, userAgent: userAgent)
             return
         }
 
@@ -348,14 +349,14 @@ final class ProxyConnectionHandler: @unchecked Sendable {
             if let chunkData = jsonStr.data(using: .utf8),
                let json = try? JSONSerialization.jsonObject(with: chunkData) as? [String: Any],
                let usage = json["usage"] as? [String: Any] {
-                writeUsage(requestBody: requestBody, usage: usage, latencyMs: latencyMs, statusCode: statusCode, providerId: providerId)
+                writeUsage(requestBody: requestBody, usage: usage, latencyMs: latencyMs, statusCode: statusCode, providerId: providerId, userAgent: userAgent)
                 return
             }
         }
     }
 
     /// Responses API 用量 — 支持 SSE 流式和阻塞式 JSON
-    private func logResponsesUsage(requestBody: Data, responseBody: Data, latencyMs: Double, providerId: String = "") {
+    private func logResponsesUsage(requestBody: Data, responseBody: Data, latencyMs: Double, providerId: String = "", userAgent: String = "") {
         guard let text = String(data: responseBody, encoding: .utf8) else { return }
         var usage: [String: Any]?
 
@@ -423,12 +424,13 @@ final class ProxyConnectionHandler: @unchecked Sendable {
             cachedTokens: cachedTokens,
             reasoningTokens: details?["reasoning_tokens"] as? Int ?? 0,
             latencyMs: latencyMs,
-            statusCode: 200
+            statusCode: 200,
+            userAgent: userAgent
         )
         insertAndNotify(record)
     }
 
-    private func writeUsage(requestBody: Data, usage: [String: Any], latencyMs: Double, statusCode: Int, providerId: String = "") {
+    private func writeUsage(requestBody: Data, usage: [String: Any], latencyMs: Double, statusCode: Int, providerId: String = "", userAgent: String = "") {
         var model = "unknown"
         if let reqJSON = try? JSONSerialization.jsonObject(with: requestBody) as? [String: Any] {
             model = reqJSON["model"] as? String ?? "unknown"
@@ -446,7 +448,8 @@ final class ProxyConnectionHandler: @unchecked Sendable {
             cachedTokens: usage["prompt_cache_hit_tokens"] as? Int ?? 0,
             reasoningTokens: details?["reasoning_tokens"] as? Int ?? 0,
             latencyMs: latencyMs,
-            statusCode: statusCode
+            statusCode: statusCode,
+            userAgent: userAgent
         )
         insertAndNotify(record)
     }

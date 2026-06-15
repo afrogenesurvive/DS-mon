@@ -127,7 +127,7 @@ class StatusBarController: NSObject, NSWindowDelegate {
         hitRateDebounceTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
-            let cacheHit = UsageStore.shared.currentHourCacheHitRate()
+            let cacheHit = UsageStore.shared.mostRecentCacheHitRate()
             let todayHit = UsageStore.shared.todayCacheHitRate()
             self.statusView?.cacheHitRatio = cacheHit
             self.statusView?.todayHitRate = todayHit
@@ -271,8 +271,6 @@ class StatusBarView: NSView {
 
     /// 指示器区域总宽度（不含左右边距）
 
-    private var barCount: Int { showIcon ? 3 : 3 }
-
     override init(frame: NSRect) {
         super.init(frame: frame)
         iconView.image = icon
@@ -358,19 +356,12 @@ class StatusBarView: NSView {
 
             // 条①：VU 电平表
             let vuLevel = CGFloat(ProxyServer.shared.vuLevel)
-            let isCodex = ProxyServer.shared.hasActiveConnection
             let vuActive = hasActivity || vuLevel > 0
-            let barColor1: NSColor
-            let barFill1: CGFloat
-            if vuActive {
-                barColor1 = isCodex ? NSColor(red: 0x34/255.0, green: 0xD3/255.0, blue: 0x99/255.0, alpha: 1) : NSColor(red: 0x55/255.0, green: 0x99/255.0, blue: 0xFF/255.0, alpha: 1)
-                barFill1 = vuLevel
-            } else {
-                barColor1 = .gray; barFill1 = 0
-            }
+            let barFill1: CGFloat = vuActive ? vuLevel : 0
             let vuAvg = CGFloat(ProxyServer.shared.vuAvgLevel)
-            drawSolidBar(ctx: ctx, x: bar1x, barH: barH, fillRatio: barFill1, color: barColor1,
-                        avgRatio: vuAvg)
+            drawGradientBar(ctx: ctx, x: bar1x, barH: barH, fillRatio: barFill1,
+                           topColor: NSColor.systemOrange, bottomColor: .systemGreen,
+                           avgRatio: vuAvg)
 
             let bar2x = bar1x + barWidth + columnGap
             let hitRatio = cacheHitRatio ?? 0
@@ -431,67 +422,7 @@ class StatusBarView: NSView {
         || effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
-    // MARK: - 方条绘制
-
-    /// 数据条（从下往上填充）
-    private func drawBarColumn(ctx: CGContext, x: CGFloat, barH: CGFloat,
-                               filledCount: Int, color: NSColor) {
-        drawBarRects(ctx: ctx, x: x, barH: barH, filled: filledCount, color: color, bgAlpha: 0.15)
-    }
-
-    /// 单呼吸条（替代条 1 的 5 段 LED）
-    /// animPhase 0-5 控制呼吸相位：偶数为亮，奇数为暗
-    private func drawBreathingBar(ctx: CGContext, x: CGFloat, barH: CGFloat,
-                                  animPhase: Int, color: NSColor, alerting: Bool, blinkOn: Bool) {
-        let totalH = CGFloat(7) * barHeight + CGFloat(6) * barGap
-        let topY = (barH - totalH) / 2
-        let barRect = CGRect(x: x, y: topY, width: barWidth, height: totalH)
-
-        // 呼吸亮度：偶数为亮(1.0)，奇数为暗(0.4)
-        let isBright = animPhase % 2 == 0
-        // 空闲灰色时不用呼吸，保持静态
-        let hasBreath = color != .gray
-        let breathAlpha: CGFloat
-        if alerting {
-            breathAlpha = blinkOn ? 1.0 : 0.3
-        } else if hasBreath {
-            breathAlpha = isBright ? 1.0 : 0.35
-        } else {
-            breathAlpha = 0.15
-        }
-
-        let drawColor = color.withAlphaComponent(breathAlpha)
-        let roundPath = CGPath(roundedRect: barRect, cornerWidth: 1.5, cornerHeight: 1.5, transform: nil)
-
-        if breathAlpha > 0.5 {
-            ctx.setFillColor(drawColor.cgColor)
-        }
-
-        // 主体
-        ctx.setFillColor(drawColor.cgColor)
-        ctx.addPath(roundPath)
-        ctx.fillPath()
-    }
-
-    /// 一列方块
-    private func drawBarRects(ctx: CGContext, x: CGFloat, barH: CGFloat, filled: Int, color: NSColor, bgAlpha: CGFloat) {
-        let totalH = CGFloat(7) * barHeight + CGFloat(6) * barGap
-        let topY = (barH - totalH) / 2
-        for i in 0..<5 {
-            let y = topY + CGFloat(4 - i) * (barHeight + barGap)
-            let rect = CGRect(x: x, y: y, width: barWidth, height: barHeight)
-            let roundPath = CGPath(roundedRect: rect, cornerWidth: 1, cornerHeight: 1, transform: nil)
-
-            if i >= (5 - filled) {
-                // 主体
-                ctx.setFillColor(color.cgColor)
-                ctx.addPath(roundPath)
-                ctx.fillPath()
-            }
-        }
-    }
-
-    /// 整条柱状图（从下往上填充）
+    // MARK: - 渐变柱状图
     private func drawSolidBar(ctx: CGContext, x: CGFloat, barH: CGFloat,
                               fillRatio: CGFloat, color: NSColor,
                               avgRatio: CGFloat = 0) {
@@ -503,7 +434,6 @@ class StatusBarView: NSView {
         ctx.setFillColor(color.withAlphaComponent(0.12).cgColor)
         ctx.fill(bgRect)
 
-        // 从下往上填充
         if fillRatio > 0 {
             let fillH = totalH * min(max(fillRatio, 0), 1)
             let fillRect = CGRect(x: x, y: topY, width: barWidth, height: fillH)
@@ -511,7 +441,45 @@ class StatusBarView: NSView {
             ctx.fill(fillRect)
         }
 
-        // 近 5 次请求平均线（红色细线）
+        if avgRatio > 0 {
+            let avgY = topY + totalH * min(max(CGFloat(avgRatio), 0), 1)
+            let avgLineRect = CGRect(x: x, y: avgY, width: barWidth, height: 1)
+            ctx.setFillColor(NSColor.systemRed.withAlphaComponent(0.9).cgColor)
+            ctx.fill(avgLineRect)
+        }
+    }
+
+    /// 渐变柱状图（绿→橙，从下往上）
+    private func drawGradientBar(ctx: CGContext, x: CGFloat, barH: CGFloat,
+                                 fillRatio: CGFloat,
+                                 topColor: NSColor, bottomColor: NSColor,
+                                 avgRatio: CGFloat = 0) {
+        let totalH = CGFloat(7) * barHeight + CGFloat(6) * barGap
+        let topY = (barH - totalH) / 2
+
+        let bgRect = CGRect(x: x, y: topY, width: barWidth, height: totalH)
+        ctx.setFillColor(NSColor.gray.withAlphaComponent(0.08).cgColor)
+        ctx.fill(bgRect)
+
+        if fillRatio > 0 {
+            let fillH = totalH * min(max(fillRatio, 0), 1)
+            let fillRect = CGRect(x: x, y: topY, width: barWidth, height: fillH)
+            let colors = [bottomColor.cgColor, topColor.cgColor]
+            let locations: [CGFloat] = [0, 1]
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                          colors: colors as CFArray,
+                                          locations: locations) {
+                let ctx2 = ctx
+                ctx2.saveGState()
+                ctx2.clip(to: fillRect)
+                ctx2.drawLinearGradient(gradient,
+                                        start: CGPoint(x: x, y: topY),
+                                        end: CGPoint(x: x, y: topY + totalH),
+                                        options: [])
+                ctx2.restoreGState()
+            }
+        }
+
         if avgRatio > 0 {
             let avgY = topY + totalH * min(max(CGFloat(avgRatio), 0), 1)
             let avgLineRect = CGRect(x: x, y: avgY, width: barWidth, height: 1)

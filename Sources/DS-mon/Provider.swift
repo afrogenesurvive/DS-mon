@@ -1,12 +1,5 @@
 import Foundation
 
-// MARK: - 余额查询策略
-
-enum BalanceStrategy: String, Codable, Sendable {
-    case deepseek
-    case none
-}
-
 // MARK: - DeepSeek 提供商配置
 
 struct ProviderConfig: Identifiable, Codable, Equatable, Sendable {
@@ -16,7 +9,6 @@ struct ProviderConfig: Identifiable, Codable, Equatable, Sendable {
     var authHeaderPrefix: String
     var hasBalanceAPI: Bool
     var balanceURL: String?
-    var balanceStrategy: BalanceStrategy
     var currency: String
     var isEnabled: Bool
     var order: Int
@@ -34,7 +26,6 @@ struct ProviderConfig: Identifiable, Codable, Equatable, Sendable {
          authHeaderPrefix: String = "Bearer",
          hasBalanceAPI: Bool = true,
          balanceURL: String? = "/user/balance",
-         balanceStrategy: BalanceStrategy = .deepseek,
          currency: String = "CNY",
          isEnabled: Bool = true,
          order: Int = 0,
@@ -50,7 +41,6 @@ struct ProviderConfig: Identifiable, Codable, Equatable, Sendable {
         self.authHeaderPrefix = authHeaderPrefix
         self.hasBalanceAPI = hasBalanceAPI
         self.balanceURL = balanceURL
-        self.balanceStrategy = balanceStrategy
         self.currency = currency
         self.isEnabled = isEnabled
         self.order = order

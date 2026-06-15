@@ -1,9 +1,5 @@
 import Foundation
 
-func mapModelName(_ name: String) -> String {
-    name
-}
-
 // MARK: - 工具转换 (Responses API → Chat Completions)
 
 private func convertTools(_ tools: [JSONValue]?) -> [JSONValue] {
@@ -295,7 +291,7 @@ func toChatRequest(
 
     let convertedTools = convertTools(req.tools)
     return ChatRequest(
-        model: mapModelName(req.model),
+        model: req.model,
         messages: messages,
         tools: convertedTools.isEmpty ? nil : convertedTools,
         temperature: req.temperature,

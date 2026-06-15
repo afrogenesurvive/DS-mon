@@ -89,6 +89,7 @@ struct UsageRecord: Codable, Sendable {
     let reasoningTokens: Int
     let latencyMs: Double
     let statusCode: Int
+    let userAgent: String
 }
 
 struct AggregatedUsage: Sendable {
@@ -175,6 +176,8 @@ actor UsageStore {
         sqlite3_exec(handle, "ALTER TABLE usage_log ADD COLUMN uuid TEXT DEFAULT ''", nil, nil, nil)
         sqlite3_exec(handle, "UPDATE usage_log SET uuid = hex(randomblob(16)) || '-' || hex(randomblob(16)) WHERE uuid = '' OR uuid IS NULL", nil, nil, nil)
         sqlite3_exec(handle, "CREATE INDEX IF NOT EXISTS idx_usage_uuid ON usage_log(uuid)", nil, nil, nil)
+        // 迁移 V5: 添加 user_agent 列
+        sqlite3_exec(handle, "ALTER TABLE usage_log ADD COLUMN user_agent TEXT DEFAULT ''", nil, nil, nil)
 
         backfillCost(handle!)
     }
@@ -241,8 +244,8 @@ actor UsageStore {
         )
         let sql = """
         INSERT INTO usage_log (uuid, timestamp, provider_id, model, endpoint, prompt_tokens, completion_tokens,
-          total_tokens, cached_tokens, reasoning_tokens, latency_ms, status_code, cost)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+          total_tokens, cached_tokens, reasoning_tokens, latency_ms, status_code, cost, user_agent)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
@@ -262,26 +265,27 @@ actor UsageStore {
         sqlite3_bind_double(stmt, 11, record.latencyMs)
         sqlite3_bind_int64(stmt, 12, Int64(record.statusCode))
         sqlite3_bind_double(stmt, 13, cost)
+        sqlite3_bind_text(stmt, 14, record.userAgent, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         sqlite3_step(stmt)
         sqlite3_finalize(stmt)
     }
 
     // MARK: - 同步接口
 
-    /// 查询某个时间戳之后的所有记录（增量拉取用）
-    func queryRecords(since: Date) -> [UsageRecord] {
+    /// 查询指定时间之后的所有记录
+    func queryRecords(since date: Date) -> [UsageRecord] {
         guard let db else { return [] }
         let sql = """
         SELECT uuid, timestamp, provider_id, model, endpoint,
-               prompt_tokens, completion_tokens, total_tokens,
-               cached_tokens, reasoning_tokens, latency_ms, status_code
+               prompt_tokens, completion_tokens, total_tokens, cached_tokens,
+               reasoning_tokens, latency_ms, status_code, user_agent
         FROM usage_log
         WHERE timestamp > ?
         ORDER BY timestamp ASC;
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        sqlite3_bind_double(stmt, 1, since.timeIntervalSince1970)
+        sqlite3_bind_double(stmt, 1, date.timeIntervalSince1970)
         defer { sqlite3_finalize(stmt) }
 
         var records: [UsageRecord] = []
@@ -300,7 +304,8 @@ actor UsageStore {
                 cachedTokens: Int(sqlite3_column_int64(stmt, 8)),
                 reasoningTokens: Int(sqlite3_column_int64(stmt, 9)),
                 latencyMs: sqlite3_column_double(stmt, 10),
-                statusCode: Int(sqlite3_column_int64(stmt, 11))
+                statusCode: Int(sqlite3_column_int64(stmt, 11)),
+                userAgent: String(cString: sqlite3_column_text(stmt, 12))
             ))
         }
         return records
@@ -312,8 +317,8 @@ actor UsageStore {
         let sql = """
         INSERT OR IGNORE INTO usage_log (uuid, timestamp, provider_id, model, endpoint,
           prompt_tokens, completion_tokens, total_tokens, cached_tokens,
-          reasoning_tokens, latency_ms, status_code, cost)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+          reasoning_tokens, latency_ms, status_code, cost, user_agent)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
@@ -340,6 +345,7 @@ actor UsageStore {
             sqlite3_bind_double(stmt, 11, record.latencyMs)
             sqlite3_bind_int64(stmt, 12, Int64(record.statusCode))
             sqlite3_bind_double(stmt, 13, cost)
+            sqlite3_bind_text(stmt, 14, record.userAgent, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
             sqlite3_step(stmt)
             sqlite3_reset(stmt)
             sqlite3_clear_bindings(stmt)
@@ -432,6 +438,24 @@ actor UsageStore {
     }
 
     /// 当前小时的缓存命中率（0.0 ~ 1.0），无数据时返回 nil
+    nonisolated func mostRecentCacheHitRate() -> Double? {
+        guard let db else { return nil }
+        let sql = """
+        SELECT prompt_tokens, cached_tokens
+        FROM usage_log
+        ORDER BY timestamp DESC
+        LIMIT 1;
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        let prompt = Int(sqlite3_column_int64(stmt, 0))
+        let cached = Int(sqlite3_column_int64(stmt, 1))
+        guard prompt > 0 else { return nil }
+        return Double(cached) / Double(prompt)
+    }
+
     nonisolated func currentHourCacheHitRate() -> Double? {
         guard let db else { return nil }
         let cal = Calendar.current

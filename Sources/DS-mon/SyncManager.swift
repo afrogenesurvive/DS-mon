@@ -206,8 +206,7 @@ final class SyncManager: @unchecked Sendable {
 
         syncLog("[Sync] Server: \(method) \(path) body=\(body.count) bytes")
 
-        do {
-            switch (method, path) {
+        switch (method, path) {
             case ("GET", "/sync/pull"):
                 let since = queryParams["since"].flatMap { TimeInterval($0) }
                     .map { Date(timeIntervalSince1970: $0) } ?? Date.distantPast
@@ -237,10 +236,7 @@ final class SyncManager: @unchecked Sendable {
                 syncLog("[Sync] Server: unknown path \(path)")
                 sendHTTP(connection, 404, Data("Not Found".utf8))
             }
-        } catch {
-            syncLog("[Sync] Server: unexpected error \(error)")
-            sendHTTP(connection, 500, Data("Internal Error".utf8))
-        }
+
         connection.cancel()
         await MainActor.run {
             if self.listener != nil {

@@ -227,12 +227,7 @@ final class DeepSeekStats {
                     errorMessage = Strings.parseFailed
                     return
                 }
-                switch provider.balanceStrategy {
-                case .deepseek:
-                    parseDeepSeekBalance(json)
-                case .none:
-                    break
-                }
+                parseDeepSeekBalance(json)
             case 401:
                 errorMessage = Strings.keyInvalid
             case 429:
