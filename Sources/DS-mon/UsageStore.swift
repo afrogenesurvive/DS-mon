@@ -399,7 +399,7 @@ actor UsageStore {
         guard let db else { return [] }
         let todayStart = Calendar.current.startOfDay(for: Date())
         let startTS = todayStart.timeIntervalSince1970
-        let whereClause = providerId.map { " AND provider_id = '\($0)'" } ?? ""
+        let hasProvider = providerId.map { !$0.isEmpty } ?? false
         let sql = """
         SELECT CAST(strftime('%H', timestamp, 'unixepoch', 'localtime') AS INTEGER) AS h,
                SUM(MAX(0, prompt_tokens - cached_tokens)),
@@ -407,12 +407,15 @@ actor UsageStore {
                SUM(completion_tokens),
                COUNT(*)
         FROM usage_log
-        WHERE timestamp >= ?\(whereClause)
+        WHERE timestamp >= ?\(hasProvider ? " AND provider_id = ?" : "")
         GROUP BY h ORDER BY h ASC;
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
         sqlite3_bind_double(stmt, 1, startTS)
+        if let pid = providerId, hasProvider {
+            sqlite3_bind_text(stmt, 2, pid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        }
         defer { sqlite3_finalize(stmt) }
 
         var map: [Int: (Int, Int, Int, Int)] = [:]
@@ -486,7 +489,7 @@ actor UsageStore {
         let cal = Calendar.current
         let weekStart = cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date()))!
         let startTS = weekStart.timeIntervalSince1970
-        let whereClause = providerId.map { " AND provider_id = '\($0)'" } ?? ""
+        let hasProvider = providerId.map { !$0.isEmpty } ?? false
         let sql = """
         SELECT date(timestamp, 'unixepoch', 'localtime') AS day,
                SUM(MAX(0, prompt_tokens - cached_tokens)),
@@ -494,12 +497,15 @@ actor UsageStore {
                SUM(completion_tokens),
                COUNT(*)
         FROM usage_log
-        WHERE timestamp >= ?\(whereClause)
+        WHERE timestamp >= ?\(hasProvider ? " AND provider_id = ?" : "")
         GROUP BY day ORDER BY day ASC;
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
         sqlite3_bind_double(stmt, 1, startTS)
+        if let pid = providerId, hasProvider {
+            sqlite3_bind_text(stmt, 2, pid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        }
         defer { sqlite3_finalize(stmt) }
 
         var map: [String: (Int, Int, Int, Int)] = [:]
@@ -529,7 +535,7 @@ actor UsageStore {
         let monthStart = cal.date(from: cal.dateComponents([.year, .month], from: Date()))!
         let monthEnd = cal.date(byAdding: DateComponents(month: 1, second: -1), to: monthStart)!
         let startTS = monthStart.timeIntervalSince1970
-        let whereClause = providerId.map { " AND provider_id = '\($0)'" } ?? ""
+        let hasProvider = providerId.map { !$0.isEmpty } ?? false
         let sql = """
         SELECT strftime('%G-V%V', timestamp, 'unixepoch', 'localtime') AS week,
                SUM(MAX(0, prompt_tokens - cached_tokens)),
@@ -537,12 +543,15 @@ actor UsageStore {
                SUM(completion_tokens),
                COUNT(*)
         FROM usage_log
-        WHERE timestamp >= ?\(whereClause)
+        WHERE timestamp >= ?\(hasProvider ? " AND provider_id = ?" : "")
         GROUP BY week ORDER BY week ASC;
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
         sqlite3_bind_double(stmt, 1, startTS)
+        if let pid = providerId, hasProvider {
+            sqlite3_bind_text(stmt, 2, pid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        }
         defer { sqlite3_finalize(stmt) }
 
         var map: [String: (Int, Int, Int, Int)] = [:]
@@ -586,7 +595,7 @@ actor UsageStore {
 
     private func queryAggregated(period: AggregationPeriod, limit: Int, providerId: String? = nil) -> [AggregatedUsage] {
         guard let db else { return [] }
-        let whereClause = providerId.map { " WHERE provider_id = '\($0)'" } ?? ""
+        let hasProvider = providerId.map { !$0.isEmpty } ?? false
         let sql = """
         SELECT \(period.sqlExpr) AS period,
                COUNT(*) AS req_count,
@@ -594,14 +603,19 @@ actor UsageStore {
                SUM(cached_tokens), SUM(reasoning_tokens),
                AVG(latency_ms),
                COALESCE(SUM(cost), 0)
-        FROM usage_log\(whereClause)
+        FROM usage_log\(hasProvider ? " WHERE provider_id = ?" : "")
         GROUP BY period
         ORDER BY period DESC
         LIMIT ?;
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        sqlite3_bind_int(stmt, 1, Int32(limit))
+        var bindIdx: Int32 = 1
+        if let pid = providerId, hasProvider {
+            sqlite3_bind_text(stmt, bindIdx, pid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            bindIdx += 1
+        }
+        sqlite3_bind_int(stmt, bindIdx, Int32(limit))
         defer { sqlite3_finalize(stmt) }
 
         var results: [AggregatedUsage] = []
