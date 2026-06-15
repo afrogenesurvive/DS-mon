@@ -50,6 +50,12 @@ struct UsageBarChart: View {
         return max(margin, min(rawX, frameWidth - tooltipW - margin))
     }
 
+    private var requestScale: Double {
+        let maxTokens = data.map { $0.missTokens + $0.hitTokens + $0.outTokens }.max() ?? 1
+        let maxCount = data.map { $0.requestCount }.max() ?? 1
+        return maxCount > 0 ? Double(maxTokens) / Double(maxCount) * 0.35 : 1
+    }
+
     private var chartView: some View {
         Chart {
             ForEach(segments) { seg in
@@ -59,16 +65,17 @@ struct UsageBarChart: View {
                 )
                 .foregroundStyle(by: .value("Type", seg.type))
             }
+            let scale = requestScale
             ForEach(data) { bar in
                 LineMark(
                     x: .value("Time", bar.label),
-                    y: .value("Requests", bar.requestCount)
+                    y: .value("Requests", Double(bar.requestCount) * scale)
                 )
                 .foregroundStyle(.orange)
                 .lineStyle(StrokeStyle(lineWidth: 1.5))
                 PointMark(
                     x: .value("Time", bar.label),
-                    y: .value("Requests", bar.requestCount)
+                    y: .value("Requests", Double(bar.requestCount) * scale)
                 )
                 .foregroundStyle(.orange)
                 .symbolSize(12)
