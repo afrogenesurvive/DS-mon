@@ -33,4 +33,34 @@ enum AppConfig {
     // 🧹 进程管理
     static let portReleaseDelay: useconds_t = 300_000  // 300ms
     static let portReleaseWait: useconds_t = 500_000   // 500ms
+
+    // 📝 日志
+    static let cacheDir: URL = {
+        URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Caches/com.dsmon.app")
+    }()
+    static let proxyLogURL = cacheDir.appendingPathComponent("proxy.log")
+    static let syncLogURL = cacheDir.appendingPathComponent("sync.log")
+
+    static func appendLog(to url: URL, _ message: String) {
+        guard let d = message.data(using: .utf8) else { return }
+        if FileManager.default.fileExists(atPath: url.path) {
+            if let fh = FileHandle(forWritingAtPath: url.path) {
+                fh.seekToEndOfFile()
+                fh.write(d)
+                fh.closeFile()
+            }
+        } else {
+            try? d.write(to: url)
+        }
+    }
+
+    // 🌐 共享 URLSession（绕过系统代理）
+    static let directURLSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.connectionProxyDictionary = [:]
+        config.timeoutIntervalForRequest = proxyRequestTimeout
+        config.timeoutIntervalForResource = proxyRequestTimeout
+        return URLSession(configuration: config)
+    }()
 }

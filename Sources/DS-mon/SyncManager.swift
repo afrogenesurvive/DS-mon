@@ -1,19 +1,9 @@
 import Foundation
 import Network
 
-private let syncLogURL = URL(fileURLWithPath: NSHomeDirectory() + "/Library/Caches/com.dsmon.app/sync.log")
-
 private func syncLog(_ message: String) {
     let ts = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-    let line = ts + " " + message + "\n"
-    guard let data = line.data(using: .utf8) else { return }
-    if let handle = try? FileHandle(forWritingTo: syncLogURL) {
-        handle.seekToEndOfFile()
-        handle.write(data)
-        try? handle.close()
-    } else {
-        try? data.write(to: syncLogURL)
-    }
+    AppConfig.appendLog(to: AppConfig.syncLogURL, ts + " " + message + "\n")
 }
 
 // MARK: - 同步配置

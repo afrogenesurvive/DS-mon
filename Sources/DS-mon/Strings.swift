@@ -104,6 +104,9 @@ enum Strings {
 
     // Settings window
     static var settingsTitle: String { isZH ? "设置" : "Settings" }
+    static var settingsTabGeneral: String { isZH ? "通用" : "General" }
+    static var settingsTabServices: String { isZH ? "服务" : "Services" }
+    static var settingsTabAbout: String { isZH ? "关于" : "About" }
     static var balanceAlert: String { isZH ? "余额预警" : "Balance Alert" }
     static var alertHint: String { isZH ? "余额低于此值时菜单栏红色闪烁" : "Menu bar flashes red when balance drops below" }
     static var maxBalanceHint: String { isZH ? "菜单栏环形百分比以此为基准，默认 ¥100" : "Ring percentage is relative to this amount, default ¥100" }

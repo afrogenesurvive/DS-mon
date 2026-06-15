@@ -1,12 +1,6 @@
 import Foundation
 import SwiftUI
 
-private let directStatsSession: URLSession = {
-    let c = URLSessionConfiguration.default
-    c.connectionProxyDictionary = [:]
-    return URLSession(configuration: c)
-}()
-
 /// DS-mon 数据模型
 @MainActor
 @Observable
@@ -216,7 +210,7 @@ final class DeepSeekStats {
         req.setValue("\(provider.authHeaderPrefix) \(apiKey)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = AppConfig.balanceRequestTimeout
         do {
-            let (data, resp) = try await directStatsSession.data(for: req)
+            let (data, resp) = try await AppConfig.directURLSession.data(for: req)
             guard let http = resp as? HTTPURLResponse else {
                 errorMessage = Strings.invalidResponse
                 return
@@ -274,24 +268,11 @@ final class DeepSeekStats {
         }
     }
 
-    private var modelsLogFile: URL {
-        URL(fileURLWithPath: NSHomeDirectory() + "/Library/Caches/com.dsmon.app/proxy.log")
-    }
     private func modelsLog(_ msg: String) {
         let df = DateFormatter()
         df.dateFormat = "HH:mm:ss"
         let ts = df.string(from: Date())
-        let line = "[\(ts)] [models] \(msg)\n"
-        guard let d = line.data(using: .utf8) else { return }
-        if FileManager.default.fileExists(atPath: modelsLogFile.path) {
-            if let fh = try? FileHandle(forWritingTo: modelsLogFile) {
-                fh.seekToEndOfFile()
-                fh.write(d)
-                try? fh.close()
-            }
-        } else {
-            try? d.write(to: modelsLogFile)
-        }
+        AppConfig.appendLog(to: AppConfig.proxyLogURL, "[\(ts)] [models] \(msg)\n")
     }
 
     private func fetchModels(apiKey: String) async -> Bool {
@@ -302,7 +283,7 @@ final class DeepSeekStats {
         req.setValue("\(provider.authHeaderPrefix) \(apiKey)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = AppConfig.modelsRequestTimeout
         do {
-            let (data, resp) = try await directStatsSession.data(for: req)
+            let (data, resp) = try await AppConfig.directURLSession.data(for: req)
             guard let http = resp as? HTTPURLResponse else { modelsLog("not HTTP"); return false }
             guard http.statusCode == 200 else {
                 let body = String(data: data, encoding: .utf8) ?? ""

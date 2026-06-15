@@ -30,16 +30,6 @@ private final class RateLimiter: @unchecked Sendable {
     }
 }
 
-/// 不走系统代理的 URLSession — 用于 ds-mon 到 upstream 的出站连接，
-/// 避免 VPN (Shadowrocket/ClashX) 的 DNS 劫持和代理干扰。
-private let directURLSession: URLSession = {
-    let config = URLSessionConfiguration.default
-    config.connectionProxyDictionary = [:]
-    config.timeoutIntervalForRequest = AppConfig.proxyRequestTimeout
-    config.timeoutIntervalForResource = AppConfig.proxyRequestTimeout
-    return URLSession(configuration: config)
-}()
-
 final class ProxyConnectionHandler: @unchecked Sendable {
     private let conn: NWConnection
     private let store: UsageStore
@@ -159,20 +149,8 @@ final class ProxyConnectionHandler: @unchecked Sendable {
 
         // 日志：记录请求
         let requestModel = (try? JSONSerialization.jsonObject(with: body)).flatMap { $0 as? [String: Any] }?["model"] as? String ?? "unknown"
-        let logPath = NSHomeDirectory() + "/Library/Caches/com.dsmon.app/proxy.log"
         let ts = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-        let logLine = "[\(ts)] 请求 → 直连 | 提供商: \(providerInfo?.providerId ?? "?"), 模型: \(requestModel)\n"
-        if let d = logLine.data(using: .utf8) {
-            if FileManager.default.fileExists(atPath: logPath) {
-                if let fh = FileHandle(forWritingAtPath: logPath) {
-                    fh.seekToEndOfFile()
-                    fh.write(d)
-                    fh.closeFile()
-                }
-            } else {
-                try? d.write(to: URL(fileURLWithPath: logPath))
-            }
-        }
+        AppConfig.appendLog(to: AppConfig.proxyLogURL, "[\(ts)] 请求 → 直连 | 提供商: \(providerInfo?.providerId ?? "?"), 模型: \(requestModel)\n")
 
         // 检查是否为 Responses API 请求，直接处理
         if isResponsesApi {
@@ -241,7 +219,7 @@ final class ProxyConnectionHandler: @unchecked Sendable {
         var headersSent = false
 
         do {
-            let (bytes, resp) = try await directURLSession.bytes(for: req)
+            let (bytes, resp) = try await AppConfig.directURLSession.bytes(for: req)
             let elapsed = Date().timeIntervalSince(start) * 1000
             let httpResp = resp as? HTTPURLResponse
             let statusCode = httpResp?.statusCode ?? 502
@@ -494,20 +472,8 @@ final class ProxyConnectionHandler: @unchecked Sendable {
 
 
     private func appendLog(_ message: String) {
-        let logPath = NSHomeDirectory() + "/Library/Caches/com.dsmon.app/proxy.log"
         let ts = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-        let logLine = "[\(ts)] \(message)\n"
-        if let d = logLine.data(using: .utf8) {
-            if FileManager.default.fileExists(atPath: logPath) {
-                if let fh = FileHandle(forWritingAtPath: logPath) {
-                    fh.seekToEndOfFile()
-                    fh.write(d)
-                    fh.closeFile()
-                }
-            } else {
-                try? d.write(to: URL(fileURLWithPath: logPath))
-            }
-        }
+        AppConfig.appendLog(to: AppConfig.proxyLogURL, "[\(ts)] \(message)\n")
     }
 
     private func debugLog(_ msg: @autoclosure () -> String) {
@@ -627,7 +593,7 @@ extension ProxyConnectionHandler {
         var accumulatedBody = Data()
 
         do {
-            let (bytes, resp) = try await directURLSession.bytes(for: urlReq)
+            let (bytes, resp) = try await AppConfig.directURLSession.bytes(for: urlReq)
             let httpResp = resp as? HTTPURLResponse
             let statusCode = httpResp?.statusCode ?? 502
             _ = (httpResp?.allHeaderFields as? [String: String]) ?? [:]
@@ -747,7 +713,7 @@ extension ProxyConnectionHandler {
         urlReq: URLRequest, responseId: String, model: String, start: Date
     ) async {
         do {
-            let (data, resp) = try await directURLSession.data(for: urlReq)
+            let (data, resp) =             try await AppConfig.directURLSession.data(for: urlReq)
             let httpResp = resp as? HTTPURLResponse
             let statusCode = httpResp?.statusCode ?? 502
 

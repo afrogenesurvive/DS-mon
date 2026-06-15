@@ -81,6 +81,15 @@ struct ThresholdView: View {
             case .about:    return "info.circle"
             }
         }
+
+        var displayName: String {
+            switch self {
+            case .general:  return Strings.settingsTabGeneral
+            case .provider: return "DeepSeek"
+            case .services: return Strings.settingsTabServices
+            case .about:    return Strings.settingsTabAbout
+            }
+        }
     }
 
     var body: some View {
@@ -91,7 +100,7 @@ struct ThresholdView: View {
                         VStack(spacing: 4) {
                             Image(systemName: tab.icon)
                                 .font(.system(size: 16))
-                            Text(tab.rawValue)
+                            Text(tab.displayName)
                                 .font(.caption2)
                         }
                         .frame(maxWidth: .infinity)
