@@ -34,7 +34,6 @@ class StatusBarController: NSObject, NSWindowDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(menuIconChanged), name: .showMenuIconDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(indicatorChanged), name: .showIndicatorDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(menuBarTextDisplayChanged), name: .menuBarTextDisplayDidChange, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(providerChanged), name: .activeProviderDidChange, object: nil)
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: AppConfig.popoverWidth, height: AppConfig.popoverHeight),
                               styleMask: [.borderless, .fullSizeContentView],
@@ -222,10 +221,6 @@ class StatusBarController: NSObject, NSWindowDelegate {
     }
 
 
-    @objc private func providerChanged() {
-        updateLabel()
-        refreshCacheHitRate()
-    }
 }
 
 // MARK: - 菜单栏自定义视图 — LED 条阵列

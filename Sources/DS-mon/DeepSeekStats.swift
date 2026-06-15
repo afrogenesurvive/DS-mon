@@ -31,7 +31,7 @@ final class DeepSeekStats {
     private(set) var providerName: String = "DeepSeek"
     private(set) var providerID: String = "deepseek"
     private(set) var hasBalanceAPI: Bool = true
-    private(set) var providerTier: ProviderTier = .premium
+    private(set) var providerIsFree: Bool = false
 
     /// 余额预警阈值（默认 20）
     var threshold: Double {
@@ -70,11 +70,7 @@ final class DeepSeekStats {
         startAutoRefresh()
         refresh()
 
-        // 监听提供商切换
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(providerChanged),
-            name: .activeProviderDidChange, object: nil
-        )
+        // 无需监听提供商切换（单提供商）
     }
 
     deinit {
@@ -96,7 +92,7 @@ final class DeepSeekStats {
             providerName = provider.name
             providerID = provider.id
             hasBalanceAPI = provider.hasBalanceAPI
-            providerTier = provider.tier
+            providerIsFree = false
             currency = provider.currency
         } else {
             providerName = "—"
@@ -133,7 +129,7 @@ final class DeepSeekStats {
     // MARK: - 状态
 
     var balanceText: String {
-        if providerTier == .free { return "FREE" }
+        if providerIsFree { return "FREE" }
         if !hasBalanceAPI { return "—" }
         return String(format: Strings.balanceText, balance)
     }
@@ -190,7 +186,7 @@ final class DeepSeekStats {
                 await fetchBalance(apiKey: apiKey)
             } else {
                 // 无余额 API 的提供商：跳过余额查询
-                if providerTier == .free {
+                if providerIsFree {
                     balance = maxBalanceAmount * 2
                     grantedBalance = 0
                     toppedUpBalance = 0
@@ -234,10 +230,6 @@ final class DeepSeekStats {
                 switch provider.balanceStrategy {
                 case .deepseek:
                     parseDeepSeekBalance(json)
-                case .openrouter:
-                    parseOpenRouterBalance(json)
-                case .moonshot:
-                    parseMoonshotBalance(json)
                 case .none:
                     break
                 }
@@ -285,54 +277,6 @@ final class DeepSeekStats {
             }
             currency = info["currency"] as? String ?? "CNY"
         }
-    }
-
-    /// OpenRouter: { "data": { "credits": "100.50", "usage": "50.25" } }
-    private func parseOpenRouterBalance(_ json: [String: Any]) {
-        guard let data = json["data"] as? [String: Any] else {
-            errorMessage = Strings.parseFailed
-            return
-        }
-        // OpenRouter 的 credits 是剩余额度
-        if let credits = data["credits"] as? String {
-            balance = Double(credits) ?? 0
-        } else if let credits = data["credits"] as? Double {
-            balance = credits
-        }
-        if let usage = data["usage"] as? String {
-            toppedUpBalance = Double(usage) ?? 0
-        } else if let usage = data["usage"] as? Double {
-            toppedUpBalance = usage
-        }
-        grantedBalance = 0
-        isAvailable = balance > 0 || toppedUpBalance > 0
-        currency = "USD"
-    }
-
-    /// Moonshot (Kimi): { "code": 0, "data": { "available_balance": 49.59, "voucher_balance": 46.59, "cash_balance": 3.00 }, "status": true }
-    private func parseMoonshotBalance(_ json: [String: Any]) {
-        guard let code = json["code"] as? Int, code == 0,
-              let data = json["data"] as? [String: Any] else {
-            errorMessage = Strings.parseFailed
-            return
-        }
-        if let available = data["available_balance"] as? Double {
-            balance = available
-        } else if let available = data["available_balance"] as? String {
-            balance = Double(available) ?? 0
-        }
-        if let cash = data["cash_balance"] as? Double {
-            toppedUpBalance = cash
-        } else if let cash = data["cash_balance"] as? String {
-            toppedUpBalance = Double(cash) ?? 0
-        }
-        if let voucher = data["voucher_balance"] as? Double {
-            grantedBalance = voucher
-        } else if let voucher = data["voucher_balance"] as? String {
-            grantedBalance = Double(voucher) ?? 0
-        }
-        isAvailable = json["status"] as? Bool ?? true
-        currency = "CNY"
     }
 
     private var modelsLogFile: URL {

@@ -464,12 +464,11 @@ final class ProxyConnectionHandler: @unchecked Sendable {
 
     // MARK: - 模型覆写
 
-    /// 将请求 body 中的 model 替换为提供商的默认模型（仅 Chat Completions 路径）
+    /// 将请求 body 中的 model 替换为提供商的默认模型
     private func applyDefaultModel(_ body: Data, _ defaultModel: String?) -> Data {
         guard !body.isEmpty else { return body }
-        let model = defaultModel ?? ProviderManager.activeModelDefaultModel
-        appendLog("[applyDefault] param=\(defaultModel ?? "nil") active=\(ProviderManager.activeModelDefaultModel ?? "nil") resolved=\(model ?? "nil")")
-        guard let model, !model.isEmpty else { return body }
+        let model = defaultModel ?? ProviderConfig.default.defaultModel ?? "deepseek-v4-pro"
+        guard !model.isEmpty else { return body }
         guard var json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return body }
         json["model"] = model
         return (try? JSONSerialization.data(withJSONObject: json)) ?? body

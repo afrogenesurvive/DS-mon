@@ -146,29 +146,10 @@ enum Strings {
     static var textDisplayLabel: String { isZH ? "菜单栏文字" : "Menu Bar Text" }
 
     // Provider
-    static var activeProviderLabel: String { isZH ? "活跃提供商" : "Active Provider" }
-    static var setActiveProvider: String { isZH ? "设为活跃" : "Set Active" }
-    static var activeProviderBadge: String { isZH ? "活跃中" : "Active" }
-    static var selectProviderHint: String { isZH ? "请选择一个提供商" : "Select a provider" }
-    static var removeProvider: String { isZH ? "移除提供商" : "Remove Provider" }
-    static var defaultModelSection: String { isZH ? "默认模型" : "Default Model" }
-    static var defaultModelHint: String { isZH ? "代理转发时使用的默认模型" : "Default model used for proxy forwarding" }
-    static var defaultModelLabel: String { isZH ? "默认模型" : "Model" }
     static var defaultModelLabel2: String { isZH ? "默认模型" : "Default Model" }
-    static var modelOverrideSection: String { isZH ? "模型覆写" : "Model Override" }
-    static var modelOverrideHint: String { isZH ? "codex 对话将使用所选提供商的默认模型" : "Codex conversations will use the selected provider's default model" }
-    static var modelOverrideNone: String { isZH ? "不覆写" : "No Override" }
-    static var modelOverrideNoProvider: String { isZH ? "无其他可用提供商" : "No other providers available" }
-
-    // Dev platform
-    static var developerPlatformSection: String { isZH ? "开发平台" : "Developer Platform" }
-    static var developerPlatformHint: String { isZH ? "提供商开发平台的 URL，如 DeepSeek: platform.deepseek.com" : "URL for the provider's developer platform, e.g. DeepSeek: platform.deepseek.com" }
-    static var noBalanceAPI: String { isZH ? "该提供商无余额查询" : "Balance API not available" }
-    static var providerBalance: String { isZH ? "余额" : "Balance" }
     static func apiKeyHint(_ name: String) -> String {
         isZH ? "\(name) 的 API Key 将用于代理转发" : "API Key for \(name) will be used for proxy forwarding"
     }
-    static var providerList: String { isZH ? "提供商" : "Providers" }
     static var save: String { isZH ? "保存" : "Save" }
     static var keySaved: String { isZH ? "API Key 已保存" : "API Key saved" }
     static var aboutDesc: String { isZH ? "实时监控 DeepSeek API 使用情况" : "Monitors DeepSeek API usage in real-time" }

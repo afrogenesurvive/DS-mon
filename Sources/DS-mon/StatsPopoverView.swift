@@ -30,9 +30,6 @@ struct StatsPopoverView: View {
         .onReceive(NotificationCenter.default.publisher(for: .usageRecorded)) { _ in
             loadUsage()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .activeProviderDidChange)) { _ in
-            loadUsage()
-        }
     }
 
     private var headerSection: some View {
@@ -43,12 +40,8 @@ struct StatsPopoverView: View {
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
             Spacer()
-            // 活跃提供商名称 — 点击打开开发平台
-            let pID = stats.providerID
             Button(action: {
-                let urlStr = ProviderManager.shared.providers
-                    .first(where: { $0.id == pID })?
-                    .developerPlatformURL ?? ""
+                let urlStr = ProviderManager.shared.activeProvider?.developerPlatformURL ?? ""
                 guard !urlStr.isEmpty, let url = URL(string: urlStr) else { return }
                 // 先尝试默认浏览器，失败再 fallback 到 Safari
                 let ok = NSWorkspace.shared.open(url)
@@ -68,9 +61,7 @@ struct StatsPopoverView: View {
             .buttonStyle(.plain)
             .background(Color.blue.opacity(0.1))
             .cornerRadius(4)
-            .help(ProviderManager.shared.providers
-                .first(where: { $0.id == pID })?
-                .developerPlatformURL ?? "")
+            .help(ProviderManager.shared.activeProvider?.developerPlatformURL ?? "")
             statusBadge
         }
         .padding(.horizontal, 14)
@@ -121,7 +112,7 @@ struct StatsPopoverView: View {
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                 Spacer()
-                if stats.providerTier != .free {
+                if !stats.providerIsFree {
                     Text("¥")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.secondary)

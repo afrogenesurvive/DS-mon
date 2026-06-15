@@ -1,13 +1,7 @@
 import Foundation
 
 func mapModelName(_ name: String) -> String {
-    if let override = ProviderManager.activeModelOverrideModel {
-        return override
-    }
-    if let defaultModel = ProviderManager.activeModelDefaultModel {
-        return defaultModel
-    }
-    return name
+    name
 }
 
 // MARK: - 工具转换 (Responses API → Chat Completions)

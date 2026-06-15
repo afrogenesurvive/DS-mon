@@ -20,13 +20,11 @@ struct ModelPricing: Codable, Equatable, Sendable {
     ]
 
     static func forModel(_ model: String, providerId: String? = nil) -> ModelPricing {
-        // 先查该提供商的定价
-        if let pid = providerId {
-            let providers = ProviderConfig.loadAll()
-            if let provider = providers.first(where: { $0.id == pid }) {
-                for (key, pricing) in provider.pricingOverrides {
-                    if model == key || model.hasPrefix(key) { return pricing }
-                }
+        // 查该提供商的定价
+        let provider = providerId.flatMap { _ in ProviderConfig.default }
+        if let provider {
+            for (key, pricing) in provider.pricingOverrides {
+                if model == key || model.hasPrefix(key) { return pricing }
             }
         }
         // 查全局自定义
