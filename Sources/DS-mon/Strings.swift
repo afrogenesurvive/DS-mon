@@ -6,6 +6,7 @@ extension Notification.Name {
     static let usageRecorded = Notification.Name("usageRecorded")
     static let showIndicatorDidChange = Notification.Name("showIndicatorDidChange")
     static let menuBarTextDisplayDidChange = Notification.Name("menuBarTextDisplayDidChange")
+    static let providerChanged = Notification.Name("providerChanged")
 }
 
 enum Language: String, CaseIterable, Identifiable {
@@ -47,6 +48,8 @@ enum Strings {
         static let syncListenPort = "sync_listen_port"
         static let syncTargetAddress = "sync_target_address"
         static let syncInterval = "sync_interval"
+        static let defaultProviderId = "default_provider_id"
+        static func lastModel(for providerId: String) -> String { "last_model_\(providerId)" }
     }
 
     /// 判断当前是否为中文界面。直接读取 UserDefaults，无需缓存。
@@ -101,6 +104,7 @@ enum Strings {
     static var quitMessage: String { isZH ? "确定要退出 DS-mon 吗？" : "Are you sure you want to quit DS-mon?" }
     static var quitConfirm: String { isZH ? "退出" : "Quit" }
     static var cancel: String { isZH ? "取消" : "Cancel" }
+    static var openConsole: String { isZH ? "打开控制台" : "Open Console" }
 
     // Settings window
     static var settingsTitle: String { isZH ? "设置" : "Settings" }

@@ -2,7 +2,7 @@ import Foundation
 
 struct KimiProvider: Provider {
     let id = "kimi"
-    let name = "Kimi (Moonshot)"
+    let name = "Moonshot"
     let baseURL = "https://api.moonshot.cn"
     let balanceURL: String? = "/v1/users/me/balance"
     let rpmLimit: Int? = 200

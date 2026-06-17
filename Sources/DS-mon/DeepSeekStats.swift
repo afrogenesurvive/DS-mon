@@ -66,7 +66,12 @@ final class DeepSeekStats {
         startAutoRefresh()
         refresh()
 
-        // 无需监听提供商切换（单提供商）
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(providerChanged),
+            name: .providerChanged,
+            object: nil
+        )
     }
 
     deinit {
@@ -151,7 +156,8 @@ final class DeepSeekStats {
 
     var defaultModelText: String {
         if let provider = ProviderManager.shared.activeProvider {
-            let model = provider.fallbackModels.keys.sorted().first ?? models.sorted().first ?? "—"
+            let lastModel = UserDefaults.standard.string(forKey: Strings.Keys.lastModel(for: provider.id))
+            let model = lastModel ?? provider.fallbackModels.keys.sorted().first ?? models.sorted().first ?? "—"
             return model
         }
         return "—"
@@ -223,7 +229,14 @@ final class DeepSeekStats {
                     errorMessage = Strings.parseFailed
                     return
                 }
-                parseDeepSeekBalance(json)
+                if let result = provider.parseBalance(json) {
+                    balance = result.total
+                    grantedBalance = result.granted
+                    toppedUpBalance = result.toppedUp
+                    isAvailable = true
+                } else {
+                    errorMessage = Strings.parseFailed
+                }
             case 401:
                 errorMessage = Strings.keyInvalid
             case 429:
@@ -248,27 +261,6 @@ final class DeepSeekStats {
     }
 
     // MARK: - 余额解析策略
-
-    /// DeepSeek: { "balance_infos": [{ "total_balance": "100", "granted_balance": "0", "topped_up_balance": "100", "currency": "CNY" }], "is_available": true }
-    private func parseDeepSeekBalance(_ json: [String: Any]) {
-        guard let infos = json["balance_infos"] as? [[String: Any]] else {
-            errorMessage = Strings.parseFailed
-            return
-        }
-        isAvailable = json["is_available"] as? Bool ?? true
-        for info in infos where (info["currency"] as? String) == currency {
-            if let s = info["total_balance"] as? String {
-                balance = Double(s) ?? 0
-            }
-            if let s = info["granted_balance"] as? String {
-                grantedBalance = Double(s) ?? 0
-            }
-            if let s = info["topped_up_balance"] as? String {
-                toppedUpBalance = Double(s) ?? 0
-            }
-            currency = info["currency"] as? String ?? "CNY"
-        }
-    }
 
     private func modelsLog(_ msg: String) {
         let df = DateFormatter()

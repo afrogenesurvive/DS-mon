@@ -13,11 +13,12 @@ final class ProviderManager {
     private var apiKeys: [String: String] = [:]
     private var encryptedKeys: [String: Data] = [:]
     /// 当前默认提供商 ID
-    private(set) var defaultProviderId: String = "deepseek"
+    private(set) var defaultProviderId: String
 
     private static let apiKeyPrefix = "encrypted_key_"
 
     private init() {
+        defaultProviderId = UserDefaults.standard.string(forKey: Strings.Keys.defaultProviderId) ?? "deepseek"
         registerBuiltInProviders()
         loadAPIKeys()
     }
@@ -38,10 +39,24 @@ final class ProviderManager {
         }
     }
 
+    func setDefaultProvider(id: String) {
+        guard providers.contains(where: { $0.id == id }) else { return }
+        defaultProviderId = id
+        UserDefaults.standard.set(id, forKey: Strings.Keys.defaultProviderId)
+        NotificationCenter.default.post(name: .providerChanged, object: nil)
+    }
+
     // MARK: - 模型→提供商路由
 
     /// 根据模型名查找提供商，找不到返回 defaultProvider
     func provider(for model: String) -> (any Provider)? {
+        // 去掉可选的 "provider/" 前缀
+        let normalized = model.contains("/") ? String(model.split(separator: "/", maxSplits: 1).last ?? Substring(model)) : model
+        if let pid = modelProviderMap[normalized],
+           let p = providers.first(where: { $0.id == pid }) {
+            return p
+        }
+        // 也尝试原始模型名
         if let pid = modelProviderMap[model],
            let p = providers.first(where: { $0.id == pid }) {
             return p

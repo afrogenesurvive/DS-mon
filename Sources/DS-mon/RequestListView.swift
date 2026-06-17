@@ -13,10 +13,9 @@ struct RequestListView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                Text("Time").frame(width: 52, alignment: .leading)
-                Text("Client").frame(maxWidth: .infinity, alignment: .leading)
-                Text("API").frame(width: 44, alignment: .center)
-                Text("Latency").frame(width: 48, alignment: .trailing)
+                Text("Time").frame(width: 48, alignment: .leading)
+                Text("Client").frame(width: 64, alignment: .leading)
+                Text("Model").frame(maxWidth: .infinity, alignment: .leading)
                 Text("Status").frame(width: 36, alignment: .trailing)
             }
             .font(.system(size: 8, weight: .semibold))
@@ -54,18 +53,17 @@ struct RequestListView: View {
     private func requestRow(_ record: UsageRecord) -> some View {
         HStack(spacing: 6) {
             Text(Self.timeFormatter.string(from: record.timestamp))
-                .frame(width: 52, alignment: .leading)
+                .frame(width: 48, alignment: .leading)
 
             Text(clientLabel(for: record.userAgent))
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .frame(width: 64, alignment: .leading)
+
+            Text(record.model)
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text(apiLabel(record.endpoint))
-                .frame(width: 44, alignment: .center)
-
-            Text(Strings.latencyMsFormat(record.latencyMs))
-                .frame(width: 48, alignment: .trailing)
 
             statusBadge(record.statusCode)
                 .frame(width: 36, alignment: .trailing)
@@ -81,12 +79,6 @@ struct RequestListView: View {
         if ua.isEmpty { return "—" }
         let parts = ua.split(separator: "/")
         if let first = parts.first { return String(first) }
-        return "—"
-    }
-
-    private func apiLabel(_ endpoint: String) -> String {
-        if endpoint.contains("/responses") { return "Cdx" }
-        if endpoint.contains("/chat") { return "Chat" }
         return "—"
     }
 

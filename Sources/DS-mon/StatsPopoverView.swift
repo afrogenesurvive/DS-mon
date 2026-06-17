@@ -30,6 +30,7 @@ struct StatsPopoverView: View {
         .onReceive(NotificationCenter.default.publisher(for: .usageRecorded)) { _ in
             loadUsage()
         }
+        .onChange(of: stats.providerID) { _, _ in loadUsage() }
     }
 
     private var headerSection: some View {
@@ -40,25 +41,35 @@ struct StatsPopoverView: View {
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
             Spacer()
-            Button(action: {
-                let urlStr = ProviderManager.shared.activeProvider?.developerPlatformURL ?? ""
-                guard !urlStr.isEmpty, let url = URL(string: urlStr) else { return }
-                // 先尝试默认浏览器，失败再 fallback 到 Safari
-                let ok = NSWorkspace.shared.open(url)
-                if !ok,
-                   let safariURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Safari") {
-                    NSWorkspace.shared.open([url],
-                        withApplicationAt: safariURL,
-                        configuration: NSWorkspace.OpenConfiguration())
+            Menu {
+                ForEach(ProviderManager.shared.providers, id: \.id) { provider in
+                    Button(provider.name) {
+                        ProviderManager.shared.setDefaultProvider(id: provider.id)
+                    }
                 }
-            }) {
+                Divider()
+                Button(action: {
+                    let urlStr = ProviderManager.shared.activeProvider?.developerPlatformURL ?? ""
+                    guard !urlStr.isEmpty, let url = URL(string: urlStr) else { return }
+                    let ok = NSWorkspace.shared.open(url)
+                    if !ok,
+                       let safariURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Safari") {
+                        NSWorkspace.shared.open([url],
+                            withApplicationAt: safariURL,
+                            configuration: NSWorkspace.OpenConfiguration())
+                    }
+                }) {
+                    Text(Strings.openConsole)
+                }
+            } label: {
                 Text(stats.providerName)
                     .font(.system(size: 9, weight: .medium))
                     .foregroundColor(.blue)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
             }
-            .buttonStyle(.plain)
+            .menuStyle(.borderlessButton)
+            .fixedSize()
             .background(Color.blue.opacity(0.1))
             .cornerRadius(4)
             .help(ProviderManager.shared.activeProvider?.developerPlatformURL ?? "")

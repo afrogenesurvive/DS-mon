@@ -141,6 +141,24 @@ final class ProxyConnectionHandler: @unchecked Sendable {
         let ts = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
         AppConfig.appendLog(to: AppConfig.proxyLogURL, "[\(ts)] 请求 → 直连 | 提供商: \(providerInfo?.providerId ?? "?"), 模型: \(requestModel)\n")
 
+        // 拦截 /models 请求：返回所有提供商模型的并集
+        if path.hasSuffix("/models") || path.contains("/models?") {
+            let allModels = await MainActor.run { ProviderManager.shared.modelProviderMap.keys.sorted() }
+            appendLog("[models] 拦截 /models → 返回 \(allModels.count) 个模型")
+            let json = ["data": allModels.map { ["id": $0] }]
+            if let jsonData = try? JSONSerialization.data(withJSONObject: json) {
+                var response = "HTTP/1.1 200 OK\r\n"
+                response += "Content-Type: application/json; charset=utf-8\r\n"
+                response += "Content-Length: \(jsonData.count)\r\n"
+                response += "Connection: close\r\n\r\n"
+                let packet = (response.data(using: .utf8) ?? Data()) + jsonData
+                conn.send(content: packet, completion: .contentProcessed { [weak conn] _ in
+                    conn?.cancel()
+                })
+            }
+            return
+        }
+
         // 检查是否为 Responses API 请求，直接处理
         if isResponsesApi {
             await handleResponsesDirectly(
@@ -227,7 +245,7 @@ final class ProxyConnectionHandler: @unchecked Sendable {
                 let lower = key.lowercased()
                 // 总是剥离逐跳头（hop-by-hop headers）
                 guard lower != "connection", lower != "keep-alive",
-                      lower != "transfer-encoding"
+                      lower != "transfer-encoding", lower != "content-encoding"
                 else { continue }
                 // 对流式响应剥离 Content-Length（长度未知）；非流式保留
                 if lower == "content-length" && isStreamingResponse { continue }

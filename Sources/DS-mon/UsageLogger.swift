@@ -78,6 +78,7 @@ struct UsageLogger: @unchecked Sendable {
         }()
 
         let details = usage["output_tokens_details"] as? [String: Any]
+        saveLastModel(model, providerId: providerId)
         let record = UsageRecord(
             uuid: UUID().uuidString,
             timestamp: Date(),
@@ -101,7 +102,15 @@ struct UsageLogger: @unchecked Sendable {
         if let reqJSON = try? JSONSerialization.jsonObject(with: requestBody) as? [String: Any] {
             model = reqJSON["model"] as? String ?? "unknown"
         }
+        saveLastModel(model, providerId: providerId)
         let details = usage["completion_tokens_details"] as? [String: Any]
+        let cachedTokens: Int = {
+            if let details = usage["prompt_tokens_details"] as? [String: Any],
+               let cached = details["cached_tokens"] as? Int { return cached }
+            if let cached = usage["prompt_cache_hit_tokens"] as? Int { return cached }
+            if let cached = usage["cached_tokens"] as? Int { return cached }
+            return 0
+        }()
         let record = UsageRecord(
             uuid: UUID().uuidString,
             timestamp: Date(),
@@ -111,7 +120,7 @@ struct UsageLogger: @unchecked Sendable {
             promptTokens: usage["prompt_tokens"] as? Int ?? 0,
             completionTokens: usage["completion_tokens"] as? Int ?? 0,
             totalTokens: usage["total_tokens"] as? Int ?? 0,
-            cachedTokens: usage["prompt_cache_hit_tokens"] as? Int ?? 0,
+            cachedTokens: cachedTokens,
             reasoningTokens: details?["reasoning_tokens"] as? Int ?? 0,
             latencyMs: latencyMs,
             statusCode: statusCode,
@@ -128,5 +137,10 @@ struct UsageLogger: @unchecked Sendable {
                 NotificationCenter.default.post(name: .usageRecorded, object: nil)
             }
         }
+    }
+
+    private func saveLastModel(_ model: String, providerId: String) {
+        guard !model.isEmpty, model != "unknown" else { return }
+        UserDefaults.standard.set(model, forKey: Strings.Keys.lastModel(for: providerId))
     }
 }
