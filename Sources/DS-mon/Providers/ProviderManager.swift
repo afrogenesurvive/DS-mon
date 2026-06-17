@@ -8,7 +8,7 @@ final class ProviderManager {
 
     private(set) var providers: [any Provider] = []
     /// 模型名 → 提供商ID 映射缓存
-    private var modelProviderMap: [String: String] = [:]
+    private(set) var modelProviderMap: [String: String] = [:]
     /// API Key 存储（每个提供商独立）
     private var apiKeys: [String: String] = [:]
     private var encryptedKeys: [String: Data] = [:]

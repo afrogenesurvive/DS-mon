@@ -15,7 +15,9 @@ final class DeepSeekStats {
     private(set) var toppedUpBalance: Double = 0
     private(set) var isAvailable = true
     private(set) var currency = "CNY"
-    private(set) var models: [String] = []
+    private(set) var models: [String] = [] {
+        didSet { if models != oldValue { lastModelsFetch = Date() } }
+    }
     private(set) var lastUpdate = "-"
     private(set) var isLoading = false
     private(set) var errorMessage: String?
@@ -276,41 +278,14 @@ final class DeepSeekStats {
     }
 
     private func fetchModels(apiKey: String) async -> Bool {
-        guard let provider = ProviderManager.shared.activeProvider else { modelsLog("no active provider"); return false }
-        let urlStr = provider.baseURL + provider.apiPath + "/models"
-        guard let url = URL(string: urlStr) else { modelsLog("bad URL: \(urlStr)"); return false }
-        var req = URLRequest(url: url)
-        req.setValue("\(provider.authPrefix) \(apiKey)", forHTTPHeaderField: "Authorization")
-        req.timeoutInterval = AppConfig.modelsRequestTimeout
-        do {
-            let (data, resp) = try await AppConfig.directURLSession.data(for: req)
-            guard let http = resp as? HTTPURLResponse else { modelsLog("not HTTP"); return false }
-            guard http.statusCode == 200 else {
-                let body = String(data: data, encoding: .utf8) ?? ""
-                modelsLog("HTTP \(http.statusCode): \(body.prefix(300))")
-                return false
-            }
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                modelsLog("JSON parse failed")
-                return false
-            }
-
-            // 有的返回 data[]，有的返回 models[]
-            if let list = json["data"] as? [[String: Any]] {
-                models = list.compactMap { $0["id"] as? String }
-                modelsLog("parsed \(models.count) models from data[]")
-            } else if let list = json["models"] as? [[String: Any]] {
-                models = list.compactMap { $0["id"] as? String }
-                modelsLog("parsed \(models.count) models from models[]")
-            } else {
-                modelsLog("no data[] or models[] key in response, keys: \(json.keys)")
-                return false
-            }
-            return !models.isEmpty
-        } catch {
-            modelsLog("error: \(error.localizedDescription)")
-            return false
+        await ProviderManager.shared.refreshModels()
+        if let provider = ProviderManager.shared.activeProvider {
+            models = ProviderManager.shared.modelProviderMap
+                .filter { $0.value == provider.id }
+                .map { $0.key }
+                .sorted()
         }
+        return !models.isEmpty
     }
 }
 
