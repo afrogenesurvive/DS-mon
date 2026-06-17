@@ -144,7 +144,7 @@ enum Strings {
     static var textDisplayLabel: String { isZH ? "菜单栏文字" : "Menu Bar Text" }
 
     // Provider
-    static var providerTitle: String { isZH ? "DeepSeek 账户" : "DeepSeek Account" }
+    static var providerTitle: String { isZH ? "提供商" : "Provider" }
     static var defaultModelLabel2: String { isZH ? "默认模型" : "Default Model" }
     static func apiKeyHint(_ name: String) -> String {
         isZH ? "\(name) 的 API Key 将用于代理转发" : "API Key for \(name) will be used for proxy forwarding"
