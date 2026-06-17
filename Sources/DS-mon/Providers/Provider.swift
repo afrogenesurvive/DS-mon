@@ -12,6 +12,7 @@ protocol Provider: Sendable {
     var fallbackModels: [String: ModelPricing] { get }
     var rpmLimit: Int? { get }
     var developerPlatformURL: String { get }
+    var opencodeProviderId: String { get }
     func parseBalance(_ json: [String: Any]) -> (total: Double, granted: Double, toppedUp: Double)?
     var currency: String { get }
 }
@@ -21,5 +22,6 @@ extension Provider {
     var apiPath: String { "/v1" }
     var rpmLimit: Int? { nil }
     var developerPlatformURL: String { "" }
+    var opencodeProviderId: String { id }
     var currency: String { "CNY" }
 }

@@ -145,7 +145,9 @@ enum Strings {
 
     // Provider
     static var providerTitle: String { isZH ? "提供商" : "Provider" }
-    static var defaultModelLabel2: String { isZH ? "默认模型" : "Default Model" }
+    static var baseURLHelpTitle: String { isZH ? "如何配置 opencode 客户端" : "How to configure opencode"}
+    static var baseURLHelpDesc: String { isZH ? "在 opencode 的配置文件 (opencode.jsonc) 中添加以下 provider 配置，将 API 请求转发到本地 DS-mon 代理。" : "Add the following provider config in your opencode.jsonc to route API requests through the local DS-mon proxy."}
+    static var defaultModelLabel2: String { isZH ? "当前模型" : "Current Model" }
     static func apiKeyHint(_ name: String) -> String {
         isZH ? "\(name) 的 API Key 将用于代理转发" : "API Key for \(name) will be used for proxy forwarding"
     }

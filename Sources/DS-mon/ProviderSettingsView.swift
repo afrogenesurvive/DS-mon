@@ -4,12 +4,25 @@ struct ProviderSettingsView: View {
     let stats: DeepSeekStats
 
     @State private var selectedDefaultModel: String?
+    @State private var showBaseURLHelp = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Label(Strings.providerTitle, systemImage: "cube.fill")
-                .font(.body).bold()
-                .padding(.top, 20)
+            HStack {
+                Label(Strings.providerTitle, systemImage: "cube.fill")
+                    .font(.body).bold()
+                Spacer()
+                Button(action: { showBaseURLHelp.toggle() }) {
+                    Image(systemName: "questionmark.circle")
+                        .font(.body)
+                        .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showBaseURLHelp, arrowEdge: .trailing) {
+                    BaseURLHelpView(providers: ProviderManager.shared.providers)
+                }
+            }
+            .padding(.top, 20)
 
             ForEach(ProviderManager.shared.providers, id: \.id) { provider in
                 VStack(alignment: .leading, spacing: 8) {
@@ -119,5 +132,46 @@ struct ThresholdSectionView: View {
         let val = max(10, min(maxBalanceValue, 10000))
         maxBalanceValue = val
         UserDefaults.standard.set(val, forKey: Strings.Keys.maxBalanceAmount)
+    }
+}
+
+struct BaseURLHelpView: View {
+    let providers: [any Provider]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(Strings.baseURLHelpTitle)
+                .font(.headline)
+            Text(Strings.baseURLHelpDesc)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            ScrollView {
+                Text(configExample)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .padding(10)
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .cornerRadius(6)
+            }
+            .frame(maxHeight: 200)
+        }
+        .padding()
+        .frame(width: 360)
+    }
+
+    private var configExample: String {
+        var lines: [String] = ["{"]
+        for (i, p) in providers.enumerated() {
+            let comma = i < providers.count - 1 ? "," : ""
+            lines.append("  \"\(p.opencodeProviderId)\": {")
+            lines.append("    \"options\": {")
+            lines.append("      \"baseURL\": \"http://localhost:18080\"")
+            lines.append("    }")
+            lines.append("  }\(comma)")
+        }
+        lines.append("}")
+        return lines.joined(separator: "\n")
     }
 }

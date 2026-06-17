@@ -7,7 +7,7 @@ struct ThresholdView: View {
 
     enum SettingsTab: String, CaseIterable {
         case general  = "通用"
-        case provider = "DeepSeek"
+        case provider = "Provider"
         case services = "服务"
         case about    = "关于"
 
@@ -23,7 +23,7 @@ struct ThresholdView: View {
         var displayName: String {
             switch self {
             case .general:  return Strings.settingsTabGeneral
-            case .provider: return "DeepSeek"
+            case .provider: return Strings.providerTitle
             case .services: return Strings.settingsTabServices
             case .about:    return Strings.settingsTabAbout
             }

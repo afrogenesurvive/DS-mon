@@ -5,7 +5,7 @@
 <h1 align="center">DS-mon</h1>
 
 <p align="center">
-  macOS 菜单栏 DeepSeek 余额监控 · 用量统计 · 本地代理转发
+  macOS 菜单栏 API 余额监控 · 用量统计 · 本地代理转发（多提供商支持）
   <br/>
   <sub>Swift 6 · SwiftUI + AppKit · macOS 15 Sequoia+ · Apple Silicon</sub>
 </p>
@@ -26,8 +26,9 @@
 
 ## 功能
 
-### DeepSeek 余额监控
+### API 余额监控
 
+- 支持 **DeepSeek** / **Moonshot（Kimi）** 等多提供商，弹窗顶部一键切换
 - 每 5 分钟自动刷新余额和可用模型
 - 可自定义预警阈值（低于阈值红色闪烁）
 - 弹出面板查看详细余额（总余额 / 赠送余额 / 充值余额）
@@ -48,7 +49,7 @@
 
 在本地启动 HTTP 代理，客户端将 API 地址指向本地端口后，DS-mon 自动：
 
-- **透明转发**请求到 DeepSeek API
+- **透明转发**请求到对应上游 API（DeepSeek / Moonshot）
 - **记录**每次请求的 token 用量（输入 / 缓存命中 / 推理 / 输出）和客户端标识（User-Agent）
 - **统计**日/周/月的请求次数、缓存命中率、预估费用、响应时间
 - **柱状图**可视化 Hit/Miss/Out token 分布（按小时/日/周），叠加请求数曲线
@@ -67,13 +68,13 @@
 
 - 中英双语（自动跟随系统语言）
 - 菜单栏图标开关
-- 设置面板：通用 / DeepSeek 账户 / 服务 / 关于
+- 设置面板：通用 / 提供商 / 服务 / 关于
 
 ## 前置条件
 
 - macOS 15 Sequoia 或更高版本
 - Apple Silicon Mac（M1/M2/M3/M4）
-- DeepSeek API Key
+- DeepSeek / Moonshot API Key
 
 ## 安装
 
@@ -90,7 +91,7 @@ brew install --cask ds-mon
 
 1. 将 `DS-mon.app` 拖入 `应用程序` 文件夹
 2. **右键 → 打开**（首次运行需绕过 Gatekeeper）
-3. 点击菜单栏图标 → 设置 → DeepSeek → 输入 API Key
+3. 点击菜单栏图标 → 设置 → 提供商 → 输入 API Key
 
 ### 方式三：从源码构建
 
@@ -106,7 +107,7 @@ open .build/release/DS-mon
 ### 首次配置
 
 1. 启动后菜单栏出现图标，点击打开弹出面板
-2. 点击「设置」→「DeepSeek」标签页
+2. 点击「设置」→「提供商」标签页
 3. 输入 API Key
 4. 余额自动刷新，每 5 分钟更新
 
@@ -127,11 +128,34 @@ open .build/release/DS-mon
 
 ## 限制
 
-- **仅记录通过代理的请求** — 直连 DeepSeek API 的请求不会被统计
+- **仅记录通过代理的请求** — 直连 API 的请求不会被统计
 - **本地代理** — 代理仅监听本地（127.0.0.1）
-- **缓存命中率** — 基于 API 返回的 `prompt_cache_hit_tokens` 字段
+- **缓存命中率** — 基于 API 返回的 `prompt_cache_hit_tokens` 或 `prompt_tokens_details.cached_tokens` 字段
 - **费用估算** — 基于模型定价计算
 - **代理端口** — 默认 18080，可在设置中修改（1024–65535）
+
+## opencode 配置
+
+在 `~/.config/opencode/opencode.jsonc` 中配置 provider 的 `baseURL`，将请求转发到 DS-mon 代理（DS-mon 会自动注入 API Key）：
+
+```jsonc
+{
+  "provider": {
+    "deepseek": {
+      "options": {
+        "baseURL": "http://localhost:18080"
+      }
+    },
+    "moonshotai-cn": {
+      "options": {
+        "baseURL": "http://localhost:18080"
+      }
+    }
+  }
+}
+```
+
+模型选择：`moonshotai-cn/kimi-k2.7-code`、`deepseek/deepseek-v4-pro` 等。
 
 ## 项目结构
 
@@ -141,8 +165,11 @@ DS-mon/
 │   ├── DSmonApp.swift                    # @main 入口 + AppDelegate
 │   ├── Constants.swift                   # 应用常量集中管理
 │   ├── Strings.swift                     # 多语言字符串
-│   ├── Provider.swift                    # DeepSeek 提供商配置 + SecureStore
-│   ├── ProviderManager.swift             # API Key 管理
+│   ├── Providers/
+│   │   ├── Provider.swift                  # Provider 协议定义
+│   │   ├── ProviderManager.swift           # 多提供商注册、路由、API Key 管理
+│   │   ├── DeepSeekProvider.swift          # DeepSeek 提供商配置
+│   │   └── KimiProvider.swift             # Moonshot (Kimi) 提供商配置
 │   ├── ProxyServer.swift                 # NWListener 本地 HTTP 代理
 │   ├── ProxyConnectionHandler.swift      # 代理请求转发 + URL 构建
 │   ├── ProxyConnectionHandler+Responses.swift  # Responses API 处理
@@ -156,7 +183,7 @@ DS-mon/
 │   ├── RequestListView.swift             # 最近请求列表
 │   ├── ThresholdView.swift               # 设置窗口（标签页容器）
 │   ├── GeneralSettingsView.swift         # 通用设置
-│   ├── ProviderSettingsView.swift        # DeepSeek 账户设置
+│   ├── ProviderSettingsView.swift        # 提供商设置（API Key + baseURL 帮助）
 │   ├── ServicesSettingsView.swift        # 代理 + 同步设置
 │   ├── AboutSettingsView.swift           # 关于页面
 │   ├── DeepSeekStats.swift               # @Observable 数据模型
