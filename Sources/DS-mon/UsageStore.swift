@@ -493,6 +493,18 @@ actor UsageStore {
         return Double(cached) / Double(prompt)
     }
 
+    func todayCost() -> Double {
+        guard let db else { return 0 }
+        let todayStart = Calendar.current.startOfDay(for: Date())
+        let sql = "SELECT COALESCE(SUM(cost), 0) FROM usage_log WHERE timestamp >= ?;"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return 0 }
+        sqlite3_bind_double(stmt, 1, todayStart.timeIntervalSince1970)
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return sqlite3_column_double(stmt, 0)
+    }
+
     func todayCacheHitRate() -> Double? {
         let cal = Calendar.current
         let todayStart = cal.startOfDay(for: Date())

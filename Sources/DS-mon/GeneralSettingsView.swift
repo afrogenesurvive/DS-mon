@@ -39,30 +39,52 @@ struct GeneralSettingsView: View {
                     Image(systemName: "text.alignleft").font(.caption)
                     Text(Strings.textDisplayLabel)
 
+                    var modes = menuBarTextDisplay.components(separatedBy: ",").filter { !$0.isEmpty && $0 != "none" }
+                    let hasBalance = modes.contains("balance")
+                    let hasHitRate = modes.contains("hitRate")
+                    let hasCost = modes.contains("cost")
+
                     Button(action: {
-                        menuBarTextDisplay = menuBarTextDisplay == "balance" ? "none" : "balance"
+                        if hasBalance { modes.removeAll { $0 == "balance" } } else { modes.append("balance") }
+                        menuBarTextDisplay = modes.isEmpty ? "none" : modes.joined(separator: ",")
                         NotificationCenter.default.post(name: .menuBarTextDisplayDidChange, object: nil)
                     }) {
                         Text(Strings.balanceLabel)
                             .font(.callout)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 2)
-                            .background(menuBarTextDisplay == "balance" ? Color.accentColor : Color.gray.opacity(0.12))
-                            .foregroundColor(menuBarTextDisplay == "balance" ? .white : .primary)
+                            .background(hasBalance ? Color.accentColor : Color.gray.opacity(0.12))
+                            .foregroundColor(hasBalance ? .white : .primary)
                             .cornerRadius(4)
                     }
                     .buttonStyle(.plain)
 
                     Button(action: {
-                        menuBarTextDisplay = menuBarTextDisplay == "hitRate" ? "none" : "hitRate"
+                        if hasHitRate { modes.removeAll { $0 == "hitRate" } } else { modes.append("hitRate") }
+                        menuBarTextDisplay = modes.isEmpty ? "none" : modes.joined(separator: ",")
                         NotificationCenter.default.post(name: .menuBarTextDisplayDidChange, object: nil)
                     }) {
                         Text(Strings.hitRateLabel)
                             .font(.callout)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 2)
-                            .background(menuBarTextDisplay == "hitRate" ? Color.accentColor : Color.gray.opacity(0.12))
-                            .foregroundColor(menuBarTextDisplay == "hitRate" ? .white : .primary)
+                            .background(hasHitRate ? Color.accentColor : Color.gray.opacity(0.12))
+                            .foregroundColor(hasHitRate ? .white : .primary)
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: {
+                        if hasCost { modes.removeAll { $0 == "cost" } } else { modes.append("cost") }
+                        menuBarTextDisplay = modes.isEmpty ? "none" : modes.joined(separator: ",")
+                        NotificationCenter.default.post(name: .menuBarTextDisplayDidChange, object: nil)
+                    }) {
+                        Text(Strings.costLabel)
+                            .font(.callout)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(hasCost ? Color.accentColor : Color.gray.opacity(0.12))
+                            .foregroundColor(hasCost ? .white : .primary)
                             .cornerRadius(4)
                     }
                     .buttonStyle(.plain)

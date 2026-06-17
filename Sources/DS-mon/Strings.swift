@@ -135,6 +135,7 @@ enum Strings {
     static var menuIconLabel: String { isZH ? "图标" : "Icon" }
     static var indicatorLabel: String { isZH ? "状态指示器" : "Indicator" }
     static var balanceLabel: String { isZH ? "余额" : "Balance" }
+    static var costLabel: String { isZH ? "费用" : "Cost" }
     static var hitRateLabel: String { isZH ? "命中率" : "Hit Rate" }
     static var textDisplayLabel: String { isZH ? "菜单栏文字" : "Menu Bar Text" }
 
@@ -163,7 +164,7 @@ enum Strings {
     static var totalTokensLabel: String { isZH ? "总 Tokens" : "Total Tokens" }
     static var cachedTokensLabel: String { isZH ? "缓存命中" : "Cache Hit" }
     static var reasoningTokensLabel: String { isZH ? "推理 Tokens" : "Reasoning" }
-    static var costLabel: String { isZH ? "预估费用" : "Est. Cost" }
+    static var estimatedCostLabel: String { isZH ? "预估费用" : "Est. Cost" }
     static var latencyLabel: String { isZH ? "响应时间" : "Response Time" }
     static var todayLabel: String { isZH ? "今日" : "Today" }
     static var weekLabel: String { isZH ? "周" : "Week" }

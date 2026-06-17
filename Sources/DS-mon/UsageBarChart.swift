@@ -218,17 +218,6 @@ struct TokenBarSegment: Identifiable {
     var id: String { "\(label)-\(type)" }
 }
 
-struct LegendEntry: View {
-    let color: Color
-    let label: String
-    var body: some View {
-        HStack(spacing: 3) {
-            Circle().fill(color).frame(width: 6, height: 6)
-            Text(label).foregroundColor(.secondary)
-        }
-    }
-}
-
 // MARK: - 矩形立体指示灯（SwiftUI）
 
 /// 小圆角矩形指示灯：顶部高光 + 底部暗面 + 外发光

@@ -218,7 +218,7 @@ struct StatsPopoverView: View {
                 .onChange(of: usagePeriod) { _, _ in loadUsage() }
             }
 
-            if let u = usageData, u.requestCount > 0 {
+            if let u = usageData, u.requestCount > 0, usagePeriod != 0 || isTodayData(u) {
                 VStack(spacing: 5) {
                     usageRow("arrow.left.arrow.right", .blue, Strings.requestsLabel, Strings.requestsCount(u.requestCount))
                     usageRow("text.word.spacing", .blue.opacity(0.7), Strings.totalTokensLabel, Strings.tokensShort(u.totalTokens))
@@ -226,7 +226,7 @@ struct StatsPopoverView: View {
                     if u.reasoningTokens > 0 {
                         usageRow("brain.head.profile", .orange, Strings.reasoningTokensLabel, Strings.tokensShort(u.reasoningTokens))
                     }
-                    usageRow("yensign.circle", .orange, Strings.costLabel, Strings.costShort(u.estimatedCost))
+                    usageRow("yensign.circle", .orange, Strings.estimatedCostLabel, Strings.costShort(u.estimatedCost))
                     usageRow("stopwatch", .teal.opacity(0.7), Strings.latencyLabel, Strings.latencyMsFormat(u.avgLatencyMs))
                 }
 
@@ -268,6 +268,12 @@ struct StatsPopoverView: View {
                 .font(.system(size: 10).monospacedDigit())
                 .foregroundColor(.primary)
         }
+    }
+
+    private func isTodayData(_ u: AggregatedUsage) -> Bool {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return u.period == f.string(from: Date())
     }
 
     private func loadUsage() {

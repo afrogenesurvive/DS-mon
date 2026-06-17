@@ -25,6 +25,7 @@ class StatusBarView: NSView {
     var menuBarTextDisplay: String = "balance"
     var hitRateText: String = ""
     var balanceAmount: String = ""
+    var costText: String = ""
 
     // MARK: 数据
     private var balanceRatio: Double = 0
@@ -74,9 +75,10 @@ class StatusBarView: NSView {
         iconView.frame.origin.y = (bounds.height - 18) / 2
     }
 
-    func update(balanceRatio: Double, balanceAmount: String = "", hitRateText: String = "", isError: Bool, isLowAlerting: Bool, blinkOn: Bool, isWarning: Bool = false) {
+    func update(balanceRatio: Double, balanceAmount: String = "", hitRateText: String = "", costText: String = "", isError: Bool, isLowAlerting: Bool, blinkOn: Bool, isWarning: Bool = false) {
         self.balanceRatio = balanceRatio
         self.balanceAmount = balanceAmount
+        self.costText = costText
         self.isError = isError
         self.isLowAlerting = isLowAlerting
         self.isWarning = isWarning
@@ -165,32 +167,46 @@ class StatusBarView: NSView {
         }
 
         // ── 菜单栏文字 ──
-        let textMode = UserDefaults.standard.string(forKey: Strings.Keys.menuBarTextDisplay) ?? "balance"
-        if textMode == "balance", !balanceAmount.isEmpty {
-            let amtFont = NSFont.menuFont(ofSize: 0)
-            let amtAttr: [NSAttributedString.Key: Any] = [
-                .font: amtFont,
-                .foregroundColor: isLowAlerting
+        let textModes = (UserDefaults.standard.string(forKey: Strings.Keys.menuBarTextDisplay) ?? "balance")
+            .components(separatedBy: ",").filter { !$0.isEmpty }
+        let baseColor: NSColor = isDarkMode ? NSColor.white : NSColor.black
+        let font = NSFont.menuFont(ofSize: 0)
+
+        for (i, mode) in textModes.enumerated() {
+            if i > 0 {
+                let sep = " | " as NSString
+                let sepAttr: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: baseColor.withAlphaComponent(0.3)]
+                let sepSize = sep.size(withAttributes: sepAttr)
+                sep.draw(at: NSPoint(x: cursorX, y: (barH - sepSize.height) / 2), withAttributes: sepAttr)
+                cursorX += sepSize.width
+            }
+
+            let text: String
+            let color: NSColor
+            switch mode {
+            case "balance":
+                text = balanceAmount
+                color = isLowAlerting
                     ? (blinkOn ? NSColor.systemRed : NSColor.systemRed.withAlphaComponent(0.3))
-                    : (isDarkMode ? NSColor.white : NSColor.black)
-            ]
-            let amtStr = balanceAmount as NSString
-            let amtSize = amtStr.size(withAttributes: amtAttr)
-            let amtY = (barH - amtSize.height) / 2
-            amtStr.draw(at: NSPoint(x: cursorX, y: amtY), withAttributes: amtAttr)
-            cursorX += amtSize.width + 4
-        } else if textMode == "hitRate" {
-            let hrFont = NSFont.menuFont(ofSize: 0)
-            let hrColor: NSColor = isDarkMode ? NSColor.white : NSColor.black
-            let hrAttr: [NSAttributedString.Key: Any] = [
-                .font: hrFont,
-                .foregroundColor: hrColor
-            ]
-            let hrStr = hitRateText.isEmpty ? "0%" : hitRateText as NSString
-            let hrSize = hrStr.size(withAttributes: hrAttr)
-            let hrY = (barH - hrSize.height) / 2
-            hrStr.draw(at: NSPoint(x: cursorX, y: hrY), withAttributes: hrAttr)
-            cursorX += hrSize.width + 4
+                    : baseColor
+            case "hitRate":
+                text = hitRateText.isEmpty ? "0%" : hitRateText
+                color = baseColor
+            case "cost":
+                text = costText.isEmpty ? "¥0" : costText
+                color = baseColor
+            default:
+                text = ""
+                color = baseColor
+            }
+
+            if !text.isEmpty {
+                let attr: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+                let s = text as NSString
+                let size = s.size(withAttributes: attr)
+                s.draw(at: NSPoint(x: cursorX, y: (barH - size.height) / 2), withAttributes: attr)
+                cursorX += size.width
+            }
         }
     }
 

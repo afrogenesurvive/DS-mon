@@ -166,35 +166,6 @@ struct DeltaFunction: Codable {
     let arguments: String?
 }
 
-// MARK: - Responses API output types
-
-struct ResponsesOutputMessage: Codable {
-    let type: String
-    let id: String
-    let role: String
-    let status: String
-    let content: [ResponsesContentPart]
-}
-
-struct ResponsesContentPart: Codable {
-    let type: String
-    let text: String?
-}
-
-struct ResponsesOutputFunctionCall: Codable {
-    let type: String
-    let id: String
-    let callId: String
-    let name: String
-    let arguments: String
-    let status: String
-
-    enum CodingKeys: String, CodingKey {
-        case type, id, name, arguments, status
-        case callId = "call_id"
-    }
-}
-
 // MARK: - Flexible JSON value for untyped fields
 
 enum JSONValue: Codable {

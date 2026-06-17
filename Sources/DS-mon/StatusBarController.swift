@@ -129,8 +129,10 @@ class StatusBarController: NSObject, NSWindowDelegate {
             guard !Task.isCancelled else { return }
             let cacheHit = await UsageStore.shared.mostRecentCacheHitRate()
             let todayHit = await UsageStore.shared.todayCacheHitRate()
+            let cost = await UsageStore.shared.todayCost()
             self.statusView?.cacheHitRatio = cacheHit
             self.statusView?.todayHitRate = todayHit
+            self.statusView?.costText = Strings.costShort(cost)
             self.statusView?.needsDisplay = true
         }
     }
@@ -149,12 +151,13 @@ class StatusBarController: NSObject, NSWindowDelegate {
         let ratio = cap > 0 ? min(balance / cap, 1.0) : 0
         let hr = statusView?.cacheHitRatio ?? 0
         let hitRateText = hr > 0 ? String(format: "%.1f%%", hr * 100) : ""
+        let costText = statusView?.costText ?? ""
 
-        applyLabel(balanceRatio: ratio, balanceAmount: balanceText, hitRateText: hitRateText, isError: isError, isLow: isLow, blinkOn: blinkOn, isWarning: isWarning)
+        applyLabel(balanceRatio: ratio, balanceAmount: balanceText, hitRateText: hitRateText, costText: costText, isError: isError, isLow: isLow, blinkOn: blinkOn, isWarning: isWarning)
     }
 
-    private func applyLabel(balanceRatio: Double, balanceAmount: String = "", hitRateText: String = "", isError: Bool, isLow: Bool, blinkOn: Bool, isWarning: Bool = false) {
-        statusView?.update(balanceRatio: balanceRatio, balanceAmount: balanceAmount, hitRateText: hitRateText, isError: isError, isLowAlerting: isLow, blinkOn: blinkOn, isWarning: isWarning)
+    private func applyLabel(balanceRatio: Double, balanceAmount: String = "", hitRateText: String = "", costText: String = "", isError: Bool, isLow: Bool, blinkOn: Bool, isWarning: Bool = false) {
+        statusView?.update(balanceRatio: balanceRatio, balanceAmount: balanceAmount, hitRateText: hitRateText, costText: costText, isError: isError, isLowAlerting: isLow, blinkOn: blinkOn, isWarning: isWarning)
 
         // 计算总宽度
         let showIcon = UserDefaults.standard.object(forKey: Strings.Keys.showMenuIcon) as? Bool ?? true
@@ -165,15 +168,20 @@ class StatusBarController: NSObject, NSWindowDelegate {
         if showIndicator {
             w += 23  // leadingGap + 3bars + 2columnGaps + border + padding
         }
-        if textMode == "balance", !balanceAmount.isEmpty {
-            let amtFont = NSFont.menuFont(ofSize: 0)
-            let amtW = (balanceAmount as NSString).size(withAttributes: [.font: amtFont]).width
-            w += amtW + 4
-        } else if textMode == "hitRate" {
-            let hrFont = NSFont.menuFont(ofSize: 0)
-            let hrText = hitRateText.isEmpty ? "0%" : hitRateText
-            let hrW = (hrText as NSString).size(withAttributes: [.font: hrFont]).width
-            w += hrW + 4
+        let textModes = (textMode as String).components(separatedBy: ",").filter { !$0.isEmpty && $0 != "none" }
+        if !textModes.isEmpty {
+            let font = NSFont.menuFont(ofSize: 0)
+            for (i, mode) in textModes.enumerated() {
+                if i > 0 { w += (" | " as NSString).size(withAttributes: [.font: font]).width }
+                let t: String = switch mode {
+                case "balance": balanceAmount.isEmpty ? "¥0" : balanceAmount
+                case "hitRate": hitRateText.isEmpty ? "0%" : hitRateText
+                case "cost": costText.isEmpty ? "¥0" : costText
+                default: ""
+                }
+                w += (t as NSString).size(withAttributes: [.font: font]).width
+            }
+            w += 4
         }
         w += 2  // trailing padding
         statusItem?.length = w
