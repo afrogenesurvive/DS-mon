@@ -203,8 +203,8 @@ enum Strings {
     }
 
     static var balanceText: String { isZH ? "¥%.2f" : "¥%.2f" }
-    static var grantedText: String { isZH ? "赠送 ¥%.2f" : "Granted ¥%.2f" }
-    static var toppedUpText: String { isZH ? "充值 ¥%.2f" : "Topped Up ¥%.2f" }
+    static var grantedText: String { isZH ? "赠送余额 ¥%.2f" : "Granted ¥%.2f" }
+    static var toppedUpText: String { isZH ? "充值余额 ¥%.2f" : "Topped Up ¥%.2f" }
 
     // Chart
     static var chartMiss: String { isZH ? "Miss" : "Miss" }

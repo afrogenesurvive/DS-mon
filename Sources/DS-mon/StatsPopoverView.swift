@@ -80,16 +80,11 @@ struct StatsPopoverView: View {
     }
 
     private var statusBadge: some View {
-        HStack(spacing: 4) {
-            StatusDotView(color: statusIndicatorColor, size: 7)
-            Text(statusText)
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(statusBadgeBackground)
-        .cornerRadius(8)
+        StatusDotView(color: statusIndicatorColor, size: 7)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 3)
+            .background(statusBadgeBackground)
+            .cornerRadius(8)
     }
 
     private var statusIndicatorColor: Color {
@@ -98,13 +93,6 @@ struct StatsPopoverView: View {
         if stats.isLowBalance { return stats.blinkOn ? .red : .red.opacity(0.4) }
         if stats.isWarningBalance { return .orange }
         return .green
-    }
-
-    private var statusText: String {
-        if stats.isLoading { return Strings.badgeLoading }
-        if stats.errorMessage != nil { return Strings.badgeError }
-        if stats.isWarningBalance { return Strings.badgeWarning }
-        return Strings.badgeNormal
     }
 
     private var statusBadgeBackground: Color {
@@ -143,8 +131,8 @@ struct StatsPopoverView: View {
                     Label(stats.grantedText, systemImage: "gift.fill")
                         .font(.system(size: 9))
                         .foregroundColor(.green)
+                    Spacer()
                 }
-                .padding(.leading, 14)
             }
         }
         .padding(.horizontal, 14)
@@ -169,7 +157,6 @@ struct StatsPopoverView: View {
         VStack(spacing: 4) {
             infoRow(icon: "bell.fill", iconColor: .orange, label: Strings.thresholdLabel, value: String(format: "¥%.0f", stats.threshold), valueColor: .orange)
             infoRow(icon: "star.fill", iconColor: .yellow, label: Strings.defaultModelLabel2, value: stats.defaultModelText)
-            infoRow(icon: "cube.2.fill", iconColor: .teal, label: Strings.availableModels, value: stats.modelsText)
             infoRow(icon: stats.isAvailable ? "checkmark.circle.fill" : "exclamationmark.circle.fill",
                     iconColor: stats.isAvailable ? .green : .red,
                     label: Strings.accountStatus,
@@ -240,6 +227,8 @@ struct StatsPopoverView: View {
                     usageRow("yensign.circle", .orange, Strings.estimatedCostLabel, Strings.costShort(u.estimatedCost))
                     usageRow("stopwatch", .teal.opacity(0.7), Strings.latencyLabel, Strings.latencyMsFormat(u.avgLatencyMs))
                 }
+
+                Divider().padding(.vertical, 2)
 
                 if !chartData.isEmpty {
                     if showChart {

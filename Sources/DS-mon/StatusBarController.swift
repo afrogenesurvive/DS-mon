@@ -195,15 +195,20 @@ class StatusBarController: NSObject, NSWindowDelegate {
         popoverWindow?.contentView = buildPopoverContentView(stats: s)
     }
 
-    /// 构建弹出面板内容视图（带不透明背景）
+    /// 构建弹出面板内容视图（带系统效果视图，自动跟随明暗模式）
     private func buildPopoverContentView(stats: DeepSeekStats) -> NSView {
         let host = NSHostingView(rootView: StatsPopoverView(stats: stats))
         host.frame = NSRect(x: 0, y: 0, width: AppConfig.popoverWidth, height: AppConfig.popoverHeight)
         let container = NSView(frame: host.frame)
         container.wantsLayer = true
-        container.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         container.layer?.cornerRadius = 10
         container.layer?.masksToBounds = true
+        let effectView = NSVisualEffectView(frame: container.bounds)
+        effectView.material = .underWindowBackground
+        effectView.blendingMode = .behindWindow
+        effectView.state = .active
+        effectView.autoresizingMask = [.width, .height]
+        container.addSubview(effectView)
         container.addSubview(host)
         return container
     }
