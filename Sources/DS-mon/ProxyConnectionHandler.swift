@@ -111,8 +111,16 @@ final class ProxyConnectionHandler: @unchecked Sendable {
 
         // 从主 actor 获取活跃提供商信息
         let providerInfo = await MainActor.run { () -> (baseURL: String, authHeader: String?, providerId: String, apiPath: String, defaultModel: String?)? in
-            guard let p = ProviderManager.shared.activeProvider else { return nil }
-            let key = ProviderManager.shared.activeAPIKey
+            // 从请求 body 提取 model，查找匹配的提供商
+            let model = (try? JSONSerialization.jsonObject(with: body)).flatMap { $0 as? [String: Any] }?["model"] as? String
+            let p: (any Provider)?
+            if let model {
+                p = ProviderManager.shared.provider(for: model)
+            } else {
+                p = ProviderManager.shared.activeProvider
+            }
+            guard let p else { return nil }
+            let key = ProviderManager.shared.apiKey(for: p.id)
             let auth = key.isEmpty ? nil : "\(p.authPrefix) \(key)"
             let defaultModel = p.fallbackModels.keys.sorted().first
             return (p.baseURL, auth, p.id, p.apiPath, defaultModel)
@@ -291,15 +299,8 @@ final class ProxyConnectionHandler: @unchecked Sendable {
 
     // MARK: - 模型覆写
 
-    /// 将请求 body 中的 model 替换为提供商的默认模型
-    private func applyDefaultModel(_ body: Data, _ defaultModel: String?) -> Data {
-        guard !body.isEmpty else { return body }
-        let model = defaultModel ?? "deepseek-v4-pro"
-        guard !model.isEmpty else { return body }
-        guard var json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return body }
-        json["model"] = model
-        return (try? JSONSerialization.data(withJSONObject: json)) ?? body
-    }
+    /// 不需要替换模型名——路由已通过 model→provider 查表完成
+    private func applyDefaultModel(_ body: Data, _ defaultModel: String?) -> Data { body }
 
     // MARK: - 响应辅助
 
