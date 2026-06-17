@@ -11,59 +11,35 @@ struct ProviderSettingsView: View {
                 .font(.body).bold()
                 .padding(.top, 20)
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 4) {
-                    Image(systemName: "key.fill")
-                        .foregroundColor(.accentColor)
-                    Text("DeepSeek API Key")
-                        .font(.body).bold()
-                }
-
-                let provider = ProviderManager.shared.provider
-                HStack(spacing: 8) {
-                    SecureField("sk-...", text: Binding(
-                        get: { ProviderManager.shared.apiKey(for: provider) },
-                        set: { newValue in
-                            _ = ProviderManager.shared.saveAPIKey(newValue, for: provider)
-                            stats.refresh()
-                        }
-                    ))
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.body, design: .monospaced))
-                }
-
-                Text(Strings.apiKeyHint("DeepSeek"))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 4) {
-                    Image(systemName: "star.fill")
-                        .foregroundColor(.yellow)
-                    Text(Strings.defaultModelLabel2)
-                        .font(.body).bold()
-                }
-
-                let models = ProviderConfig.default.pricingOverrides.keys.sorted()
-                Picker("", selection: Binding(
-                    get: { selectedDefaultModel ?? models.first ?? "" },
-                    set: { newVal in
-                        selectedDefaultModel = newVal.isEmpty ? nil : newVal
-                        var cfg = ProviderConfig.load()
-                        cfg.defaultModel = selectedDefaultModel
-                        cfg.save()
-                        ProviderManager.shared.load()
+            ForEach(ProviderManager.shared.providers, id: \.id) { provider in
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "key.fill")
+                            .foregroundColor(.accentColor)
+                        Text("\(provider.name) API Key")
+                            .font(.body).bold()
                     }
-                )) {
-                    ForEach(models, id: \.self) { model in
-                        Text(model).tag(model)
+
+                    HStack(spacing: 8) {
+                        SecureField("sk-...", text: Binding(
+                            get: { ProviderManager.shared.apiKey(for: provider.id) },
+                            set: { newValue in
+                                ProviderManager.shared.saveAPIKey(newValue, for: provider.id)
+                                stats.refresh()
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
                     }
+
+                    Text(Strings.apiKeyHint(provider.name))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if provider.id != ProviderManager.shared.providers.last?.id {
+                    Divider()
+                }
             }
 
             Divider()
@@ -73,10 +49,6 @@ struct ProviderSettingsView: View {
             Spacer()
         }
         .padding(.horizontal, 24)
-        .onAppear {
-            let cfg = ProviderConfig.load()
-            selectedDefaultModel = cfg.defaultModel
-        }
     }
 }
 

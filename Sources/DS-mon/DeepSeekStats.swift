@@ -85,7 +85,7 @@ final class DeepSeekStats {
         if let provider = mgr.activeProvider {
             providerName = provider.name
             providerID = provider.id
-            hasBalanceAPI = provider.hasBalanceAPI
+            hasBalanceAPI = provider.balanceURL != nil
             providerIsFree = false
             currency = provider.currency
         } else {
@@ -148,8 +148,8 @@ final class DeepSeekStats {
     }
 
     var defaultModelText: String {
-        if let provider = ProviderManager.shared.activeProvider,
-           let model = provider.defaultModel ?? (provider.pricingOverrides.isEmpty ? models.sorted().first : provider.pricingOverrides.keys.sorted().first) {
+        if let provider = ProviderManager.shared.activeProvider {
+            let model = provider.fallbackModels.keys.sorted().first ?? models.sorted().first ?? "—"
             return model
         }
         return "—"
@@ -207,7 +207,7 @@ final class DeepSeekStats {
         guard let url = URL(string: provider.baseURL + balancePath) else { return }
 
         var req = URLRequest(url: url)
-        req.setValue("\(provider.authHeaderPrefix) \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("\(provider.authPrefix) \(apiKey)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = AppConfig.balanceRequestTimeout
         do {
             let (data, resp) = try await AppConfig.directURLSession.data(for: req)
@@ -280,7 +280,7 @@ final class DeepSeekStats {
         let urlStr = provider.baseURL + provider.apiPath + "/models"
         guard let url = URL(string: urlStr) else { modelsLog("bad URL: \(urlStr)"); return false }
         var req = URLRequest(url: url)
-        req.setValue("\(provider.authHeaderPrefix) \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("\(provider.authPrefix) \(apiKey)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = AppConfig.modelsRequestTimeout
         do {
             let (data, resp) = try await AppConfig.directURLSession.data(for: req)
