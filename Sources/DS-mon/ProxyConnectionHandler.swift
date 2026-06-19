@@ -20,6 +20,9 @@ final class ProxyConnectionHandler: @unchecked Sendable {
     /// 连接结束时回调，用于释放本对象的强引用
     var onFinished: (() -> Void)?
 
+    /// 最近一次请求的 body 大小（字节），用于 VU 电表
+    var requestBodySize: Int = 0
+
     init(connection: NWConnection, store: UsageStore, onConnectionStateChanged: ((NWConnection.State) -> Void)? = nil, onRequestStarted: ((_ isResponses: Bool) -> Void)? = nil, onRequestCompleted: @escaping () -> Void) {
         self.conn = connection
         self.store = store
@@ -103,6 +106,7 @@ final class ProxyConnectionHandler: @unchecked Sendable {
     // MARK: - 转发
 
     private func forward(method: String, path: String, headers: [String: String], body: Data) async {
+        requestBodySize = body.count
         let isResponsesApi = path.contains("/v1/responses")
         let userAgent = headers["User-Agent"] ?? headers["user-agent"] ?? ""
         let upstreamBase: String

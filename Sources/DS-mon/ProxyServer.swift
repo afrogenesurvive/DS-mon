@@ -36,10 +36,15 @@ final class ProxyServer: @unchecked Sendable {
         }
     }
 
-    func recordRequest() {
+    func recordRequest(bodySize: Int = 0) {
         lock.withLock {
             _requestCount += 1
-            let newLevel = min(1.0, _vuLevel + 0.5)
+            let scaled: Double = if bodySize > 0 {
+                min(1.0, Double(bodySize) / 50_000.0)
+            } else {
+                0.5
+            }
+            let newLevel = min(1.0, _vuLevel + scaled)
             _vuLevel = newLevel
             _vuLevelHistory.append(newLevel)
             if _vuLevelHistory.count > 5 { _vuLevelHistory.removeFirst() }
@@ -74,6 +79,7 @@ final class ProxyServer: @unchecked Sendable {
 
         listener.newConnectionHandler = { [weak self] conn in
             guard let self else { return }
+            var capturedHandler: ProxyConnectionHandler?
             let handler = ProxyConnectionHandler(
                 connection: conn,
                 store: UsageStore.shared,
@@ -89,13 +95,15 @@ final class ProxyServer: @unchecked Sendable {
                     default: break
                     }
                 },
-                onRequestStarted: { _ in }
-            ) { [weak self] in
-                self?.recordRequest()
-                Task { @MainActor in
-                    StatusBarController.shared.refreshCacheHitRate()
+                onRequestStarted: { _ in },
+                onRequestCompleted: { [weak self] in
+                    self?.recordRequest(bodySize: capturedHandler?.requestBodySize ?? 0)
+                    Task { @MainActor in
+                        StatusBarController.shared.refreshCacheHitRate()
+                    }
                 }
-            }
+            )
+            capturedHandler = handler
             let handlerId = ObjectIdentifier(handler)
             lock.withLock { connectionHandlers[handlerId] = handler }
             handler.onFinished = { [weak self] in
