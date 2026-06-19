@@ -38,8 +38,8 @@ class StatusBarController: NSObject, NSWindowDelegate {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: AppConfig.popoverWidth, height: AppConfig.popoverHeight),
                               styleMask: [.borderless, .fullSizeContentView],
                               backing: .buffered, defer: false)
-        window.backgroundColor = NSColor.windowBackgroundColor
-        window.isOpaque = true
+        window.backgroundColor = .clear
+        window.isOpaque = false
         window.contentView = buildPopoverContentView(stats: s)
         window.level = .popUpMenu
         window.hasShadow = true
@@ -204,6 +204,9 @@ class StatusBarController: NSObject, NSWindowDelegate {
         container.layer?.cornerRadius = 10
         container.layer?.masksToBounds = true
         let effectView = NSVisualEffectView(frame: container.bounds)
+        effectView.wantsLayer = true
+        effectView.layer?.cornerRadius = 10
+        effectView.layer?.masksToBounds = true
         effectView.material = .underWindowBackground
         effectView.blendingMode = .behindWindow
         effectView.state = .active

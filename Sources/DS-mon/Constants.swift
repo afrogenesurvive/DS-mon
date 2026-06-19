@@ -13,7 +13,7 @@ enum AppConfig {
     static let defaultProxyPort: UInt16 = 18080
     static let minProxyPort: Int = 1024
     static let maxProxyPort: Int = 65535
-    static let proxyRequestTimeout: TimeInterval = 300
+    static let proxyRequestTimeout: TimeInterval = 600
 
     // 💰 余额
     static let defaultBalanceThreshold: Double = 20
@@ -27,7 +27,7 @@ enum AppConfig {
     static let settingsHeight: CGFloat = 480
 
     // 📏 网络
-    static let maxHTTPBodySize: Int = 262_144
+    static let maxHTTPBodySize: Int = 20_971_520  // 20MB (supports multimodal base64 images)
     static let sseStreamChunkSize: Int = 4096
 
     // 🧹 进程管理
