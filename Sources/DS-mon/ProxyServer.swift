@@ -40,7 +40,7 @@ final class ProxyServer: @unchecked Sendable {
         lock.withLock {
             _requestCount += 1
             let scaled: Double = if bodySize > 0 {
-                min(1.0, Double(bodySize) / 50_000.0)
+                min(1.0, Double(bodySize) / 100_000.0)
             } else {
                 0.5
             }
