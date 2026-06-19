@@ -44,22 +44,17 @@ final class ProxyServer: @unchecked Sendable {
             } else {
                 0.5
             }
-            let newLevel = min(1.0, _vuLevel + scaled)
-            _vuLevel = newLevel
-            _vuLevelHistory.append(newLevel)
+            _vuLevel = min(1.0, _vuLevel + scaled)
+            _vuAvgLevel = 0.3 * _vuLevel + 0.7 * _vuAvgLevel
+            _vuLevelHistory.append(_vuLevel)
             if _vuLevelHistory.count > 5 { _vuLevelHistory.removeFirst() }
-            _vuAvgLevel = _vuLevelHistory.reduce(0, +) / Double(_vuLevelHistory.count)
         }
     }
 
     func decayVU() {
         lock.withLock {
             _vuLevel = max(0, _vuLevel - 0.01)
-            if !_vuLevelHistory.isEmpty {
-                _vuLevelHistory = _vuLevelHistory.map { max(0, $0 - 0.005) }
-                _vuLevelHistory.removeAll { $0 <= 0 }
-                _vuAvgLevel = _vuLevelHistory.isEmpty ? 0 : _vuLevelHistory.reduce(0, +) / Double(_vuLevelHistory.count)
-            }
+            _vuAvgLevel = max(0, _vuAvgLevel - 0.003)
         }
     }
 
@@ -79,7 +74,6 @@ final class ProxyServer: @unchecked Sendable {
 
         listener.newConnectionHandler = { [weak self] conn in
             guard let self else { return }
-            var capturedHandler: ProxyConnectionHandler?
             let handler = ProxyConnectionHandler(
                 connection: conn,
                 store: UsageStore.shared,
@@ -96,14 +90,12 @@ final class ProxyServer: @unchecked Sendable {
                     }
                 },
                 onRequestStarted: { _ in },
-                onRequestCompleted: { [weak self] in
-                    self?.recordRequest(bodySize: capturedHandler?.requestBodySize ?? 0)
+                onRequestCompleted: {
                     Task { @MainActor in
                         StatusBarController.shared.refreshCacheHitRate()
                     }
                 }
             )
-            capturedHandler = handler
             let handlerId = ObjectIdentifier(handler)
             lock.withLock { connectionHandlers[handlerId] = handler }
             handler.onFinished = { [weak self] in

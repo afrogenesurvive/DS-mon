@@ -114,8 +114,17 @@ class StatusBarController: NSObject, NSWindowDelegate {
     }
 
     private func startEventMonitor() {
-        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            Task { @MainActor in self?.closePopover() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self else { return }
+            self.eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+                guard let self,
+                      let statusView = self.statusView,
+                      let win = statusView.window else { return }
+                let winPt = win.convertPoint(fromScreen: NSEvent.mouseLocation)
+                let viewPt = statusView.convert(winPt, from: nil)
+                if statusView.bounds.contains(viewPt) { return }
+                Task { @MainActor in self.closePopover() }
+            }
         }
     }
 

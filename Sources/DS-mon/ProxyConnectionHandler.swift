@@ -107,6 +107,7 @@ final class ProxyConnectionHandler: @unchecked Sendable {
 
     private func forward(method: String, path: String, headers: [String: String], body: Data) async {
         requestBodySize = body.count
+        ProxyServer.shared.recordRequest(bodySize: requestBodySize)
         let isResponsesApi = path.contains("/v1/responses")
         let userAgent = headers["User-Agent"] ?? headers["user-agent"] ?? ""
         let upstreamBase: String
