@@ -127,7 +127,7 @@ final class ProxyConnectionHandler: @unchecked Sendable {
             guard let p else { return nil }
             let key = ProviderManager.shared.apiKey(for: p.id)
             let auth = key.isEmpty ? nil : "\(p.authPrefix) \(key)"
-            let defaultModel = p.fallbackModels.keys.sorted().first
+            let defaultModel = p.preferredDefaultModel ?? p.fallbackModels.keys.sorted().first
             return (p.baseURL, auth, p.id, p.apiPath, defaultModel)
         }
 

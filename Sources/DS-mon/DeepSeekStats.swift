@@ -157,7 +157,7 @@ final class DeepSeekStats {
     var defaultModelText: String {
         if let provider = ProviderManager.shared.activeProvider {
             let lastModel = UserDefaults.standard.string(forKey: Strings.Keys.lastModel(for: provider.id))
-            let model = lastModel ?? provider.fallbackModels.keys.sorted().first ?? models.sorted().first ?? "—"
+            let model = lastModel ?? provider.preferredDefaultModel ?? provider.fallbackModels.keys.sorted().first ?? models.sorted().first ?? "—"
             return model
         }
         return "—"

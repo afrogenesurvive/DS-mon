@@ -10,6 +10,7 @@ protocol Provider: Sendable {
     var authPrefix: String { get }
     var balanceURL: String? { get }
     var fallbackModels: [String: ModelPricing] { get }
+    var preferredDefaultModel: String? { get }
     var rpmLimit: Int? { get }
     var developerPlatformURL: String { get }
     var opencodeProviderId: String { get }
@@ -20,6 +21,7 @@ protocol Provider: Sendable {
 extension Provider {
     var authPrefix: String { "Bearer" }
     var apiPath: String { "/v1" }
+    var preferredDefaultModel: String? { nil }
     var rpmLimit: Int? { nil }
     var developerPlatformURL: String { "" }
     var opencodeProviderId: String { id }

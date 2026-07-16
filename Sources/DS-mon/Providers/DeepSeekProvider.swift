@@ -5,6 +5,7 @@ struct DeepSeekProvider: Provider {
     let name = "DeepSeek"
     let baseURL = "https://api.deepseek.com"
     let balanceURL: String? = "/user/balance"
+    let preferredDefaultModel: String? = "deepseek-v4-flash"
     let rpmLimit: Int? = 200
     let developerPlatformURL = "https://platform.deepseek.com/usage"
 
