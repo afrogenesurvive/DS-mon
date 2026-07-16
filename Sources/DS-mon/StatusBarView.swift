@@ -169,7 +169,13 @@ class StatusBarView: NSView {
         // ── 菜单栏文字 ──
         let textModes = (UserDefaults.standard.string(forKey: Strings.Keys.menuBarTextDisplay) ?? "balance")
             .components(separatedBy: ",").filter { !$0.isEmpty }
-        let baseColor: NSColor = isDarkMode ? NSColor.white : NSColor.black
+        let baseColor: NSColor = {
+            if let data = UserDefaults.standard.data(forKey: Strings.Keys.menuBarColor),
+               let color = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: data) {
+                return color
+            }
+            return isDarkMode ? NSColor.white : NSColor.black
+        }()
         let font = NSFont.menuFont(ofSize: 0)
 
         for (i, mode) in textModes.enumerated() {
@@ -193,7 +199,7 @@ class StatusBarView: NSView {
                 text = hitRateText.isEmpty ? "0%" : hitRateText
                 color = baseColor
             case "cost":
-                text = costText.isEmpty ? "¥0" : costText
+                text = costText.isEmpty ? "\(Strings.currencySymbol)0" : costText
                 color = baseColor
             default:
                 text = ""

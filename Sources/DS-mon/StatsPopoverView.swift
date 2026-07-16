@@ -112,12 +112,12 @@ struct StatsPopoverView: View {
                     .foregroundColor(.secondary)
                 Spacer()
                 if !stats.providerIsFree {
-                    Text("¥")
+                    Text(Strings.currencySymbol)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.secondary)
                         .alignmentGuide(.firstTextBaseline) { d in d[.firstTextBaseline] }
                 }
-                Text(stats.balanceText.replacingOccurrences(of: "¥", with: ""))
+                Text(stats.balanceText.replacingOccurrences(of: Strings.currencySymbol, with: ""))
                     .font(.system(size: 18, weight: .bold))
                     .monospacedDigit()
                     .foregroundColor(balanceColor)
@@ -155,7 +155,7 @@ struct StatsPopoverView: View {
 
     private var infoSection: some View {
         VStack(spacing: 4) {
-            infoRow(icon: "bell.fill", iconColor: .orange, label: Strings.thresholdLabel, value: String(format: "¥%.0f", stats.threshold), valueColor: .orange)
+            infoRow(icon: "bell.fill", iconColor: .orange, label: Strings.thresholdLabel, value: "\(Strings.currencySymbol)\(String(format: "%.0f", stats.threshold))", valueColor: .orange)
             infoRow(icon: "star.fill", iconColor: .yellow, label: Strings.defaultModelLabel2, value: stats.defaultModelText)
             infoRow(icon: stats.isAvailable ? "checkmark.circle.fill" : "exclamationmark.circle.fill",
                     iconColor: stats.isAvailable ? .green : .red,

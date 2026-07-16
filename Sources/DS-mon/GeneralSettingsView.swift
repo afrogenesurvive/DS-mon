@@ -5,6 +5,24 @@ struct GeneralSettingsView: View {
     @AppStorage(Strings.Keys.showIndicator) var showIndicator: Bool = true
     @AppStorage(Strings.Keys.menuBarTextDisplay) var menuBarTextDisplay: String = "balance"
     @AppStorage(Strings.Keys.appLanguage) var appLanguage: String = "auto"
+    @AppStorage(Strings.Keys.currencySymbol) var currencySymbol: String = "¥"
+
+    @State private var menuBarColor: Color = Color(nsColor: .labelColor)
+
+    private func loadSavedColor() -> Color {
+        if let data = UserDefaults.standard.data(forKey: Strings.Keys.menuBarColor),
+           let color = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: data) {
+            return Color(nsColor: color)
+        }
+        return Color(nsColor: .labelColor) // auto
+    }
+
+    private func saveColor(_ color: Color) {
+        if let data = try? NSKeyedArchiver.archivedData(withRootObject: NSColor(color), requiringSecureCoding: false) {
+            UserDefaults.standard.set(data, forKey: Strings.Keys.menuBarColor)
+        }
+        NotificationCenter.default.post(name: .menuBarColorDidChange, object: nil)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -95,6 +113,81 @@ struct GeneralSettingsView: View {
 
             Divider()
 
+            Label(Strings.menuBarColorLabel, systemImage: "paintpalette.fill")
+                .font(.body).bold()
+
+            HStack(spacing: 8) {
+                ColorPicker(Strings.menuBarColorLabel, selection: Binding(
+                    get: { menuBarColor },
+                    set: { newColor in
+                        menuBarColor = newColor
+                        saveColor(newColor)
+                    }
+                ))
+                .labelsHidden()
+
+                Button(Strings.menuBarColorAuto) {
+                    menuBarColor = Color(nsColor: .labelColor)
+                    UserDefaults.standard.removeObject(forKey: Strings.Keys.menuBarColor)
+                    NotificationCenter.default.post(name: .menuBarColorDidChange, object: nil)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(menuBarColor == Color(nsColor: .labelColor) ? Color.accentColor : .gray.opacity(0.2))
+
+                Button(Strings.menuBarColorWhite) {
+                    let c = Color.white
+                    menuBarColor = c
+                    saveColor(c)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(menuBarColor == Color.white ? Color.accentColor : .gray.opacity(0.2))
+
+                Button(Strings.menuBarColorBlack) {
+                    let c = Color.black
+                    menuBarColor = c
+                    saveColor(c)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(menuBarColor == Color.black ? Color.accentColor : .gray.opacity(0.2))
+
+                Spacer()
+            }
+
+            Divider()
+
+            Label(Strings.currencyLabel, systemImage: "dollarsign.circle.fill")
+                .font(.body).bold()
+
+            HStack(spacing: 12) {
+                Button(action: {
+                    currencySymbol = "¥"
+                    NotificationCenter.default.post(name: .currencyDidChange, object: nil)
+                }) {
+                    Text("¥ CNY")
+                        .font(.callout)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(currencySymbol == "¥" ? Color.accentColor : .gray.opacity(0.2))
+
+                Button(action: {
+                    currencySymbol = "$"
+                    NotificationCenter.default.post(name: .currencyDidChange, object: nil)
+                }) {
+                    Text("$ USD")
+                        .font(.callout)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(currencySymbol == "$" ? Color.accentColor : .gray.opacity(0.2))
+
+                Spacer()
+            }
+
+            Divider()
+
             Label(Strings.languageLabel, systemImage: "globe")
                 .font(.body).bold()
 
@@ -111,5 +204,8 @@ struct GeneralSettingsView: View {
             Spacer()
         }
         .padding(.horizontal, 24)
+        .onAppear {
+            menuBarColor = loadSavedColor()
+        }
     }
 }

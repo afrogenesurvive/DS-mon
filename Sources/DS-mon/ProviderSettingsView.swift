@@ -83,7 +83,7 @@ struct ThresholdSectionView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 4) {
-                    Text("¥").foregroundColor(.secondary)
+                    Text(Strings.currencySymbol).foregroundColor(.secondary)
                     TextField("", value: $thresholdValue, format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
@@ -103,7 +103,7 @@ struct ThresholdSectionView: View {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 4) {
-                        Text("¥").foregroundColor(.secondary)
+                        Text(Strings.currencySymbol).foregroundColor(.secondary)
                         TextField("", value: $maxBalanceValue, format: .number)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 80)

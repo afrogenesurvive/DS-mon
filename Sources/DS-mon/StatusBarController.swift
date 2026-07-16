@@ -34,6 +34,8 @@ class StatusBarController: NSObject, NSWindowDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(menuIconChanged), name: .showMenuIconDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(indicatorChanged), name: .showIndicatorDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(menuBarTextDisplayChanged), name: .menuBarTextDisplayDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(menuBarColorChanged), name: .menuBarColorDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(currencyChanged), name: .currencyDidChange, object: nil)
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: AppConfig.popoverWidth, height: AppConfig.popoverHeight),
                               styleMask: [.borderless, .fullSizeContentView],
@@ -183,9 +185,9 @@ class StatusBarController: NSObject, NSWindowDelegate {
             for (i, mode) in textModes.enumerated() {
                 if i > 0 { w += (" | " as NSString).size(withAttributes: [.font: font]).width }
                 let t: String = switch mode {
-                case "balance": balanceAmount.isEmpty ? "¥0" : balanceAmount
+                case "balance": balanceAmount.isEmpty ? "\(Strings.currencySymbol)0" : balanceAmount
                 case "hitRate": hitRateText.isEmpty ? "0%" : hitRateText
-                case "cost": costText.isEmpty ? "¥0" : costText
+                case "cost": costText.isEmpty ? "\(Strings.currencySymbol)0" : costText
                 default: ""
                 }
                 w += (t as NSString).size(withAttributes: [.font: font]).width
@@ -243,5 +245,13 @@ class StatusBarController: NSObject, NSWindowDelegate {
         updateLabel()
     }
 
+    @objc private func menuBarColorChanged() {
+        statusView?.needsDisplay = true
+    }
+
+    @objc private func currencyChanged() {
+        refreshCacheHitRate()
+        updateLabel()
+    }
 
 }

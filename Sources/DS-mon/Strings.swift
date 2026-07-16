@@ -6,6 +6,8 @@ extension Notification.Name {
     static let usageRecorded = Notification.Name("usageRecorded")
     static let showIndicatorDidChange = Notification.Name("showIndicatorDidChange")
     static let menuBarTextDisplayDidChange = Notification.Name("menuBarTextDisplayDidChange")
+    static let menuBarColorDidChange = Notification.Name("menuBarColorDidChange")
+    static let currencyDidChange = Notification.Name("currencyDidChange")
     static let providerChanged = Notification.Name("providerChanged")
 }
 
@@ -49,6 +51,8 @@ enum Strings {
         static let syncTargetAddress = "sync_target_address"
         static let syncInterval = "sync_interval"
         static let defaultProviderId = "default_provider_id"
+        static let menuBarColor = "menu_bar_color"
+        static let currencySymbol = "currency_symbol"
         static func lastModel(for providerId: String) -> String { "last_model_\(providerId)" }
     }
 
@@ -74,6 +78,11 @@ enum Strings {
         return isSysZH ? "跟随系统" : "System"
     }
 
+    // Currency
+    static var currencySymbol: String {
+        UserDefaults.standard.string(forKey: Keys.currencySymbol) ?? "¥"
+    }
+
     // Status bar
 
     // Popover header
@@ -85,8 +94,8 @@ enum Strings {
 
     // Balance section
     static var currentBalance: String { isZH ? "当前余额" : "Balance" }
-    static var grantedPrefix: String { isZH ? "赠送 ¥%.2f" : "Granted ¥%.2f" }
-    static var toppedUpPrefix: String { isZH ? "充值 ¥%.2f" : "Topped Up ¥%.2f" }
+    static var grantedPrefix: String { isZH ? "赠送 \(currencySymbol)%.2f" : "Granted \(currencySymbol)%.2f" }
+    static var toppedUpPrefix: String { isZH ? "充值 \(currencySymbol)%.2f" : "Topped Up \(currencySymbol)%.2f" }
 
     // Info section
     static var thresholdLabel: String { isZH ? "预警线" : "Alert Line" }
@@ -113,7 +122,7 @@ enum Strings {
     static var settingsTabAbout: String { isZH ? "关于" : "About" }
     static var balanceAlert: String { isZH ? "余额预警" : "Balance Alert" }
     static var alertHint: String { isZH ? "余额低于此值时菜单栏红色闪烁" : "Menu bar flashes red when balance drops below" }
-    static var maxBalanceHint: String { isZH ? "菜单栏环形百分比以此为基准，默认 ¥100" : "Ring percentage is relative to this amount, default ¥100" }
+    static var maxBalanceHint: String { isZH ? "菜单栏环形百分比以此为基准，默认 \(currencySymbol)100" : "Ring percentage is relative to this amount, default \(currencySymbol)100" }
     static var apiKeyLabel: String { isZH ? "API Key" : "API Key" }
 
     // DeepSeekStats errors
@@ -142,6 +151,11 @@ enum Strings {
     static var costLabel: String { isZH ? "费用" : "Cost" }
     static var hitRateLabel: String { isZH ? "命中率" : "Hit Rate" }
     static var textDisplayLabel: String { isZH ? "菜单栏文字" : "Menu Bar Text" }
+    static var menuBarColorLabel: String { isZH ? "菜单栏文字颜色" : "Menu Bar Color" }
+    static var menuBarColorAuto: String { isZH ? "自动" : "Auto" }
+    static var menuBarColorWhite: String { isZH ? "白色" : "White" }
+    static var menuBarColorBlack: String { isZH ? "黑色" : "Black" }
+    static var currencyLabel: String { isZH ? "货币" : "Currency" }
 
     // Provider
     static var providerTitle: String { isZH ? "提供商" : "Provider" }
@@ -190,21 +204,22 @@ enum Strings {
         return "\(n)"
     }
     static func costShort(_ c: Double) -> String {
+        let sym = currencySymbol
         if c >= 1.0 {
-            return "¥\(String(format: "%.2f", c))"
+            return "\(sym)\(String(format: "%.2f", c))"
         } else if c >= 0.001 {
-            return "¥\(String(format: "%.4f", c))"
+            return "\(sym)\(String(format: "%.4f", c))"
         } else {
-            return "¥\(String(format: "%.6f", c))"
+            return "\(sym)\(String(format: "%.6f", c))"
         }
     }
     static func latencyMsFormat(_ ms: Double) -> String {
         isZH ? "\(Int(ms))ms" : "\(Int(ms))ms"
     }
 
-    static var balanceText: String { isZH ? "¥%.2f" : "¥%.2f" }
-    static var grantedText: String { isZH ? "赠送余额 ¥%.2f" : "Granted ¥%.2f" }
-    static var toppedUpText: String { isZH ? "充值余额 ¥%.2f" : "Topped Up ¥%.2f" }
+    static var balanceText: String { "\(currencySymbol)%.2f" }
+    static var grantedText: String { isZH ? "赠送余额 \(currencySymbol)%.2f" : "Granted \(currencySymbol)%.2f" }
+    static var toppedUpText: String { isZH ? "充值余额 \(currencySymbol)%.2f" : "Topped Up \(currencySymbol)%.2f" }
 
     // Chart
     static var chartMiss: String { isZH ? "Miss" : "Miss" }
