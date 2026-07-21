@@ -41,3 +41,6 @@ codex-relay-src/target/
 
 # --- Homebrew tap (tracked in separate repo) ---
 homebrew-tap/
+
+# --- Afrogene (test app usage tracking plans) ---
+afrogene/

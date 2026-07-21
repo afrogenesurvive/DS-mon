@@ -26,11 +26,11 @@ struct StatsPopoverView: View {
             actionBar
         }
         .padding(.vertical, 12)
-        .onAppear { loadUsage() }
+        .onAppear { loadUsage(); loadPerIPUsage() }
         .onReceive(NotificationCenter.default.publisher(for: .usageRecorded)) { _ in
-            loadUsage()
+            loadUsage(); loadPerIPUsage()
         }
-        .onChange(of: stats.providerID) { _, _ in loadUsage() }
+        .onChange(of: stats.providerID) { _, _ in loadUsage(); loadPerIPUsage() }
     }
 
     private var headerSection: some View {
@@ -193,6 +193,7 @@ struct StatsPopoverView: View {
     @State private var usageData: AggregatedUsage?
     @State private var chartData: [TokenBar] = []
     @State private var showChart = true
+    @State private var perIPUsage: [(sourceIP: String, requestCount: Int, totalTokens: Int, totalCost: Double)] = []
 
     private var usageSection: some View {
         VStack(spacing: 8) {
@@ -239,6 +240,35 @@ struct StatsPopoverView: View {
                         RequestListView(frameWidth: 262)
                     }
                 }
+
+            if !perIPUsage.isEmpty {
+                Divider().padding(.vertical, 2)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Usage by Source")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.secondary)
+
+                    ForEach(perIPUsage, id: \.sourceIP) { item in
+                        HStack(spacing: 6) {
+                            Text(item.sourceIP)
+                                .font(.system(size: 8))
+                                .frame(width: 80, alignment: .leading)
+                                .lineLimit(1)
+                            Text("\(item.requestCount) req")
+                                .font(.system(size: 8))
+                                .frame(width: 40, alignment: .trailing)
+                            Text("\(item.totalTokens / 1000)K tok")
+                                .font(.system(size: 8))
+                                .frame(width: 50, alignment: .trailing)
+                            Text(String(format: "¥%.2f", item.totalCost))
+                                .font(.system(size: 8, weight: .medium))
+                                .frame(width: 50, alignment: .trailing)
+                        }
+                        .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
             } else {
                 HStack {
                     Spacer()
@@ -274,6 +304,12 @@ struct StatsPopoverView: View {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         return u.period == f.string(from: Date())
+    }
+
+    private func loadPerIPUsage() {
+        Task { @MainActor in
+            perIPUsage = await UsageStore.shared.aggregateBySourceIP()
+        }
     }
 
     private func loadUsage() {

@@ -210,8 +210,39 @@ final class SyncManager: @unchecked Sendable {
                 }
 
             case ("POST", "/sync/push"):
-                if let records = try? decoder.decode([UsageRecord].self, from: body) {
-                    syncLog("[Sync] Server: insert \(records.count) records")
+                // Extract connecting client IP
+                let clientIP: String = {
+                    switch peer {
+                    case .hostPort(let host, _):
+                        switch host {
+                        case .ipv4(let addr): return "\(addr)"
+                        case .ipv6(let addr): return "\(addr)"
+                        default: return ""
+                        }
+                    default: return ""
+                    }
+                }()
+                if var records = try? decoder.decode([UsageRecord].self, from: body) {
+                    // Stamp sourceIP if not already set by the client
+                    for i in records.indices where records[i].sourceIP.isEmpty {
+                        records[i] = UsageRecord(
+                            uuid: records[i].uuid,
+                            timestamp: records[i].timestamp,
+                            providerId: records[i].providerId,
+                            model: records[i].model,
+                            endpoint: records[i].endpoint,
+                            promptTokens: records[i].promptTokens,
+                            completionTokens: records[i].completionTokens,
+                            totalTokens: records[i].totalTokens,
+                            cachedTokens: records[i].cachedTokens,
+                            reasoningTokens: records[i].reasoningTokens,
+                            latencyMs: records[i].latencyMs,
+                            statusCode: records[i].statusCode,
+                            userAgent: records[i].userAgent,
+                            sourceIP: clientIP
+                        )
+                    }
+                    syncLog("[Sync] Server: insert \(records.count) records from \(clientIP)")
                     await UsageStore.shared.insertRecords(records)
                     sendHTTP(connection, 200, Data("{\"ok\":true}".utf8), "application/json")
                 } else {
