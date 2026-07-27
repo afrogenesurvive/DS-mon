@@ -92,7 +92,8 @@ struct UsageLogger: @unchecked Sendable {
             reasoningTokens: details?["reasoning_tokens"] as? Int ?? 0,
             latencyMs: latencyMs,
             statusCode: 200,
-            userAgent: userAgent
+            userAgent: userAgent,
+            sourceIP: ""
         )
         insertAndNotify(record)
     }
@@ -124,7 +125,8 @@ struct UsageLogger: @unchecked Sendable {
             reasoningTokens: details?["reasoning_tokens"] as? Int ?? 0,
             latencyMs: latencyMs,
             statusCode: statusCode,
-            userAgent: userAgent
+            userAgent: userAgent,
+            sourceIP: ""
         )
         insertAndNotify(record)
     }
