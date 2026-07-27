@@ -41,6 +41,7 @@ enum GitHubError: LocalizedError {
     case invalidToken
     case rateLimited
     case notFound
+    case freePlan
     case networkError(String)
     case parseFailed
 
@@ -50,6 +51,7 @@ enum GitHubError: LocalizedError {
         case .invalidToken: return isZH ? "Token 无效或权限不足" : "Invalid token or insufficient permissions"
         case .rateLimited: return isZH ? "API 限流，请稍后重试" : "API rate limited, retry later"
         case .notFound: return isZH ? "用户或组织不存在" : "User or organization not found"
+        case .freePlan: return isZH ? "GitHub Actions 用量 API 需要付费计划" : "Billing API requires a paid GitHub plan"
         case .networkError(let msg): return isZH ? "网络错误: \(msg)" : "Network error: \(msg)"
         case .parseFailed: return isZH ? "解析响应失败" : "Failed to parse response"
         }
@@ -171,6 +173,11 @@ final class GitHubUsageTracker {
             )
             errorMessage = nil
 
+        case let (.failure(.freePlan), _), let (_, .failure(.freePlan)):
+            // Free plan — billing API not available, use defaults
+            usage = .empty
+            errorMessage = nil
+
         case let (.failure(error), _):
             errorMessage = error.localizedDescription
         case let (_, .failure(error)):
@@ -203,7 +210,8 @@ final class GitHubUsageTracker {
             case 401, 403:
                 return .failure(.invalidToken)
             case 404:
-                return .failure(.notFound)
+                // User exists but billing API returns 404 for free accounts
+                return .failure(.freePlan)
             case 429:
                 return .failure(.rateLimited)
             default:

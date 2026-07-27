@@ -1,5 +1,11 @@
 # Changelog
 
+## [main-4] — 2026-07-27
+
+### Fixed
+
+- Fixed GitHub Actions tracking showing "User or organization not found" error on Free plan accounts. The billing API returns 404 for free accounts; now handled gracefully by falling back to default free-tier values (2000 min, 500 MB storage) with no error shown.
+
 ## [main-3] — 2026-07-26
 
 ### Fixed
