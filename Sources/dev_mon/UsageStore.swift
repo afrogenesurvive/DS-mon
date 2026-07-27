@@ -150,6 +150,16 @@ actor UsageStore {
         try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
         let path = appDir.appendingPathComponent("usage.db").path
 
+        // 迁移: 从旧路径 DS-mon 复制数据库（如果存在且新路径不存在）
+        let oldDir = dir.appendingPathComponent("DS-mon")
+        let oldPath = oldDir.appendingPathComponent("usage.db").path
+        let newExists = FileManager.default.fileExists(atPath: path)
+        let oldExists = FileManager.default.fileExists(atPath: oldPath)
+        if oldExists && !newExists {
+            try? FileManager.default.copyItem(atPath: oldPath, toPath: path)
+            print("[UsageStore] Migrated database from \(oldPath) to \(path)")
+        }
+
         var handle: OpaquePointer?
         guard sqlite3_open(path, &handle) == SQLITE_OK else {
             print("[UsageStore] Failed to open database: \(path)")

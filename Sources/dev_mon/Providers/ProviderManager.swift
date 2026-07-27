@@ -106,11 +106,26 @@ final class ProviderManager {
                 encryptedKeys[provider.id] = data
             }
         }
-        // 迁移旧 key
+        // 迁移旧 key（同一 domain 内旧 key 名）
         if encryptedKeys.isEmpty {
             let oldKey = "encrypted_api_key_deepseek"
             if let data = UserDefaults.standard.data(forKey: oldKey) {
                 encryptedKeys["deepseek"] = data
+            }
+        }
+        // 迁移: 从旧 bundle ID (com.dsmon.app) 的 UserDefaults 读取
+        if encryptedKeys.isEmpty {
+            let oldPrefsPath = "\(NSHomeDirectory())/Library/Preferences/com.dsmon.app.plist"
+            if let oldDict = NSDictionary(contentsOfFile: oldPrefsPath) as? [String: Any] {
+                for provider in providers {
+                    let storeKey = Self.apiKeyPrefix + provider.id
+                    if let data = oldDict[storeKey] as? Data {
+                        encryptedKeys[provider.id] = data
+                        // 同时写入新 domain，避免下次再读旧文件
+                        UserDefaults.standard.set(data, forKey: storeKey)
+                        print("[ProviderManager] Migrated encrypted key for \(provider.id) from old bundle")
+                    }
+                }
             }
         }
     }

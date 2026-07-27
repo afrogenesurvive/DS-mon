@@ -22,7 +22,7 @@ enum AppConfig {
 
     // 🪟 UI
     static let popoverWidth: CGFloat = 290
-    static let popoverHeight: CGFloat = 500
+    static let popoverHeight: CGFloat = 540
     static let settingsWidth: CGFloat = 520
     static let settingsHeight: CGFloat = 480
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## [main-3] — 2026-07-26
+
+### Fixed
+
+- Fixed action bar (Settings/Quit) being pushed off-screen by restructuring popover into tab-based UI (DeepSeek / GitHub / AWS tabs).
+- Fixed missing API keys after bundle ID rename by adding SecureStore key migration (`~/.ds-mon/` → `~/.dev-mon/`) with fallback decryption, and UserDefaults migration from old `com.dsmon.app` domain to new `com.devmon.app` domain.
+
+### Changed
+
+- Popover now uses tab bar navigation instead of stacked sections.
+- Increased popover height from 500 → 540 to accommodate tabs.
+
 ## [main-2] — 2026-07-26
 
 ### Changed

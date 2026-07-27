@@ -19,6 +19,15 @@ enum SecureStore {
     }
 
     private static func getOrCreateKey() -> SymmetricKey {
+        // 迁移: 始终优先使用旧加密密钥（如有），确保旧数据可解密
+        let oldKeyFile = "\(NSHomeDirectory())/.ds-mon/.enc_key"
+        if FileManager.default.fileExists(atPath: oldKeyFile) {
+            if let oldData = try? Data(contentsOf: URL(fileURLWithPath: oldKeyFile)),
+               oldData.count == 32 {
+                try? saveKey(SymmetricKey(data: oldData))
+                return SymmetricKey(data: oldData)
+            }
+        }
         if let key = loadKey() { return key }
         let newKey = SymmetricKey(size: .bits256)
         try? saveKey(newKey)
@@ -35,7 +44,17 @@ enum SecureStore {
     static func decrypt(_ data: Data) -> String? {
         let key = getOrCreateKey()
         guard let sealed = try? AES.GCM.SealedBox(combined: data),
-              let decoded = try? AES.GCM.open(sealed, using: key) else { return nil }
+              let decoded = try? AES.GCM.open(sealed, using: key) else {
+            // Fallback: try old key file location
+            let oldKeyFile = "\(NSHomeDirectory())/.ds-mon/.enc_key"
+            if let oldData = try? Data(contentsOf: URL(fileURLWithPath: oldKeyFile)),
+               oldData.count == 32,
+               let oldSealed = try? AES.GCM.SealedBox(combined: data),
+               let oldDecoded = try? AES.GCM.open(oldSealed, using: SymmetricKey(data: oldData)) {
+                return String(data: oldDecoded, encoding: .utf8)
+            }
+            return nil
+        }
         return String(data: decoded, encoding: .utf8)
     }
 
