@@ -3,7 +3,7 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: write
@@ -17,7 +17,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
 
       - name: Package .app (build.sh)
         run: bash scripts/build.sh "${GITHUB_REF_NAME#v}"

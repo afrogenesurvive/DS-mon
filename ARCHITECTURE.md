@@ -363,14 +363,14 @@ DevMonApp.swift
 
 ## 5. 关键设计决策
 
-| 决策 | 方案 | 理由 |
-|------|------|------|
-| 加密存储 | AES-GCM (CryptoKit) + 本地 256-bit 密钥 | 替代已废弃的 Keychain，更可控 |
-| 用量存储 | SQLite WAL 模式 | 轻量、查询灵活、支持复杂聚合 |
-| 代理实现 | NWListener (Network.framework) | 原生 Swift，低开销，支持 TCP |
-| 协议转换 | 独立 Rust 二进制 (codex-relay) 子进程 | 隔离复杂性，崩溃不影响主进程 |
-| UI 刷新 | @Observable + 0.1s 定时器轮询 | 避免 withObservationTracking 在状态栏的复杂回调 |
-| 余额解析 | 策略模式 (DeepSeek/OpenRouter/Moonshot) | 不同提供商余额 API 格式各异 |
-| 模型定价 | 前缀匹配 + 自定义覆盖 | 支持模型家族（如 deepseek-v4-*）统一定价 |
-| 国际化 | 枚举计算属性 (Strings.isZH ? ... : ...) | 无需 .strings 文件，编译期检查 |
-| 子进程管理 | Process + terminationHandler | 原生 macOS 进程管理，支持崩溃检测 |
+| 决策       | 方案                                    | 理由                                            |
+| ---------- | --------------------------------------- | ----------------------------------------------- |
+| 加密存储   | AES-GCM (CryptoKit) + 本地 256-bit 密钥 | 替代已废弃的 Keychain，更可控                   |
+| 用量存储   | SQLite WAL 模式                         | 轻量、查询灵活、支持复杂聚合                    |
+| 代理实现   | NWListener (Network.framework)          | 原生 Swift，低开销，支持 TCP                    |
+| 协议转换   | 独立 Rust 二进制 (codex-relay) 子进程   | 隔离复杂性，崩溃不影响主进程                    |
+| UI 刷新    | @Observable + 0.1s 定时器轮询           | 避免 withObservationTracking 在状态栏的复杂回调 |
+| 余额解析   | 策略模式 (DeepSeek/OpenRouter/Moonshot) | 不同提供商余额 API 格式各异                     |
+| 模型定价   | 前缀匹配 + 自定义覆盖                   | 支持模型家族（如 deepseek-v4-\*）统一定价       |
+| 国际化     | 枚举计算属性 (Strings.isZH ? ... : ...) | 无需 .strings 文件，编译期检查                  |
+| 子进程管理 | Process + terminationHandler            | 原生 macOS 进程管理，支持崩溃检测               |
