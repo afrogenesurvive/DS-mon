@@ -2,13 +2,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "DS-mon",
+    name: "dev_mon",
     platforms: [
         .macOS(.v15)
     ],
     targets: [
         .executableTarget(
-            name: "DS-mon",
+            name: "dev_mon",
             resources: [
                 .process("Assets.xcassets"),
                 .process("dslogo.png"),

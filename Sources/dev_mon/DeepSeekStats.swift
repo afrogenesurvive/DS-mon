@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// DS-mon 数据模型
+/// dev_mon 数据模型
 @MainActor
 @Observable
 final class DeepSeekStats {
@@ -22,6 +22,10 @@ final class DeepSeekStats {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
     private(set) var blinkOn = false  // 用于闪烁动画
+
+    // ☁️ Cloud tracking
+    private(set) var gitHub = GitHubUsageTracker()
+    private(set) var aws = AWSUsageTracker()
 
     // 活跃提供商信息
     private(set) var providerName: String = "DeepSeek"

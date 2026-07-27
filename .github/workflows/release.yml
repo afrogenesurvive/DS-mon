@@ -23,18 +23,18 @@ jobs:
         run: bash scripts/build.sh "${GITHUB_REF_NAME#v}"
 
       - name: Code sign
-        run: codesign --force --sign - build/DS-mon.app
+        run: codesign --force --sign - build/dev_mon.app
 
       - name: Package as .zip
         run: |
-          rm -f build/DS-mon-*.zip
+          rm -f build/dev_mon-*.zip
           cd build
-          ditto -c -k --keepParent DS-mon.app "DS-mon-${GITHUB_REF_NAME}.zip"
+          ditto -c -k --keepParent dev_mon.app "dev_mon-${GITHUB_REF_NAME}.zip"
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
-          files: build/DS-mon-*.zip
+          files: build/dev_mon-*.zip
 
       - name: Update Homebrew tap
         env:
@@ -43,8 +43,8 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           git clone "https://x-access-token:${GH_PAT}@github.com/Cherno76/homebrew-tap.git" /tmp/homebrew-tap
           cd /tmp/homebrew-tap
-          sed -i '' "s/version \"[0-9.]*\"/version \"${VERSION}\"/" Casks/ds-mon.rb
+          sed -i '' "s/version \"[0-9.]*\"/version \"${VERSION}\"/" Casks/dev_mon.rb
           git add .
-          git -c user.name='DS-mon CI' -c user.email='ds-mon-ci@github.com' \
-            commit -m "chore: bump ds-mon to v${VERSION}"
+          git -c user.name='dev_mon CI' -c user.email='dev-mon-ci@github.com' \
+            commit -m "chore: bump dev_mon to v${VERSION}"
           git push

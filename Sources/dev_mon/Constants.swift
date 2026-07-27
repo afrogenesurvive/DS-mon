@@ -30,6 +30,10 @@ enum AppConfig {
     static let maxHTTPBodySize: Int = 20_971_520  // 20MB (supports multimodal base64 images)
     static let sseStreamChunkSize: Int = 4096
 
+    // ☁️ Cloud tracking
+    static let cloudRefreshInterval: TimeInterval = 600  // 10 min
+    static let cloudRequestTimeout: TimeInterval = 10
+
     // 🧹 进程管理
     static let portReleaseDelay: useconds_t = 300_000  // 300ms
     static let portReleaseWait: useconds_t = 500_000   // 500ms
@@ -37,7 +41,7 @@ enum AppConfig {
     // 📝 日志
     static let cacheDir: URL = {
         URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent("Library/Caches/com.dsmon.app")
+            .appendingPathComponent("Library/Caches/com.devmon.app")
     }()
     static let proxyLogURL = cacheDir.appendingPathComponent("proxy.log")
     static let syncLogURL = cacheDir.appendingPathComponent("sync.log")

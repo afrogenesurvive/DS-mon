@@ -22,6 +22,7 @@ struct StatsPopoverView: View {
             Divider().padding(.horizontal, 14)
             usageSection
             Spacer()
+            cloudSections
             Divider().padding(.horizontal, 14)
             actionBar
         }
@@ -35,7 +36,7 @@ struct StatsPopoverView: View {
 
     private var headerSection: some View {
         HStack(spacing: 6) {
-            Text("DS-mon")
+            Text("dev_mon")
                 .font(.system(size: 13, weight: .semibold))
             Text("v\(versionString)")
                 .font(.system(size: 10))
@@ -328,6 +329,190 @@ struct StatsPopoverView: View {
                 chartData = await store.queryWeeklyBreakdown(providerId: pid)
             }
         }
+    }
+
+    // MARK: - ☁️ Cloud Sections
+
+    @State private var showGitHubSection = true
+    @State private var showAWSSection = true
+
+    @ViewBuilder
+    private var cloudSections: some View {
+        if stats.gitHub.isEnabled && showGitHubSection {
+            Divider().padding(.horizontal, 14)
+            gitHubSectionView
+        }
+        if stats.aws.isEnabled && showAWSSection {
+            Divider().padding(.horizontal, 14)
+            awsSectionView
+        }
+    }
+
+    private var gitHubSectionView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(Strings.githubSection)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                Spacer()
+                if stats.gitHub.isLoading {
+                    ProgressView().scaleEffect(0.6)
+                }
+                Text(cloudStatusText(g: stats.gitHub, a: nil))
+                    .font(.system(size: 8))
+                    .foregroundColor(cloudStatusColor(g: stats.gitHub, a: nil))
+            }
+
+            if let err = stats.gitHub.errorMessage {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill").font(.caption2).foregroundColor(.orange)
+                    Text(err).font(.system(size: 8)).foregroundColor(.orange)
+                }
+            }
+
+            if !stats.gitHub.isLoading && stats.gitHub.errorMessage == nil {
+                let gh = stats.gitHub.usage
+                HStack(spacing: 6) {
+                    Image(systemName: "play.display").font(.system(size: 8)).foregroundColor(.green)
+                        .frame(width: 12)
+                    Text(Strings.githubComputeLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                    ProgressBar(value: gh.minutesPercentage / 100, color: gh.isMinutesWarning ? .orange : .green)
+                        .frame(width: 60, height: 6)
+                    Text(String(format: "%d / %d", gh.minutesUsed, gh.includedMinutes))
+                        .font(.system(size: 8).monospacedDigit())
+                }
+
+                HStack(spacing: 6) {
+                    Image(systemName: "externaldrive").font(.system(size: 8)).foregroundColor(.blue)
+                        .frame(width: 12)
+                    Text(Strings.githubStorageLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                    ProgressBar(value: gh.storagePercentage / 100, color: gh.isStorageWarning ? .orange : .blue)
+                        .frame(width: 60, height: 6)
+                    Text(String(format: "%.0f / %.0f", gh.storageMB, gh.storageLimitMB))
+                        .font(.system(size: 8).monospacedDigit())
+                }
+
+                HStack(spacing: 6) {
+                    Image(systemName: "calendar").font(.system(size: 8)).foregroundColor(.teal).frame(width: 12)
+                    Text(String(format: Strings.githubDaysLeft, gh.billingCycleDaysLeft))
+                        .font(.system(size: 8)).foregroundColor(.secondary)
+                    Spacer()
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+    }
+
+    private var awsSectionView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(Strings.awsSection)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                Spacer()
+                if stats.aws.isLoading {
+                    ProgressView().scaleEffect(0.6)
+                }
+                Text(cloudStatusText(g: nil, a: stats.aws))
+                    .font(.system(size: 8))
+                    .foregroundColor(cloudStatusColor(g: nil, a: stats.aws))
+            }
+
+            if let err = stats.aws.errorMessage {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill").font(.caption2).foregroundColor(.orange)
+                    Text(err).font(.system(size: 8)).foregroundColor(.orange)
+                }
+            }
+
+            if !stats.aws.isLoading && stats.aws.errorMessage == nil {
+                let aw = stats.aws.status
+
+                HStack(spacing: 6) {
+                    Image(systemName: "clock").font(.system(size: 8)).foregroundColor(.green).frame(width: 12)
+                    Text(Strings.awsHoursLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                    ProgressBar(value: aw.usagePercentage / 100, color: aw.isWarning ? .orange : .green)
+                        .frame(width: 60, height: 6)
+                    Text(String(format: "%.0f / %.0f", aw.ec2RunningHours, aw.freeTierLimitHours))
+                        .font(.system(size: 8).monospacedDigit())
+                }
+
+                if let forecast = aw.forecastedHours {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chart.line.uptrend.xyaxis").font(.system(size: 8)).foregroundColor(.teal).frame(width: 12)
+                        Text(Strings.awsForecastLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                        Spacer()
+                        Text(String(format: Strings.awsForecastFormat, forecast))
+                            .font(.system(size: 8).monospacedDigit())
+                    }
+                }
+
+                HStack(spacing: 6) {
+                    Image(systemName: "server.rack").font(.system(size: 8)).foregroundColor(.purple).frame(width: 12)
+                    Text(Strings.awsInstancesLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                    Text(String(format: Strings.awsInstancesFormat, aw.instanceCount, aw.eligibleCount, aw.nonEligibleCount))
+                        .font(.system(size: 8).monospacedDigit())
+                }
+
+                if !aw.nonEligibleInstances.isEmpty {
+                    ForEach(aw.nonEligibleInstances, id: \.instanceId) { inst in
+                        HStack(spacing: 16) {
+                            Text(inst.instanceId).font(.system(size: 7)).frame(width: 80, alignment: .leading).lineLimit(1)
+                            Text(inst.instanceType).font(.system(size: 7)).frame(width: 60, alignment: .leading)
+                            Spacer()
+                            Image(systemName: "xmark.circle.fill").font(.system(size: 7)).foregroundColor(.red)
+                            Text(String(format: Strings.awsNoLabel, 30.0))
+                                .font(.system(size: 7)).foregroundColor(.red)
+                        }
+                    }
+                }
+
+                if aw.estimatedOverageCost > 0 {
+                    HStack(spacing: 6) {
+                        Image(systemName: "yensign.circle").font(.system(size: 8)).foregroundColor(.orange).frame(width: 12)
+                        Text(Strings.awsOverageLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                        Spacer()
+                        Text(String(format: "$%.2f", aw.estimatedOverageCost))
+                            .font(.system(size: 8).monospacedDigit()).foregroundColor(.orange)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+    }
+
+    private func cloudStatusText(g: GitHubUsageTracker?, a: AWSUsageTracker?) -> String {
+        if let gh = g {
+            if gh.usage.isWithinFreeTier { return Strings.githubFreeStatus }
+            if gh.usage.isMinutesWarning || gh.usage.isStorageWarning { return Strings.githubWarningStatus }
+            return Strings.githubExceededStatus
+        }
+        if let aw = a {
+            if aw.status.isWithinFreeTier { return Strings.awsFreeStatus }
+            if aw.status.isWarning { return Strings.awsWarningStatus }
+            return Strings.awsExceededStatus
+        }
+        return ""
+    }
+
+    private func cloudStatusColor(g: GitHubUsageTracker?, a: AWSUsageTracker?) -> Color {
+        if let gh = g {
+            if gh.usage.isWithinFreeTier { return .green }
+            if gh.usage.isMinutesWarning || gh.usage.isStorageWarning { return .orange }
+            return .red
+        }
+        if let aw = a {
+            if aw.status.isWithinFreeTier { return .green }
+            if aw.status.isWarning { return .orange }
+            return .red
+        }
+        return .secondary
     }
 
     private func pillTab(_ label: String, tag: Int) -> some View {

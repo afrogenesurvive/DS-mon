@@ -3,7 +3,7 @@ import AppKit
 import Charts
 
 @main
-struct DSmonApp: App {
+struct DevMonApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {

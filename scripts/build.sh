@@ -2,7 +2,7 @@
 set -e
 
 # ==============================
-# DS-mon 构建 & 打包脚本
+# dev_mon 构建 & 打包脚本
 # 用法: ./scripts/build.sh [版本号]
 # ==============================
 
@@ -18,7 +18,7 @@ fi
 BUILD=$(git -C "$(dirname "$0")/.." rev-list --count HEAD 2>/dev/null || echo "0")
 BUILD_VERSION="${VERSION}.${BUILD}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP="$ROOT/build/DS-mon.app"
+APP="$ROOT/build/dev_mon.app"
 
 echo "==> 构建 release..."
 cd "$ROOT"
@@ -29,13 +29,13 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents"/{MacOS,Resources}
 
 # 二进制
-cp .build/release/DS-mon "$APP/Contents/MacOS/"
+cp .build/release/dev_mon "$APP/Contents/MacOS/"
 
 # 资源
-cp Sources/DS-mon/dslogo.png "$APP/Contents/Resources/"
-cp Sources/DS-mon/dslogo1.png "$APP/Contents/Resources/"
-cp Sources/DS-mon/menu_icon.png "$APP/Contents/Resources/"
-cp -r Sources/DS-mon/Assets.xcassets "$APP/Contents/Resources/"
+cp Sources/dev_mon/dslogo.png "$APP/Contents/Resources/"
+cp Sources/dev_mon/dslogo1.png "$APP/Contents/Resources/"
+cp Sources/dev_mon/menu_icon.png "$APP/Contents/Resources/"
+cp -r Sources/dev_mon/Assets.xcassets "$APP/Contents/Resources/"
 
 
 # Info.plist
@@ -47,15 +47,15 @@ cat > "$APP/Contents/Info.plist" << PLIST
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
-	<string>DS-mon</string>
+	<string>dev_mon</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.dsmon.app</string>
+	<string>com.devmon.app</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>DS-mon</string>
+		<string>dev_mon</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -68,7 +68,7 @@ cat > "$APP/Contents/Info.plist" << PLIST
 	<true/>
 	<key>LSUIElement</key>
 	<true/>
-	<key>DSMonBuildTimestamp</key>
+		<key>DevMonBuildTimestamp</key>
 	<string>$(date "+%Y-%m-%d %H:%M:%S")</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
@@ -80,7 +80,7 @@ cat > "$APP/Contents/Info.plist" << PLIST
 PLIST
 
 # AppIcon.icns（使用 Python 生成，iconutil 在 macOS 26+ 上已不支持 iconset→icns）
-python3 "$ROOT/scripts/gen_icns.py" Sources/DS-mon/dslogo1.png "$APP/Contents/Resources/AppIcon.icns"
+python3 "$ROOT/scripts/gen_icns.py" Sources/dev_mon/dslogo1.png "$APP/Contents/Resources/AppIcon.icns"
 
 # 刷新缓存
 touch "$APP"

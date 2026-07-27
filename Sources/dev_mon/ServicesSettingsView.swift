@@ -15,6 +15,9 @@ struct ServicesSettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             proxySection
             Divider().padding(.horizontal, 16)
+            GitHubSettingsView(stats: stats)
+            Divider().padding(.horizontal, 16)
+            AWSSettingsView(stats: stats)
             Divider().padding(.horizontal, 16)
             SyncSettingsView(stats: stats)
             Spacer()
@@ -76,6 +79,130 @@ struct ServicesSettingsView: View {
         }
         .padding(20)
         .onAppear { proxyError = ProxyServer.shared.listenerError }
+    }
+}
+
+// MARK: - ☁️ Cloud Settings Views
+
+private struct GitHubSettingsView: View {
+    let stats: DeepSeekStats
+
+    @State private var githubEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.githubEnabled)
+    @State private var githubToken: String = SecureStore.retrieve(key: Strings.Keys.githubToken) ?? ""
+    @State private var githubUsername: String = UserDefaults.standard.string(forKey: Strings.Keys.githubUsername) ?? ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "logo.github")
+                    .foregroundColor(.black)
+                Text(Strings.githubSection)
+                    .font(.body).bold()
+                Spacer()
+            }
+
+            Toggle(isOn: $githubEnabled) {
+                Text(Strings.githubToggle).font(.callout)
+            }
+            .toggleStyle(.switch)
+            .onChange(of: githubEnabled) { _, newVal in
+                UserDefaults.standard.set(newVal, forKey: Strings.Keys.githubEnabled)
+                if newVal { stats.gitHub.startAutoRefresh(); stats.gitHub.refresh() }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(Strings.githubTokenLabel).font(.caption).foregroundColor(.secondary)
+                SecureField("ghp_...", text: $githubToken)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                    .onChange(of: githubToken) { _, newVal in
+                        SecureStore.save(key: Strings.Keys.githubToken, value: newVal)
+                        if githubEnabled { stats.gitHub.refresh() }
+                    }
+                Text(Strings.githubTokenHint).font(.caption2).foregroundColor(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(Strings.githubUserLabel).font(.caption).foregroundColor(.secondary)
+                TextField("username", text: $githubUsername)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: githubUsername) { _, newVal in
+                        UserDefaults.standard.set(newVal, forKey: Strings.Keys.githubUsername)
+                        if githubEnabled { stats.gitHub.refresh() }
+                    }
+            }
+        }
+        .padding(20)
+    }
+}
+
+private struct AWSSettingsView: View {
+    let stats: DeepSeekStats
+
+    @State private var awsEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.awsEnabled)
+    @State private var awsAccessKey: String = SecureStore.retrieve(key: Strings.Keys.awsAccessKey) ?? ""
+    @State private var awsSecretKey: String = SecureStore.retrieve(key: Strings.Keys.awsSecretKey) ?? ""
+    @State private var awsRegion: String = UserDefaults.standard.string(forKey: Strings.Keys.awsRegion) ?? "us-east-1"
+
+    private let regions = ["us-east-1", "us-east-2", "us-west-1", "us-west-2",
+                           "eu-west-1", "eu-central-1", "ap-northeast-1", "ap-southeast-1"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "cloud.fill")
+                    .foregroundColor(.orange)
+                Text(Strings.awsSection)
+                    .font(.body).bold()
+                Spacer()
+            }
+
+            Toggle(isOn: $awsEnabled) {
+                Text(Strings.awsToggle).font(.callout)
+            }
+            .toggleStyle(.switch)
+            .onChange(of: awsEnabled) { _, newVal in
+                UserDefaults.standard.set(newVal, forKey: Strings.Keys.awsEnabled)
+                if newVal { stats.aws.startAutoRefresh(); stats.aws.refresh() }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(Strings.awsAccessKeyLabel).font(.caption).foregroundColor(.secondary)
+                TextField("AKIA...", text: $awsAccessKey)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                    .onChange(of: awsAccessKey) { _, newVal in
+                        SecureStore.save(key: Strings.Keys.awsAccessKey, value: newVal)
+                        if awsEnabled { stats.aws.refresh() }
+                    }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(Strings.awsSecretKeyLabel).font(.caption).foregroundColor(.secondary)
+                SecureField("...", text: $awsSecretKey)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                    .onChange(of: awsSecretKey) { _, newVal in
+                        SecureStore.save(key: Strings.Keys.awsSecretKey, value: newVal)
+                        if awsEnabled { stats.aws.refresh() }
+                    }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(Strings.awsRegionLabel).font(.caption).foregroundColor(.secondary)
+                Picker("", selection: $awsRegion) {
+                    ForEach(regions, id: \.self) { region in
+                        Text(region).tag(region)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onChange(of: awsRegion) { _, newVal in
+                    UserDefaults.standard.set(newVal, forKey: Strings.Keys.awsRegion)
+                    if awsEnabled { stats.aws.refresh() }
+                }
+            }
+        }
+        .padding(20)
     }
 }
 

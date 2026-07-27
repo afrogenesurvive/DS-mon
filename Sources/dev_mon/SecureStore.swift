@@ -2,7 +2,7 @@ import Foundation
 import CryptoKit
 
 enum SecureStore {
-    private static let keyFile = "\(NSHomeDirectory())/.ds-mon/.enc_key"
+    private static let keyFile = "\(NSHomeDirectory())/.dev-mon/.enc_key"
 
     private static func loadKey() -> SymmetricKey? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: keyFile)),
@@ -37,5 +37,22 @@ enum SecureStore {
         guard let sealed = try? AES.GCM.SealedBox(combined: data),
               let decoded = try? AES.GCM.open(sealed, using: key) else { return nil }
         return String(data: decoded, encoding: .utf8)
+    }
+
+    // MARK: - Convenience: Encrypted UserDefaults storage
+
+    /// Encrypt and save a string value to UserDefaults under the given key.
+    static func save(key: String, value: String) {
+        if value.isEmpty {
+            UserDefaults.standard.removeObject(forKey: key)
+        } else if let encrypted = encrypt(value) {
+            UserDefaults.standard.set(encrypted, forKey: key)
+        }
+    }
+
+    /// Retrieve and decrypt a string value from UserDefaults by key.
+    static func retrieve(key: String) -> String? {
+        guard let encrypted = UserDefaults.standard.data(forKey: key) else { return nil }
+        return decrypt(encrypted)
     }
 }

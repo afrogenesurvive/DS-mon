@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="Sources/DS-mon/dslogo1.png" width="120" alt="DS-mon Logo" />
+  <img src="Sources/dev_mon/dslogo1.png" width="120" alt="dev_mon Logo" />
 </p>
 
-<h1 align="center">DS-mon</h1>
+<h1 align="center">dev_mon</h1>
 
 <p align="center">
-  macOS 菜单栏 API 余额监控 · 用量统计 · 本地代理转发（多提供商支持）
+  macOS 菜单栏 API 余额监控 · 用量统计 · 本地代理转发 · GitHub Actions &amp; AWS EC2 免费套餐追踪
   <br/>
   <sub>Swift 6 · SwiftUI + AppKit · macOS 15 Sequoia+ · Apple Silicon</sub>
 </p>
@@ -21,7 +21,7 @@
 ## 截图
 
 <p align="center">
-  <img src="screenshot.png" width="400" alt="DS-mon 截图" />
+  <img src="screenshot.png" width="400" alt="dev_mon 截图" />
 </p>
 
 ## 功能
@@ -47,7 +47,7 @@
 
 ### 本地代理 + 用量统计
 
-在本地启动 HTTP 代理，客户端将 API 地址指向本地端口后，DS-mon 自动：
+在本地启动 HTTP 代理，客户端将 API 地址指向本地端口后，dev_mon 自动：
 
 - **透明转发**请求到对应上游 API（DeepSeek / Moonshot）
 - **记录**每次请求的 token 用量（输入 / 缓存命中 / 推理 / 输出）和客户端标识（User-Agent）
@@ -82,24 +82,24 @@
 
 ```bash
 brew tap Cherno76/tap
-brew install --cask ds-mon
+brew install --cask dev-mon
 ```
 
 ### 方式二：下载预编译包
 
-从 [Releases](https://github.com/Cherno76/DS-mon/releases) 下载最新版，解压后：
+从 [Releases](https://github.com/afrogenesurvive/dev_mon/releases) 下载最新版，解压后：
 
-1. 将 `DS-mon.app` 拖入 `应用程序` 文件夹
+1. 将 `dev_mon.app` 拖入 `应用程序` 文件夹
 2. **右键 → 打开**（首次运行需绕过 Gatekeeper）
 3. 点击菜单栏图标 → 设置 → 提供商 → 输入 API Key
 
 ### 方式三：从源码构建
 
 ```bash
-git clone https://github.com/Cherno76/DS-mon.git
-cd DS-mon
+git clone https://github.com/afrogenesurvive/dev_mon.git
+cd dev_mon
 swift build -c release --disable-sandbox
-open .build/release/DS-mon
+open .build/release/dev_mon
 ```
 
 ## 使用方法
@@ -136,7 +136,7 @@ open .build/release/DS-mon
 
 ## opencode 配置
 
-在 `~/.config/opencode/opencode.jsonc` 中配置 provider 的 `baseURL`，将请求转发到 DS-mon 代理（DS-mon 会自动注入 API Key）：
+在 `~/.config/opencode/opencode.jsonc` 中配置 provider 的 `baseURL`，将请求转发到 dev_mon 代理（dev_mon 会自动注入 API Key）：
 
 ```jsonc
 {
@@ -160,8 +160,8 @@ open .build/release/DS-mon
 ## 项目结构
 
 ```
-DS-mon/
-├── Sources/DS-mon/
+dev_mon/
+├── Sources/dev_mon/
 │   ├── DSmonApp.swift                    # @main 入口 + AppDelegate
 │   ├── Constants.swift                   # 应用常量集中管理
 │   ├── Strings.swift                     # 多语言字符串

@@ -53,6 +53,13 @@ enum Strings {
         static let defaultProviderId = "default_provider_id"
         static let menuBarColor = "menu_bar_color"
         static let currencySymbol = "currency_symbol"
+        static let githubToken = "github_token"
+        static let githubUsername = "github_username"
+        static let githubEnabled = "github_enabled"
+        static let awsAccessKey = "aws_access_key"
+        static let awsSecretKey = "aws_secret_key"
+        static let awsRegion = "aws_region"
+        static let awsEnabled = "aws_enabled"
         static func lastModel(for providerId: String) -> String { "last_model_\(providerId)" }
     }
 
@@ -86,7 +93,7 @@ enum Strings {
     // Status bar
 
     // Popover header
-    static var popoverTitle: String { "DS-mon" }
+    static var popoverTitle: String { "dev_mon" }
     static var badgeLoading: String { isZH ? "查询中..." : "Loading..." }
     static var badgeNormal: String { isZH ? "正常" : "NORM" }
     static var badgeError: String { isZH ? "预警" : "WARN" }
@@ -110,7 +117,7 @@ enum Strings {
     static var settings: String { isZH ? "设置" : "Settings" }
     static var quit: String { isZH ? "退出" : "Quit" }
     static var quitTitle: String { isZH ? "确认退出" : "Quit" }
-    static var quitMessage: String { isZH ? "确定要退出 DS-mon 吗？" : "Are you sure you want to quit DS-mon?" }
+    static var quitMessage: String { isZH ? "确定要退出 dev_mon 吗？" : "Are you sure you want to quit dev_mon?" }
     static var quitConfirm: String { isZH ? "退出" : "Quit" }
     static var cancel: String { isZH ? "取消" : "Cancel" }
     static var openConsole: String { isZH ? "打开控制台" : "Open Console" }
@@ -160,7 +167,7 @@ enum Strings {
     // Provider
     static var providerTitle: String { isZH ? "提供商" : "Provider" }
     static var baseURLHelpTitle: String { isZH ? "如何配置 opencode 客户端" : "How to configure opencode"}
-    static var baseURLHelpDesc: String { isZH ? "在 opencode 的配置文件 (opencode.jsonc) 中添加以下 provider 配置，将 API 请求转发到本地 DS-mon 代理。" : "Add the following provider config in your opencode.jsonc to route API requests through the local DS-mon proxy."}
+    static var baseURLHelpDesc: String { isZH ? "在 opencode 的配置文件 (opencode.jsonc) 中添加以下 provider 配置，将 API 请求转发到本地 dev_mon 代理。" : "Add the following provider config in your opencode.jsonc to route API requests through the local dev_mon proxy."}
     static var defaultModelLabel2: String { isZH ? "当前模型" : "Current Model" }
     static func apiKeyHint(_ name: String) -> String {
         isZH ? "\(name) 的 API Key 将用于代理转发" : "API Key for \(name) will be used for proxy forwarding"
@@ -242,4 +249,39 @@ enum Strings {
     static var syncModeHint: String { isZH ? "服务器模式：本机监听端口，供其他设备连接；客户端模式：主动连接服务器拉取/推送数据" : "Server: listen for incoming connections; Client: connect to server to sync data" }
     static var syncPortHint: String { isZH ? "需要确保端口未被占用，且防火墙已放行" : "Ensure port is not in use and firewall allows it" }
     static var syncAddressHint: String { isZH ? "客户端填写目标服务器 IP:端口，如 1.2.3.4:6000" : "Client: target server IP:port, e.g. 1.2.3.4:6000" }
+
+    // MARK: - ☁️ GitHub
+    static var githubSection: String { isZH ? "GitHub Actions" : "GitHub Actions" }
+    static var githubToggle: String { isZH ? "启用 GitHub 追踪" : "Enable GitHub Tracking" }
+    static var githubTokenLabel: String { isZH ? "Personal Access Token" : "Personal Access Token" }
+    static var githubTokenHint: String { isZH ? "需要 read:user 和 repo 权限" : "Requires read:user and repo scopes" }
+    static var githubUserLabel: String { isZH ? "用户名/组织" : "Username/Org" }
+    static var githubComputeLabel: String { isZH ? "计算分钟" : "Compute Minutes" }
+    static var githubStorageLabel: String { isZH ? "存储" : "Storage" }
+    static var githubMinutesFormat: String { isZH ? "%d / %d 分钟" : "%d / %d min" }
+    static var githubStorageFormat: String { isZH ? "%.0f / %.0f MB" : "%.0f / %.0f MB" }
+    static var githubDaysLeft: String { isZH ? "账单周期剩余 %d 天" : "%d days left in cycle" }
+    static var githubFreeStatus: String { isZH ? "✅ 在免费额度内" : "✅ Within free tier" }
+    static var githubWarningStatus: String { isZH ? "⚠️ 接近免费额度上限" : "⚠️ Approaching free tier limit" }
+    static var githubExceededStatus: String { isZH ? "❌ 超过免费额度" : "❌ Exceeded free tier" }
+
+    // MARK: - ☁️ AWS
+    static var awsSection: String { isZH ? "AWS EC2 免费套餐" : "AWS EC2 Free Tier" }
+    static var awsToggle: String { isZH ? "启用 AWS 追踪" : "Enable AWS Tracking" }
+    static var awsAccessKeyLabel: String { isZH ? "Access Key ID" : "Access Key ID" }
+    static var awsSecretKeyLabel: String { isZH ? "Secret Access Key" : "Secret Access Key" }
+    static var awsRegionLabel: String { isZH ? "区域" : "Region" }
+    static var awsHoursLabel: String { isZH ? "运行小时" : "Running Hours" }
+    static var awsHoursFormat: String { isZH ? "%.0f / %.0f 小时" : "%.0f / %.0f hrs" }
+    static var awsInstancesLabel: String { isZH ? "实例" : "Instances" }
+    static var awsInstancesFormat: String { isZH ? "%d 个 (%d 合格, %d 不合格)" : "%d (%d eligible, %d non-eligible)" }
+    static var awsForecastLabel: String { isZH ? "预测月底用量" : "Month-end forecast" }
+    static var awsForecastFormat: String { isZH ? "~%.0f 小时" : "~%.0f hrs" }
+    static var awsOverageLabel: String { isZH ? "预估超额费用" : "Est. overage cost" }
+    static var awsFreeStatus: String { isZH ? "✅ 在免费套餐内" : "✅ Within free tier" }
+    static var awsWarningStatus: String { isZH ? "⚠️ 接近免费套餐上限" : "⚠️ Approaching free tier limit" }
+    static var awsExceededStatus: String { isZH ? "❌ 超出免费套餐" : "❌ Exceeded free tier" }
+    static var awsEligibleLabel: String { isZH ? "免费资格" : "Free Tier" }
+    static var awsYesLabel: String { isZH ? "✅ 免费" : "✅ Free" }
+    static var awsNoLabel: String { isZH ? "❌ ~$%.0f/月" : "❌ ~$%.0f/mo" }
 }

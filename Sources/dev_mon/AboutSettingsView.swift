@@ -8,7 +8,7 @@ struct AboutSettingsView: View {
             Image(nsImage: NSApplication.shared.applicationIconImage ?? NSImage())
                 .resizable().frame(width: 64, height: 64)
 
-            Text("DS-mon")
+            Text("dev_mon")
                 .font(.title).bold()
 
             if let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
@@ -17,7 +17,7 @@ struct AboutSettingsView: View {
                     .foregroundColor(.secondary)
             }
 
-            if let ts = Bundle.main.infoDictionary?["DSMonBuildTimestamp"] as? String {
+            if let ts = Bundle.main.infoDictionary?["DevMonBuildTimestamp"] as? String {
                 Text(ts)
                     .font(.caption2)
                     .foregroundColor(.secondary).opacity(0.6)
@@ -32,7 +32,7 @@ struct AboutSettingsView: View {
                     .foregroundColor(.secondary)
 
                 HStack(spacing: 16) {
-                    Link(destination: URL(string: "https://github.com/cherno/DS-mon")!) {
+                    Link(destination: URL(string: "https://github.com/afrogenesurvive/dev_mon")!) {
                         HStack(spacing: 4) {
                             Image(systemName: "chevron.left.forwardslash.chevron.right")
                             Text("GitHub")

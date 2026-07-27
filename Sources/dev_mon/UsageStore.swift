@@ -146,7 +146,7 @@ actor UsageStore {
     private init() {
         // Actor init is non-isolated; inline DB setup
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let appDir = dir.appendingPathComponent("DS-mon")
+        let appDir = dir.appendingPathComponent("dev_mon")
         try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
         let path = appDir.appendingPathComponent("usage.db").path
 
@@ -218,7 +218,7 @@ actor UsageStore {
 
     private var dbPath: String {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let appDir = dir.appendingPathComponent("DS-mon")
+        let appDir = dir.appendingPathComponent("dev_mon")
         try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
         return appDir.appendingPathComponent("usage.db").path
     }

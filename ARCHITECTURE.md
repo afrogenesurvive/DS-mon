@@ -1,8 +1,8 @@
-# DS-mon 架构图（更新版 v2.0）
+# dev_mon 架构图（更新版 v3.0）
 
 ## 项目概述
 
-DS-mon —— macOS 菜单栏 API 余额监控 · 用量统计 · 本地代理转发
+dev_mon —— macOS 菜单栏 API 余额监控 · 用量统计 · 本地代理转发 · GitHub Actions & AWS EC2 免费套餐追踪
 Swift 6 · SwiftUI + AppKit · macOS 15 Sequoia+ · Apple Silicon
 
 ---
@@ -14,7 +14,7 @@ Swift 6 · SwiftUI + AppKit · macOS 15 Sequoia+ · Apple Silicon
 │                               🎯 入口层 Entry Layer                                 │
 │                                                                                     │
 │  ┌───────────────────────────────────────────┐                                      │
-│  │          DSmonApp.swift (@main)           │                                      │
+│  │          DevMonApp.swift (@main)          │                                      │
 │  │  ┌─────────────────────────────────────┐  │                                      │
 │  │  │        AppDelegate                  │  │                                      │
 │  │  │  ┌──────────────┐ ┌──────────────┐  │  │                                      │
@@ -89,7 +89,7 @@ Swift 6 · SwiftUI + AppKit · macOS 15 Sequoia+ · Apple Silicon
 │                                                                                     │
 │  ┌──────────────────────────────────────────────┐                                   │
 │  │          SecureStore (AES-GCM 加密)           │                                   │
-│  │  · 256-bit 随机密钥 → ~/.ds-mon/.enc_key    │                                   │
+│  │  · 256-bit 随机密钥 → ~/.dev-mon/.enc_key   │                                   │
 │  │  · 各提供商 API Key 分别加密 → UserDefaults  │                                   │
 │  │  · 文件权限 600                               │                                   │
 │  └──────────────────────────────────────────────┘                                   │
@@ -134,7 +134,7 @@ Swift 6 · SwiftUI + AppKit · macOS 15 Sequoia+ · Apple Silicon
 │  ┌─────────────────────────────────────────────────────────┐                        │
 │  │       CodexRelayManager (子进程生命周期管理器)             │                        │
 │  │                                                         │                        │
-│  │  · 从 .app bundle 复制 codex-relay 到 ~/.ds-mon/       │                        │
+│  │  · 从 .app bundle 复制 codex-relay 到 ~/.dev-mon/      │                        │
 │  │  · Process 启动/停止（端口 4446）                       │                        │
 │  │  · 环境变量: CODEX_RELAY_API_KEY / PORT / UPSTREAM     │                        │
 │  │  · 模型映射: Codex 模型名 → 提供商默认模型              │                        │
@@ -331,13 +331,17 @@ Swift 6 · SwiftUI + AppKit · macOS 15 Sequoia+ · Apple Silicon
 ## 4. 文件依赖关系
 
 ```
-DSmonApp.swift
+DevMonApp.swift
 ├── StatusBarController.swift ──── StatusBarView (自定义 NSView)
 │   ├── StatsPopoverView.swift ────── UsageBarChart (Swift Charts)
+│   │   ├── GitHubUsageTracker.swift  (GitHub Actions 用量)
+│   │   └── AWSUsageTracker.swift     (AWS EC2 免费套餐)
 │   ├── ThresholdView.swift ──────── 4 标签页设置面板
 │   └── Strings.swift
 │
-├── DeepSeekStats.swift
+├── DeepSeekStats.swift  (统一数据模型，含 gitHub + aws 属性)
+│   ├── GitHubUsageTracker.swift  ─── GitHub Billing API
+│   ├── AWSUsageTracker.swift     ─── EC2 API + SigV4Signer
 │   ├── Provider.swift
 │   └── ProviderManager.swift ────── SecureStore (AES-GCM)
 │
@@ -349,6 +353,8 @@ DSmonApp.swift
 ├── CodexRelayManager.swift
 │   └── Process (codex-relay 子进程)
 │
+├── SigV4Signer.swift  (AWS 签名 V4)
+├── ProgressBar.swift  (进度条组件)
 ├── Constants.swift
 └── Strings.swift
 ```
