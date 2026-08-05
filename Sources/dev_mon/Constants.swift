@@ -21,8 +21,10 @@ enum AppConfig {
     static let blinkInterval: TimeInterval = 1.5
 
     // 🪟 UI
-    static let popoverWidth: CGFloat = 290
+    static let popoverWidth: CGFloat = 334
     static let popoverHeight: CGFloat = 540
+    /// 弹窗内容可用宽度（减去左右各 14pt 的 padding）
+    static var contentWidth: CGFloat { popoverWidth - 28 }
     static let settingsWidth: CGFloat = 520
     static let settingsHeight: CGFloat = 480
 

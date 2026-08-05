@@ -101,6 +101,18 @@ struct AggregatedUsage: Sendable {
     }
 }
 
+/// 按来源（sourceIP）聚合的用量（含最近一次请求时间）
+struct SourceUsage: Sendable {
+    let sourceIP: String
+    let requestCount: Int
+    let promptTokens: Int
+    let completionTokens: Int
+    let totalTokens: Int
+    let cachedTokens: Int
+    let totalCost: Double
+    let lastTimestamp: Date
+}
+
 // MARK: - SQLite 存储 (actor)
 
 /// 用量数据持久化。所有 public 方法都是 actor-isolated，调用方需 await。
@@ -207,6 +219,7 @@ actor UsageStore {
         }
         sqlite3_exec(handle, "UPDATE usage_log SET uuid = hex(randomblob(16)) || '-' || hex(randomblob(16)) WHERE uuid = '' OR uuid IS NULL", nil, nil, nil)
         sqlite3_exec(handle, "CREATE INDEX IF NOT EXISTS idx_usage_uuid ON usage_log(uuid)", nil, nil, nil)
+        sqlite3_exec(handle, "CREATE INDEX IF NOT EXISTS idx_usage_src_ts ON usage_log(source_ip, timestamp)", nil, nil, nil)
         // 迁移 V5: 添加 user_agent 列（忽略"列已存在"错误）
         if sqlite3_exec(handle, "ALTER TABLE usage_log ADD COLUMN user_agent TEXT DEFAULT ''", nil, nil, nil) != SQLITE_OK {
             // duplicate column - silently ignored
@@ -409,27 +422,151 @@ actor UsageStore {
         return Date.distantPast
     }
 
-    /// Aggregate usage grouped by source IP for comparison
-    func aggregateBySourceIP() -> [(sourceIP: String, requestCount: Int, totalTokens: Int, totalCost: Double)] {
+    /// Aggregate usage grouped by source IP for comparison.
+    /// - Parameters:
+    ///   - since: only include records at/after this date (period filter); nil = all time
+    ///   - sourceIP: restrict to one source; nil/empty = all sources
+    func aggregateBySourceIP(since: Date? = nil, sourceIP: String? = nil) -> [SourceUsage] {
         guard let db else { return [] }
+        let hasSince = since != nil
+        let hasSource = sourceIP.map { !$0.isEmpty } ?? false
         let sql = """
-        SELECT source_ip, COUNT(*), SUM(total_tokens), SUM(cost)
+        SELECT source_ip, COUNT(*),
+               SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens),
+               SUM(cached_tokens), SUM(cost), MAX(timestamp)
         FROM usage_log
-        WHERE source_ip != ''
+        WHERE 1=1\(hasSince ? " AND timestamp >= ?" : "")\(hasSource ? " AND source_ip = ?" : "")
         GROUP BY source_ip
         ORDER BY SUM(cost) DESC;
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        var bindIdx: Int32 = 1
+        if let since {
+            sqlite3_bind_double(stmt, bindIdx, since.timeIntervalSince1970)
+            bindIdx += 1
+        }
+        if let src = sourceIP, hasSource {
+            sqlite3_bind_text(stmt, bindIdx, src, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            bindIdx += 1
+        }
         defer { sqlite3_finalize(stmt) }
 
-        var results: [(String, Int, Int, Double)] = []
+        var results: [SourceUsage] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
             let ip = String(cString: sqlite3_column_text(stmt, 0))
-            let count = Int(sqlite3_column_int64(stmt, 1))
-            let tokens = Int(sqlite3_column_int64(stmt, 2))
-            let cost = sqlite3_column_double(stmt, 3)
-            results.append((ip, count, tokens, cost))
+            results.append(SourceUsage(
+                sourceIP: ip,
+                requestCount: Int(sqlite3_column_int64(stmt, 1)),
+                promptTokens: Int(sqlite3_column_int64(stmt, 2)),
+                completionTokens: Int(sqlite3_column_int64(stmt, 3)),
+                totalTokens: Int(sqlite3_column_int64(stmt, 4)),
+                cachedTokens: Int(sqlite3_column_int64(stmt, 5)),
+                totalCost: sqlite3_column_double(stmt, 6),
+                lastTimestamp: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 7))
+            ))
+        }
+        return results
+    }
+
+    /// Distinct non-empty sources for the source filter dropdown
+    func distinctSources() -> [String] {
+        guard let db else { return [] }
+        let sql = """
+        SELECT DISTINCT source_ip FROM usage_log
+        WHERE source_ip != ''
+        ORDER BY source_ip ASC;
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        var results: [String] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            results.append(String(cString: sqlite3_column_text(stmt, 0)))
+        }
+        return results
+    }
+
+    /// Individual usage records, optionally filtered by period + source, newest first.
+    /// When `perSourceLimit` is set (and no specific source filter), balances across sources
+    /// so a high-volume source (e.g. the local host) can't hide the others.
+    func records(since: Date? = nil, sourceIP: String? = nil, limit: Int = 50, perSourceLimit: Int? = nil) -> [UsageRecord] {
+        let hasSource = sourceIP.map { !$0.isEmpty } ?? false
+        let balanced = !hasSource && (perSourceLimit != nil)
+
+        if balanced {
+            let per = perSourceLimit ?? 50
+            let sources = distinctSources()
+            var all: [UsageRecord] = []
+            for src in sources {
+                all.append(contentsOf: sourceRecords(since: since, sourceIP: src, limit: per))
+            }
+            // local (empty/NULL source_ip) partition — always included so it can't be dropped
+            all.append(contentsOf: sourceRecords(since: since, sourceIP: "", limit: per))
+            all.sort { $0.timestamp > $1.timestamp }
+            if all.count > limit {
+                all = Array(all.prefix(limit))
+            }
+            return all
+        }
+
+        return sourceRecords(since: since, sourceIP: hasSource ? sourceIP : nil, limit: limit)
+    }
+
+    /// Per-source records query. `sourceIP` = "" matches the local (empty/NULL) partition;
+    /// `nil` matches all sources.
+    private func sourceRecords(since: Date?, sourceIP: String?, limit: Int) -> [UsageRecord] {
+        guard let db else { return [] }
+        let hasSince = since != nil
+        let sourceClause: String
+        if let src = sourceIP, src.isEmpty {
+            sourceClause = " AND (source_ip = '' OR source_ip IS NULL)"
+        } else if let src = sourceIP {
+            sourceClause = " AND source_ip = ?"
+        } else {
+            sourceClause = ""
+        }
+        let sql = """
+        SELECT uuid, timestamp, provider_id, model, endpoint,
+               prompt_tokens, completion_tokens, total_tokens, cached_tokens,
+               reasoning_tokens, latency_ms, status_code, user_agent, source_ip
+        FROM usage_log
+        WHERE 1=1\(hasSince ? " AND timestamp >= ?" : "")\(sourceClause)
+        ORDER BY timestamp DESC
+        LIMIT ?;
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        var bindIdx: Int32 = 1
+        if let since {
+            sqlite3_bind_double(stmt, bindIdx, since.timeIntervalSince1970)
+            bindIdx += 1
+        }
+        if let src = sourceIP, !src.isEmpty {
+            sqlite3_bind_text(stmt, bindIdx, src, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            bindIdx += 1
+        }
+        sqlite3_bind_int(stmt, bindIdx, Int32(limit))
+        defer { sqlite3_finalize(stmt) }
+
+        var results: [UsageRecord] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            results.append(UsageRecord(
+                uuid: String(cString: sqlite3_column_text(stmt, 0)),
+                timestamp: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1)),
+                providerId: String(cString: sqlite3_column_text(stmt, 2)),
+                model: String(cString: sqlite3_column_text(stmt, 3)),
+                endpoint: String(cString: sqlite3_column_text(stmt, 4)),
+                promptTokens: Int(sqlite3_column_int64(stmt, 5)),
+                completionTokens: Int(sqlite3_column_int64(stmt, 6)),
+                totalTokens: Int(sqlite3_column_int64(stmt, 7)),
+                cachedTokens: Int(sqlite3_column_int64(stmt, 8)),
+                reasoningTokens: Int(sqlite3_column_int64(stmt, 9)),
+                latencyMs: sqlite3_column_double(stmt, 10),
+                statusCode: Int(sqlite3_column_int64(stmt, 11)),
+                userAgent: String(cString: sqlite3_column_text(stmt, 12)),
+                sourceIP: String(cString: sqlite3_column_text(stmt, 13))
+            ))
         }
         return results
     }
@@ -469,11 +606,12 @@ actor UsageStore {
     }
 
     /// 今日按小时
-    func queryHourlyBreakdown(providerId: String? = nil) -> [TokenBar] {
+    func queryHourlyBreakdown(providerId: String? = nil, sourceIP: String? = nil) -> [TokenBar] {
         guard let db else { return [] }
         let todayStart = Calendar.current.startOfDay(for: Date())
         let startTS = todayStart.timeIntervalSince1970
         let hasProvider = providerId.map { !$0.isEmpty } ?? false
+        let hasSource = sourceIP.map { !$0.isEmpty } ?? false
         let sql = """
         SELECT CAST(strftime('%H', timestamp, 'unixepoch', 'localtime') AS INTEGER) AS h,
                SUM(MAX(0, prompt_tokens - cached_tokens)),
@@ -481,14 +619,18 @@ actor UsageStore {
                SUM(completion_tokens),
                COUNT(*)
         FROM usage_log
-        WHERE timestamp >= ?\(hasProvider ? " AND provider_id = ?" : "")
+        WHERE timestamp >= ?\(hasProvider ? " AND provider_id = ?" : "")\(hasSource ? " AND source_ip = ?" : "")
         GROUP BY h ORDER BY h ASC;
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        sqlite3_bind_double(stmt, 1, startTS)
+        var bindIdx: Int32 = 1
+        sqlite3_bind_double(stmt, bindIdx, startTS); bindIdx += 1
         if let pid = providerId, hasProvider {
-            sqlite3_bind_text(stmt, 2, pid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(stmt, bindIdx, pid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self)); bindIdx += 1
+        }
+        if let src = sourceIP, hasSource {
+            sqlite3_bind_text(stmt, bindIdx, src, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self)); bindIdx += 1
         }
         defer { sqlite3_finalize(stmt) }
 
@@ -570,12 +712,13 @@ actor UsageStore {
     }
 
     /// 本周按日
-    func queryDailyBreakdown(providerId: String? = nil) -> [TokenBar] {
+    func queryDailyBreakdown(providerId: String? = nil, sourceIP: String? = nil) -> [TokenBar] {
         guard let db else { return [] }
         let cal = Calendar.current
         let weekStart = cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date()))!
         let startTS = weekStart.timeIntervalSince1970
         let hasProvider = providerId.map { !$0.isEmpty } ?? false
+        let hasSource = sourceIP.map { !$0.isEmpty } ?? false
         let sql = """
         SELECT date(timestamp, 'unixepoch', 'localtime') AS day,
                SUM(MAX(0, prompt_tokens - cached_tokens)),
@@ -583,14 +726,18 @@ actor UsageStore {
                SUM(completion_tokens),
                COUNT(*)
         FROM usage_log
-        WHERE timestamp >= ?\(hasProvider ? " AND provider_id = ?" : "")
+        WHERE timestamp >= ?\(hasProvider ? " AND provider_id = ?" : "")\(hasSource ? " AND source_ip = ?" : "")
         GROUP BY day ORDER BY day ASC;
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        sqlite3_bind_double(stmt, 1, startTS)
+        var bindIdx: Int32 = 1
+        sqlite3_bind_double(stmt, bindIdx, startTS); bindIdx += 1
         if let pid = providerId, hasProvider {
-            sqlite3_bind_text(stmt, 2, pid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(stmt, bindIdx, pid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self)); bindIdx += 1
+        }
+        if let src = sourceIP, hasSource {
+            sqlite3_bind_text(stmt, bindIdx, src, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self)); bindIdx += 1
         }
         defer { sqlite3_finalize(stmt) }
 
@@ -615,13 +762,14 @@ actor UsageStore {
     }
 
     /// 本月按周
-    func queryWeeklyBreakdown(providerId: String? = nil) -> [TokenBar] {
+    func queryWeeklyBreakdown(providerId: String? = nil, sourceIP: String? = nil) -> [TokenBar] {
         guard let db else { return [] }
         let cal = Calendar.current
         let monthStart = cal.date(from: cal.dateComponents([.year, .month], from: Date()))!
         let monthEnd = cal.date(byAdding: DateComponents(month: 1, second: -1), to: monthStart)!
         let startTS = monthStart.timeIntervalSince1970
         let hasProvider = providerId.map { !$0.isEmpty } ?? false
+        let hasSource = sourceIP.map { !$0.isEmpty } ?? false
         let sql = """
         SELECT strftime('%G-V%V', timestamp, 'unixepoch', 'localtime') AS week,
                SUM(MAX(0, prompt_tokens - cached_tokens)),
@@ -629,14 +777,18 @@ actor UsageStore {
                SUM(completion_tokens),
                COUNT(*)
         FROM usage_log
-        WHERE timestamp >= ?\(hasProvider ? " AND provider_id = ?" : "")
+        WHERE timestamp >= ?\(hasProvider ? " AND provider_id = ?" : "")\(hasSource ? " AND source_ip = ?" : "")
         GROUP BY week ORDER BY week ASC;
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        sqlite3_bind_double(stmt, 1, startTS)
+        var bindIdx: Int32 = 1
+        sqlite3_bind_double(stmt, bindIdx, startTS); bindIdx += 1
         if let pid = providerId, hasProvider {
-            sqlite3_bind_text(stmt, 2, pid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(stmt, bindIdx, pid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self)); bindIdx += 1
+        }
+        if let src = sourceIP, hasSource {
+            sqlite3_bind_text(stmt, bindIdx, src, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self)); bindIdx += 1
         }
         defer { sqlite3_finalize(stmt) }
 

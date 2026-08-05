@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct GeneralSettingsView: View {
-    @AppStorage(Strings.Keys.showMenuIcon) var showMenuIcon: Bool = true
-    @AppStorage(Strings.Keys.showIndicator) var showIndicator: Bool = true
+    @AppStorage(Strings.Keys.showMenuIcon) var showMenuIcon: Bool = false
+    @AppStorage(Strings.Keys.showIndicator) var showIndicator: Bool = false
     @AppStorage(Strings.Keys.menuBarTextDisplay) var menuBarTextDisplay: String = "balance"
     @AppStorage(Strings.Keys.appLanguage) var appLanguage: String = "auto"
     @AppStorage(Strings.Keys.currencySymbol) var currencySymbol: String = "¥"

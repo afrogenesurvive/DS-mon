@@ -171,8 +171,8 @@ class StatusBarController: NSObject, NSWindowDelegate {
         statusView?.update(balanceRatio: balanceRatio, balanceAmount: balanceAmount, hitRateText: hitRateText, costText: costText, isError: isError, isLowAlerting: isLow, blinkOn: blinkOn, isWarning: isWarning)
 
         // 计算总宽度
-        let showIcon = UserDefaults.standard.object(forKey: Strings.Keys.showMenuIcon) as? Bool ?? true
-        let showIndicator = UserDefaults.standard.object(forKey: Strings.Keys.showIndicator) as? Bool ?? true
+        let showIcon = UserDefaults.standard.object(forKey: Strings.Keys.showMenuIcon) as? Bool ?? false
+        let showIndicator = UserDefaults.standard.object(forKey: Strings.Keys.showIndicator) as? Bool ?? false
         let textMode = UserDefaults.standard.string(forKey: Strings.Keys.menuBarTextDisplay) ?? "balance"
 
         var w: CGFloat = showIcon ? 21 : 2  // leftX
@@ -228,13 +228,13 @@ class StatusBarController: NSObject, NSWindowDelegate {
     }
 
     @objc private func menuIconChanged() {
-        let showIcon = UserDefaults.standard.object(forKey: Strings.Keys.showMenuIcon) as? Bool ?? true
+        let showIcon = UserDefaults.standard.object(forKey: Strings.Keys.showMenuIcon) as? Bool ?? false
         statusView?.showIcon = showIcon
         updateLabel()
     }
 
     @objc private func indicatorChanged() {
-        let show = UserDefaults.standard.object(forKey: Strings.Keys.showIndicator) as? Bool ?? true
+        let show = UserDefaults.standard.object(forKey: Strings.Keys.showIndicator) as? Bool ?? false
         statusView?.showIndicator = show
         updateLabel()
     }

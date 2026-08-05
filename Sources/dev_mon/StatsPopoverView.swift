@@ -20,12 +20,11 @@ struct StatsPopoverView: View {
             Divider().padding(.horizontal, 14)
             tabBar
             Divider().padding(.horizontal, 14)
-            ScrollView {
-                switch selectedTab {
-                case 0: deepSeekTabContent
-                case 1: gitHubTabContent
-                case 2: awsTabContent
-                default: EmptyView()
+            if selectedTab == 0 {
+                deepSeekTabContent
+            } else {
+                ScrollView {
+                    if selectedTab == 1 { gitHubTabContent } else { awsTabContent }
                 }
             }
             Divider().padding(.horizontal, 14)
@@ -33,11 +32,11 @@ struct StatsPopoverView: View {
         }
         .padding(.vertical, 12)
         .frame(width: AppConfig.popoverWidth, height: AppConfig.popoverHeight)
-        .onAppear { loadUsage(); loadPerIPUsage() }
+        .onAppear { loadUsage(); loadSourceUsage(); loadSourceOptions() }
         .onReceive(NotificationCenter.default.publisher(for: .usageRecorded)) { _ in
-            loadUsage(); loadPerIPUsage()
+            loadUsage(); loadSourceUsage(); loadSourceOptions()
         }
-        .onChange(of: stats.providerID) { _, _ in loadUsage(); loadPerIPUsage() }
+        .onChange(of: stats.providerID) { _, _ in loadUsage(); loadSourceUsage(); loadSourceOptions() }
     }
 
     private var headerSection: some View {
@@ -200,7 +199,18 @@ struct StatsPopoverView: View {
     @State private var usageData: AggregatedUsage?
     @State private var chartData: [TokenBar] = []
     @State private var showChart = true
-    @State private var perIPUsage: [(sourceIP: String, requestCount: Int, totalTokens: Int, totalCost: Double)] = []
+
+    // Source Usage section state
+    @State private var usageSubTab = 0           // 0 = Usage Stats, 1 = Source Usage
+    @State private var sourcePeriod = 0          // 0=today, 1=week, 2=month
+    @State private var sourceShowChart = true
+    @State private var sourceMode = 0            // 0 = aggregate, 1 = individual
+    @State private var selectedSource = ""       // "" = all sources
+    @State private var sourceData: [SourceUsage] = []
+    @State private var sourceChartData: [TokenBar] = []
+    @State private var sourceOptions: [String] = []
+    @State private var aggregateSortKey = "cost"
+    @State private var aggregateSortAsc = false
 
     private var usageSection: some View {
         VStack(spacing: 8) {
@@ -216,9 +226,9 @@ struct StatsPopoverView: View {
                 .buttonStyle(.plain)
                 .padding(.trailing, 4)
                 HStack(spacing: 2) {
-                    pillTab(Strings.todayLabel, tag: 0)
-                    pillTab(Strings.weekLabel, tag: 1)
-                    pillTab(Strings.monthLabel, tag: 2)
+                    pillTab(Strings.todayLabel, tag: 0, selection: $usagePeriod)
+                    pillTab(Strings.weekLabel, tag: 1, selection: $usagePeriod)
+                    pillTab(Strings.monthLabel, tag: 2, selection: $usagePeriod)
                 }
                 .font(.system(size: 10))
                 .onChange(of: usagePeriod) { _, _ in loadUsage() }
@@ -240,42 +250,13 @@ struct StatsPopoverView: View {
 
                 if !chartData.isEmpty {
                     if showChart {
-                        UsageBarChart(data: chartData, frameWidth: 262)
+                        UsageBarChart(data: chartData, frameWidth: AppConfig.contentWidth)
                             .frame(height: 120)
                             .padding(.top, 10)
                     } else {
-                        RequestListView(frameWidth: 262)
+                        RequestListView(frameWidth: AppConfig.contentWidth)
                     }
                 }
-
-            if !perIPUsage.isEmpty {
-                Divider().padding(.vertical, 2)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Usage by Source")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(.secondary)
-
-                    ForEach(perIPUsage, id: \.sourceIP) { item in
-                        HStack(spacing: 6) {
-                            Text(item.sourceIP)
-                                .font(.system(size: 8))
-                                .frame(width: 80, alignment: .leading)
-                                .lineLimit(1)
-                            Text("\(item.requestCount) req")
-                                .font(.system(size: 8))
-                                .frame(width: 40, alignment: .trailing)
-                            Text("\(item.totalTokens / 1000)K tok")
-                                .font(.system(size: 8))
-                                .frame(width: 50, alignment: .trailing)
-                            Text(String(format: "¥%.2f", item.totalCost))
-                                .font(.system(size: 8, weight: .medium))
-                                .frame(width: 50, alignment: .trailing)
-                        }
-                        .foregroundColor(.secondary)
-                    }
-                }
-                .padding(.vertical, 4)
-            }
             } else {
                 HStack {
                     Spacer()
@@ -313,12 +294,6 @@ struct StatsPopoverView: View {
         return u.period == f.string(from: Date())
     }
 
-    private func loadPerIPUsage() {
-        Task { @MainActor in
-            perIPUsage = await UsageStore.shared.aggregateBySourceIP()
-        }
-    }
-
     private func loadUsage() {
         Task { @MainActor in
             let store = UsageStore.shared
@@ -335,6 +310,299 @@ struct StatsPopoverView: View {
                 chartData = await store.queryWeeklyBreakdown(providerId: pid)
             }
         }
+    }
+
+    // MARK: - Source Usage
+
+    private static let sourceTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "dd:MM:yyyy HH:mm"
+        return f
+    }()
+
+    private func loadSourceOptions() {
+        Task { @MainActor in
+            sourceOptions = await UsageStore.shared.distinctSources()
+            if !selectedSource.isEmpty && !sourceOptions.contains(selectedSource) {
+                selectedSource = ""
+            }
+        }
+    }
+
+    private var sourcePeriodStart: Date? {
+        let cal = Calendar.current
+        switch sourcePeriod {
+        case 0: return cal.startOfDay(for: Date())
+        case 1: return cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date()))
+        default: return cal.date(from: cal.dateComponents([.year, .month], from: Date()))
+        }
+    }
+
+    private func loadSourceUsage() {
+        let src = selectedSource.isEmpty ? nil : selectedSource
+        let since = sourcePeriodStart
+        Task { @MainActor in
+            let store = UsageStore.shared
+            if sourceMode == 0 {
+                let rows = await store.aggregateBySourceIP(since: since, sourceIP: src)
+                sourceData = rows
+                sourceChartData = rows.map { item in
+                    TokenBar(label: sourceDisplayName(item),
+                             missTokens: item.promptTokens - item.cachedTokens,
+                             hitTokens: item.cachedTokens,
+                             outTokens: item.completionTokens,
+                             requestCount: item.requestCount)
+                }
+            } else {
+                let pid = stats.providerID.isEmpty ? nil : stats.providerID
+                switch sourcePeriod {
+                case 0:
+                    sourceChartData = await store.queryHourlyBreakdown(providerId: pid, sourceIP: src)
+                case 1:
+                    sourceChartData = await store.queryDailyBreakdown(providerId: pid, sourceIP: src)
+                default:
+                    sourceChartData = await store.queryWeeklyBreakdown(providerId: pid, sourceIP: src)
+                }
+            }
+        }
+    }
+
+    private var sourceUsageSection: some View {
+        VStack(spacing: 8) {
+            sourceToolbar
+            if sourceMode == 0 {
+                sourceAggregateContent
+            } else {
+                sourceIndividualContent
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var sourceToolbar: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 6) {
+                sourceFilterMenu
+                Spacer()
+                modePills
+                Button(action: { sourceShowChart.toggle() }) {
+                    Image(systemName: sourceShowChart ? "list.bullet" : "chart.bar.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            HStack(spacing: 2) {
+                pillTab(Strings.todayLabel, tag: 0, selection: $sourcePeriod)
+                pillTab(Strings.weekLabel, tag: 1, selection: $sourcePeriod)
+                pillTab(Strings.monthLabel, tag: 2, selection: $sourcePeriod)
+                Spacer()
+            }
+            .font(.system(size: 10))
+            .onChange(of: sourcePeriod) { _, _ in loadSourceUsage() }
+        }
+        .onChange(of: sourceMode) { _, _ in loadSourceUsage() }
+        .onChange(of: selectedSource) { _, _ in loadSourceUsage() }
+    }
+
+    private var sourceFilterMenu: some View {
+        Menu {
+            Button(Strings.allSources) { selectedSource = "" }
+            if !sourceOptions.isEmpty { Divider() }
+            ForEach(sourceOptions, id: \.self) { src in
+                Button(src) { selectedSource = src }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Text(selectedSource.isEmpty ? Strings.allSources : selectedSource)
+                    .font(.system(size: 9))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+                    .frame(maxWidth: 110, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8))
+            }
+            .foregroundColor(.blue)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+        }
+        .menuStyle(.borderlessButton)
+        .background(Color.blue.opacity(0.1))
+        .cornerRadius(4)
+    }
+
+    private var modePills: some View {
+        HStack(spacing: 2) {
+            pillTab(Strings.aggregateLabel, tag: 0, selection: $sourceMode, hPad: 6)
+            pillTab(Strings.individualLabel, tag: 1, selection: $sourceMode, hPad: 6)
+        }
+        .font(.system(size: 9))
+    }
+
+    private func sourceDisplayName(_ item: SourceUsage) -> String {
+        item.sourceIP.isEmpty ? Strings.localSourceLabel : item.sourceIP
+    }
+
+    private var sortedSourceData: [SourceUsage] {
+        sourceData.sorted { a, b in
+            switch aggregateSortKey {
+            case "source":
+                let sa = sourceDisplayName(a), sb = sourceDisplayName(b)
+                return aggregateSortAsc ? sa < sb : sa > sb
+            case "req":
+                return aggregateSortAsc ? a.requestCount < b.requestCount : a.requestCount > b.requestCount
+            case "tokens":
+                return aggregateSortAsc ? a.totalTokens < b.totalTokens : a.totalTokens > b.totalTokens
+            case "last":
+                return aggregateSortAsc ? a.lastTimestamp < b.lastTimestamp : a.lastTimestamp > b.lastTimestamp
+            default:
+                return aggregateSortAsc ? a.totalCost < b.totalCost : a.totalCost > b.totalCost
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func aggregateSortableHeader(_ title: String, key: String, width: CGFloat, align: Alignment) -> some View {
+        Button {
+            if aggregateSortKey == key {
+                aggregateSortAsc.toggle()
+            } else {
+                aggregateSortKey = key
+                aggregateSortAsc = false
+            }
+        } label: {
+            HStack(spacing: 2) {
+                Text(title)
+                if aggregateSortKey == key {
+                    Image(systemName: aggregateSortAsc ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 7))
+                }
+            }
+            .frame(width: width, alignment: align)
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+    }
+
+    @ViewBuilder
+    private var sourceAggregateContent: some View {
+        if sourceData.isEmpty {
+            emptySourceState
+        } else if sourceShowChart {
+            UsageBarChart(data: sourceChartData, frameWidth: AppConfig.contentWidth)
+                .frame(height: 120)
+                .padding(.top, 6)
+        } else {
+            VStack(spacing: 0) {
+                HStack(spacing: 6) {
+                    aggregateSortableHeader("Source", key: "source", width: 80, align: .leading)
+                    aggregateSortableHeader("Req", key: "req", width: 30, align: .trailing)
+                    aggregateSortableHeader("Tokens", key: "tokens", width: 42, align: .trailing)
+                    aggregateSortableHeader("Cost", key: "cost", width: 50, align: .trailing)
+                    aggregateSortableHeader(Strings.lastSeenLabel, key: "last", width: 70, align: .trailing)
+                }
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+
+                Divider()
+
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(sortedSourceData, id: \.sourceIP) { item in
+                            HStack(spacing: 6) {
+                                Text(sourceDisplayName(item))
+                                    .font(.system(size: 8.5))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .frame(width: 80, alignment: .leading)
+                                Text("\(item.requestCount)")
+                                    .font(.system(size: 8.5).monospacedDigit())
+                                    .frame(width: 30, alignment: .trailing)
+                                Text(Strings.tokensShort(item.totalTokens))
+                                    .font(.system(size: 8.5).monospacedDigit())
+                                    .frame(width: 42, alignment: .trailing)
+                                Text(Strings.costShort(item.totalCost))
+                                    .font(.system(size: 8.5, weight: .medium).monospacedDigit())
+                                    .frame(width: 50, alignment: .trailing)
+                                Text(Self.sourceTimeFormatter.string(from: item.lastTimestamp))
+                                    .font(.system(size: 7).monospacedDigit())
+                                    .frame(width: 70, alignment: .trailing)
+                                    .foregroundColor(.secondary)
+                                    .help(Strings.lastSeenLabel)
+                            }
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            if item.sourceIP != sortedSourceData.last?.sourceIP {
+                                Divider().padding(.leading, 8)
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+    }
+
+    private var sourceListID: String {
+        "\(selectedSource)|\(sourcePeriodStart?.timeIntervalSince1970 ?? 0)"
+    }
+
+    @ViewBuilder
+    private var sourceIndividualContent: some View {
+        if sourceShowChart {
+            if sourceChartData.isEmpty {
+                emptySourceState
+            } else {
+                UsageBarChart(data: sourceChartData, frameWidth: AppConfig.contentWidth)
+                    .frame(height: 120)
+                    .padding(.top, 6)
+            }
+        } else {
+            SourceRequestListView(frameWidth: AppConfig.contentWidth, sourceIP: selectedSource, since: sourcePeriodStart)
+                .id(sourceListID)
+        }
+    }
+
+    private var emptySourceState: some View {
+        HStack {
+            Spacer()
+            Text(Strings.noUsageData)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var usageSwitcher: some View {
+        HStack(spacing: 4) {
+            subTabButton(Strings.usageTitle, tag: 0)
+            subTabButton(Strings.sourceUsageTitle, tag: 1)
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 4)
+    }
+
+    private func subTabButton(_ title: String, tag: Int) -> some View {
+        let active = usageSubTab == tag
+        return Button(action: { usageSubTab = tag }) {
+            Text(title)
+                .font(.system(size: 10, weight: active ? .semibold : .regular))
+                .foregroundColor(active ? .white : .secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(active ? Color.blue : Color.clear)
+                .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Cloud Helpers (reused by GitHub & AWS tabs)
@@ -416,7 +684,15 @@ struct StatsPopoverView: View {
             Divider().padding(.horizontal, 14)
             infoSection
             Divider().padding(.horizontal, 14)
-            usageSection
+            usageSwitcher
+            Divider().padding(.horizontal, 14)
+            if usageSubTab == 0 {
+                usageSection
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            } else {
+                sourceUsageSection
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
         }
     }
 
@@ -547,15 +823,15 @@ struct StatsPopoverView: View {
         .padding(.vertical, 4)
     }
 
-    private func pillTab(_ label: String, tag: Int) -> some View {
-        let active = usagePeriod == tag
+    private func pillTab(_ label: String, tag: Int, selection: Binding<Int>, hPad: CGFloat = 10) -> some View {
+        let active = selection.wrappedValue == tag
         return Text(label)
             .foregroundColor(active ? .primary : .secondary)
-            .padding(.horizontal, 10)
+            .padding(.horizontal, hPad)
             .padding(.vertical, 3)
             .background(active ? Color(nsColor: .selectedControlColor).opacity(0.4) : .clear)
             .cornerRadius(6)
-            .onTapGesture { usagePeriod = tag }
+            .onTapGesture { selection.wrappedValue = tag }
     }
 
     private var actionBar: some View {

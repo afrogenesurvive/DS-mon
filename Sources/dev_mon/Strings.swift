@@ -187,7 +187,7 @@ enum Strings {
     static var proxyStopped: String { isZH ? "代理已停止" : "Proxy stopped" }
 
     // Usage stats
-    static var usageTitle: String { isZH ? "用量统计" : "Usage Stats" }
+    static var usageTitle: String { isZH ? "总用量" : "Total Usage" }
     static var requestsLabel: String { isZH ? "请求数" : "Requests" }
     static var totalTokensLabel: String { isZH ? "总 Tokens" : "Total Tokens" }
     static var cachedTokensLabel: String { isZH ? "缓存命中" : "Cache Hit" }
@@ -224,7 +224,13 @@ enum Strings {
     static func latencyMsFormat(_ ms: Double) -> String {
         isZH ? "\(Int(ms))ms" : "\(Int(ms))ms"
     }
-
+    // Source Usage
+    static var sourceUsageTitle: String { isZH ? "来源用量" : "Source Usage" }
+    static var allSources: String { isZH ? "全部来源" : "All Sources" }
+    static var aggregateLabel: String { isZH ? "汇总" : "Aggregate" }
+    static var individualLabel: String { isZH ? "明细" : "Individual" }
+    static var lastSeenLabel: String { isZH ? "最近活跃" : "Last Seen" }
+    static var localSourceLabel: String { isZH ? "本机" : "local" }
     static var balanceText: String { "\(currencySymbol)%.2f" }
     static var grantedText: String { isZH ? "赠送余额 \(currencySymbol)%.2f" : "Granted \(currencySymbol)%.2f" }
     static var toppedUpText: String { isZH ? "充值余额 \(currencySymbol)%.2f" : "Topped Up \(currencySymbol)%.2f" }
@@ -261,6 +267,8 @@ enum Strings {
     static var githubToggle: String { isZH ? "启用 GitHub 追踪" : "Enable GitHub Tracking" }
     static var githubTokenLabel: String { isZH ? "Personal Access Token" : "Personal Access Token" }
     static var githubTokenHint: String { isZH ? "需要 read:user 和 repo 权限" : "Requires read:user and repo scopes" }
+    static var githubTokenRevealHint: String { isZH ? "显示/隐藏令牌" : "Show / hide token" }
+    static var githubTokenCopyHint: String { isZH ? "复制令牌" : "Copy token" }
     static var githubUserLabel: String { isZH ? "用户名/组织" : "Username/Org" }
     static var githubComputeLabel: String { isZH ? "计算分钟" : "Compute Minutes" }
     static var githubStorageLabel: String { isZH ? "存储" : "Storage" }

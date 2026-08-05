@@ -18,10 +18,10 @@ class StatusBarView: NSView {
     }()
     private let iconView = NSImageView()
 
-    var showIcon: Bool = true {
+    var showIcon: Bool = false {
         didSet { iconView.isHidden = !showIcon; needsDisplay = true }
     }
-    var showIndicator: Bool = true
+    var showIndicator: Bool = false
     var menuBarTextDisplay: String = "balance"
     var hitRateText: String = ""
     var balanceAmount: String = ""
@@ -58,7 +58,7 @@ class StatusBarView: NSView {
         iconView.autoresizingMask = [.maxXMargin, .minYMargin]
         addSubview(iconView)
 
-        let savedShowIcon = UserDefaults.standard.object(forKey: Strings.Keys.showMenuIcon) as? Bool ?? true
+        let savedShowIcon = UserDefaults.standard.object(forKey: Strings.Keys.showMenuIcon) as? Bool ?? false
         showIcon = savedShowIcon
         iconView.isHidden = !savedShowIcon
 

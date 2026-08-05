@@ -91,6 +91,7 @@ private struct GitHubSettingsView: View {
 
     @State private var githubEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.githubEnabled)
     @State private var githubToken: String = SecureStore.retrieve(key: Strings.Keys.githubToken) ?? ""
+    @State private var showGithubToken: Bool = false
     @State private var githubUsername: String = UserDefaults.standard.string(forKey: Strings.Keys.githubUsername) ?? ""
 
     var body: some View {
@@ -113,14 +114,40 @@ private struct GitHubSettingsView: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(Strings.githubTokenLabel).font(.caption).foregroundColor(.secondary)
-                SecureField("ghp_...", text: $githubToken)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.caption, design: .monospaced))
+                HStack(spacing: 8) {
+                    Text(Strings.githubTokenLabel).font(.caption).foregroundColor(.secondary)
+                    Group {
+                        if showGithubToken {
+                            TextField("ghp_...", text: $githubToken)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.caption, design: .monospaced))
+                        } else {
+                            SecureField("ghp_...", text: $githubToken)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.caption, design: .monospaced))
+                        }
+                    }
                     .onChange(of: githubToken) { _, newVal in
                         SecureStore.save(key: Strings.Keys.githubToken, value: newVal)
                         if githubEnabled { stats.gitHub.refresh() }
                     }
+                    Button {
+                        showGithubToken.toggle()
+                    } label: {
+                        Image(systemName: showGithubToken ? "eye.slash" : "eye")
+                    }
+                    .buttonStyle(.bordered)
+                    .help(Strings.githubTokenRevealHint)
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(githubToken, forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(githubToken.isEmpty)
+                    .help(Strings.githubTokenCopyHint)
+                }
                 Text(Strings.githubTokenHint).font(.caption2).foregroundColor(.secondary)
             }
 

@@ -1,5 +1,29 @@
 # Changelog
 
+## [main-6] — 2026-08-05
+
+### Added
+
+- **Source Usage section** in the DeepSeek tab popover, switchable with the existing **Total Usage** view (renamed from "Usage Stats").
+  - Aggregate / Individual display modes.
+  - Filter by source (menu) and time period (Today / Week / Month), with a graph ↔ list toggle.
+  - Aggregate shows per-source rows (requests, tokens, cost, last-seen `dd:MM:yyyy HH:mm`); individual shows per-request rows (time, source, model, tokens, status).
+  - Local (empty `sourceIP`) usage is labeled "local"/本机 and included as its own row in the aggregate, so remote machine usage is compared against the host's own.
+- **Sortable columns** in the Total Usage, Source Usage aggregate, and Source Usage individual lists (click a header to toggle ascending/descending).
+- Loading spinner and debounced refresh (1s) for the individual list.
+
+### Changed
+
+- Popover width increased 290 → 334 to give the tables breathing room.
+- Individual list time format is now `dd:MM:yyyy HH:mm`.
+- Individual list now balances **per source** (50 records/source) so a high-volume source (e.g. local) can't hide others.
+- Added `(source_ip, timestamp)` index on `usage_log` for faster per-source queries.
+
+### Fixed
+
+- Individual list no longer drops sources that appear in the aggregate (was loading only the 2000 newest records globally, which the local traffic flood filled).
+- Individual list no longer hangs while loading (indexed queries + debounced reloads).
+
 ## [main-5] — 2026-08-04
 
 ### Added

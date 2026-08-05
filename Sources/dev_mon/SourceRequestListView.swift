@@ -1,8 +1,15 @@
 import SwiftUI
+import Foundation
 
-struct RequestListView: View {
+/// 按来源（sourceIP）+ 时间范围过滤的逐条请求列表（Source Usage → Individual 模式）
+struct SourceRequestListView: View {
     let frameWidth: CGFloat
+    var sourceIP: String = ""
+    var since: Date?
+
     @State private var records: [UsageRecord] = []
+    @State private var isLoading = false
+    @State private var reloadTask: Task<Void, Never>?
 
     @State private var sortKey = "time"
     @State private var sortAsc = false
@@ -10,12 +17,13 @@ struct RequestListView: View {
     private var sortedRecords: [UsageRecord] {
         records.sorted { a, b in
             switch sortKey {
-            case "client":
-                let ca = clientLabel(for: a.userAgent)
-                let cb = clientLabel(for: b.userAgent)
-                return sortAsc ? ca < cb : ca > cb
+            case "source":
+                let sa = sourceName(a), sb = sourceName(b)
+                return sortAsc ? sa < sb : sa > sb
             case "model":
                 return sortAsc ? a.model < b.model : a.model > b.model
+            case "tok":
+                return sortAsc ? a.totalTokens < b.totalTokens : a.totalTokens > b.totalTokens
             case "status":
                 return sortAsc ? a.statusCode < b.statusCode : a.statusCode > b.statusCode
             default:
@@ -26,17 +34,18 @@ struct RequestListView: View {
 
     private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss"
+        f.dateFormat = "dd:MM:yyyy HH:mm"
         return f
     }()
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                sortableHeader("Time", key: "time", width: 48, align: .leading)
-                sortableHeader("Client", key: "client", width: 64, align: .leading)
+                sortableHeader("Time", key: "time", width: 70, align: .leading)
+                sortableHeader("Source", key: "source", width: 52, align: .leading)
                 sortableHeader("Model", key: "model", width: nil, align: .leading)
-                sortableHeader("Status", key: "status", width: 36, align: .trailing)
+                sortableHeader("Tok", key: "tok", width: 36, align: .trailing)
+                sortableHeader("Status", key: "status", width: 32, align: .trailing)
             }
             .font(.system(size: 8, weight: .semibold))
             .foregroundColor(.secondary)
@@ -45,8 +54,11 @@ struct RequestListView: View {
 
             Divider()
 
-            if records.isEmpty {
-                Text("暂无数据")
+            if isLoading {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if records.isEmpty {
+                Text(Strings.noUsageData)
                     .font(.system(size: 9))
                     .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -63,11 +75,51 @@ struct RequestListView: View {
                 }
             }
         }
-        .frame(width: frameWidth, height: 120)
+        .frame(width: frameWidth)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear { loadRecords() }
+        .onChange(of: sourceIP) { _, _ in loadRecords() }
+        .onChange(of: since) { _, _ in loadRecords() }
         .onReceive(NotificationCenter.default.publisher(for: .usageRecorded)) { _ in
-            loadRecords()
+            reloadTask?.cancel()
+            reloadTask = Task {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                loadRecords()
+            }
         }
+    }
+
+    private func requestRow(_ record: UsageRecord) -> some View {
+        HStack(spacing: 6) {
+            Text(Self.timeFormatter.string(from: record.timestamp))
+                .font(.system(size: 7).monospacedDigit())
+                .frame(width: 70, alignment: .leading)
+
+            Text(sourceName(record))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: 52, alignment: .leading)
+
+            Text(record.model)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text("\(record.totalTokens)")
+                .monospacedDigit()
+                .frame(width: 36, alignment: .trailing)
+
+            statusBadge(record.statusCode)
+                .frame(width: 32, alignment: .trailing)
+        }
+        .font(.system(size: 8.5))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+    }
+
+    private func sourceName(_ record: UsageRecord) -> String {
+        record.sourceIP.isEmpty ? Strings.localSourceLabel : record.sourceIP
     }
 
     @ViewBuilder
@@ -107,38 +159,6 @@ struct RequestListView: View {
         }
     }
 
-    private func requestRow(_ record: UsageRecord) -> some View {
-        HStack(spacing: 6) {
-            Text(Self.timeFormatter.string(from: record.timestamp))
-                .frame(width: 48, alignment: .leading)
-
-            Text(clientLabel(for: record.userAgent))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(width: 64, alignment: .leading)
-
-            Text(record.model)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            statusBadge(record.statusCode)
-                .frame(width: 36, alignment: .trailing)
-        }
-        .font(.system(size: 8.5))
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-    }
-
-    private func clientLabel(for ua: String) -> String {
-        if ua.contains("opencode") { return "opencode" }
-        if ua.contains("Codex Desktop") { return "Codex Desktop" }
-        if ua.isEmpty { return "—" }
-        let parts = ua.split(separator: "/")
-        if let first = parts.first { return String(first) }
-        return "—"
-    }
-
     private func statusBadge(_ code: Int) -> some View {
         let color: Color = code == 200 ? .green : (code >= 500 ? .red : .orange)
         return Text("\(code)")
@@ -146,8 +166,16 @@ struct RequestListView: View {
     }
 
     private func loadRecords() {
+        isLoading = true
         Task {
-            records = await UsageStore.shared.recentRecords(limit: 50)
+            let result = await UsageStore.shared.records(
+                since: since,
+                sourceIP: sourceIP,
+                limit: 2000,
+                perSourceLimit: sourceIP.isEmpty ? 50 : nil
+            )
+            records = result
+            isLoading = false
         }
     }
 }
