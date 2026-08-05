@@ -521,7 +521,7 @@ actor UsageStore {
         let sourceClause: String
         if let src = sourceIP, src.isEmpty {
             sourceClause = " AND (source_ip = '' OR source_ip IS NULL)"
-        } else if let src = sourceIP {
+        } else if sourceIP != nil {
             sourceClause = " AND source_ip = ?"
         } else {
             sourceClause = ""

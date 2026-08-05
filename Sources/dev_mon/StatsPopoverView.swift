@@ -840,6 +840,8 @@ struct StatsPopoverView: View {
 
             actionButton(icon: "arrow.clockwise", label: Strings.refresh, color: .blue) {
                 stats.refresh()
+                stats.gitHub.refresh()
+                stats.aws.refresh()
                 loadUsage()
             }
             actionButton(icon: "gearshape", label: Strings.settings, color: .secondary) {

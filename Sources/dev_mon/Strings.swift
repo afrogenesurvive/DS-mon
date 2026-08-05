@@ -266,7 +266,7 @@ enum Strings {
     static var githubSection: String { isZH ? "GitHub Actions" : "GitHub Actions" }
     static var githubToggle: String { isZH ? "启用 GitHub 追踪" : "Enable GitHub Tracking" }
     static var githubTokenLabel: String { isZH ? "Personal Access Token" : "Personal Access Token" }
-    static var githubTokenHint: String { isZH ? "需要 read:user 和 repo 权限" : "Requires read:user and repo scopes" }
+    static var githubTokenHint: String { isZH ? "需要 classic PAT（read:user 权限）" : "Requires a classic PAT with read:user scope" }
     static var githubTokenRevealHint: String { isZH ? "显示/隐藏令牌" : "Show / hide token" }
     static var githubTokenCopyHint: String { isZH ? "复制令牌" : "Copy token" }
     static var githubUserLabel: String { isZH ? "用户名/组织" : "Username/Org" }
