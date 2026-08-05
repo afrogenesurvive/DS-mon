@@ -1,9 +1,19 @@
 import Foundation
 import Network
+import CryptoKit
 
 private func syncLog(_ message: String) {
     let ts = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
     AppConfig.appendLog(to: AppConfig.syncLogURL, ts + " " + message + "\n")
+}
+
+/// 常量时间比较：先 SHA-256 哈希到固定长度，再逐字节异或，避免长度侧信道
+private func constantTimeEquals(_ a: String, _ b: String) -> Bool {
+    let ha = Data(SHA256.hash(data: Data(a.utf8)))
+    let hb = Data(SHA256.hash(data: Data(b.utf8)))
+    var diff: UInt8 = 0
+    for i in 0..<ha.count { diff |= ha[i] ^ hb[i] }
+    return diff == 0
 }
 
 // MARK: - 同步配置
@@ -42,6 +52,15 @@ final class SyncManager: @unchecked Sendable {
     var config: SyncConfig {
         get { lock.withLock { _config } }
         set { lock.withLock { _config = newValue }; _config.save() }
+    }
+
+    /// 推送令牌：优先取设置（SecureStore 加密存储），fallback 到 DSMON_PUSH_TOKEN 环境变量
+    var pushToken: String? {
+        if let stored = SecureStore.retrieve(key: Strings.Keys.syncPushToken), !stored.isEmpty {
+            return stored
+        }
+        let env = ProcessInfo.processInfo.environment["DSMON_PUSH_TOKEN"] ?? ""
+        return env.isEmpty ? nil : env
     }
 
     @MainActor @Published private(set) var observableStatus: SyncConnectionStatus = .idle
@@ -222,6 +241,23 @@ final class SyncManager: @unchecked Sendable {
                     default: return ""
                     }
                 }()
+
+                // 推送令牌校验（未配置令牌则保持开放）。注意：不得将令牌写入日志。
+                var providedToken = ""
+                for line in lines {
+                    if line.lowercased().hasPrefix("authorization:") {
+                        let value = line.dropFirst("authorization:".count).trimmingCharacters(in: .whitespaces)
+                        if value.lowercased().hasPrefix("bearer ") {
+                            providedToken = String(value.dropFirst("bearer ".count)).trimmingCharacters(in: .whitespaces)
+                        }
+                    }
+                }
+                if let expected = self.pushToken, !expected.isEmpty, !constantTimeEquals(providedToken, expected) {
+                    syncLog("[Sync] Server: UNAUTHORIZED push from \(clientIP) (missing/mismatched token)")
+                    sendHTTP(connection, 401, Data("{\"error\":\"unauthorized\"}".utf8), "application/json")
+                    break
+                }
+
                 if var records = try? decoder.decode([UsageRecord].self, from: body) {
                     // Stamp sourceIP if not already set by the client
                     for i in records.indices where records[i].sourceIP.isEmpty {
@@ -272,6 +308,7 @@ final class SyncManager: @unchecked Sendable {
         switch status {
         case 200: t = "OK"
         case 400: t = "Bad Request"
+        case 401: t = "Unauthorized"
         case 404: t = "Not Found"
         case 500: t = "Internal Server Error"
         default: t = "Unknown"
@@ -377,6 +414,9 @@ final class SyncManager: @unchecked Sendable {
             pushReq.httpMethod = "POST"
             pushReq.httpBody = body
             pushReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            if let token = SyncManager.shared.pushToken, !token.isEmpty {
+                pushReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
             let (_, pushResp) = try await session.data(for: pushReq)
             guard let pushHTTP = pushResp as? HTTPURLResponse, pushHTTP.statusCode == 200 else {
                 throw SyncError.httpError

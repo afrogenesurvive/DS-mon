@@ -50,6 +50,7 @@ enum Strings {
         static let syncListenPort = "sync_listen_port"
         static let syncTargetAddress = "sync_target_address"
         static let syncInterval = "sync_interval"
+        static let syncPushToken = "sync_push_token"
         static let defaultProviderId = "default_provider_id"
         static let menuBarColor = "menu_bar_color"
         static let currencySymbol = "currency_symbol"
@@ -249,6 +250,11 @@ enum Strings {
     static var syncModeHint: String { isZH ? "服务器模式：本机监听端口，供其他设备连接；客户端模式：主动连接服务器拉取/推送数据" : "Server: listen for incoming connections; Client: connect to server to sync data" }
     static var syncPortHint: String { isZH ? "需要确保端口未被占用，且防火墙已放行" : "Ensure port is not in use and firewall allows it" }
     static var syncAddressHint: String { isZH ? "客户端填写目标服务器 IP:端口，如 1.2.3.4:6000" : "Client: target server IP:port, e.g. 1.2.3.4:6000" }
+    static var syncPushTokenLabel: String { isZH ? "推送令牌" : "Push Token" }
+    static var syncPushTokenHint: String { isZH ? "共享令牌：客户端推送 /sync/push 时需携带 Authorization: Bearer <token>；留空则接受开放推送" : "Shared token: clients must send Authorization: Bearer <token> on POST /sync/push; leave blank to accept open pushes" }
+    static var syncPushTokenGenerateHint: String { isZH ? "生成随机推送令牌" : "Generate a random push token" }
+    static var syncPushTokenRevealHint: String { isZH ? "显示/隐藏令牌" : "Show / hide token" }
+    static var syncPushTokenCopyHint: String { isZH ? "复制令牌" : "Copy token" }
 
     // MARK: - ☁️ GitHub
     static var githubSection: String { isZH ? "GitHub Actions" : "GitHub Actions" }

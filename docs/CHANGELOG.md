@@ -1,5 +1,17 @@
 # Changelog
 
+## [main-5] — 2026-08-04
+
+### Added
+
+- **Push-token auth for `/sync/push`**: new "Push Token" field in Settings → Services → Data Sync. Token is stored encrypted via SecureStore (with `DSMON_PUSH_TOKEN` env var fallback) and can be generated (256-bit via `SecRandomCopyBytes`), revealed, or copied from the UI.
+- When a push token is configured, `POST /sync/push` now requires `Authorization: Bearer <token>` — missing/mismatched tokens return `401 {"error":"unauthorized"}` and records are not inserted. Comparison is constant-time (CryptoKit SHA-256 + byte XOR) to avoid timing/length side channels.
+- Client-mode sync pushes now send the same bearer token, so DS-mon↔DS-mon sync keeps working against a server that enforces a token.
+
+### Changed
+
+- No token configured → `/sync/push` remains open (backward compatible). The "Usage by Source" aggregation is unaffected.
+
 ## [main-4] — 2026-07-27
 
 ### Fixed

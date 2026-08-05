@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import Security
 
 struct ServicesSettingsView: View {
     let stats: DeepSeekStats
@@ -214,6 +216,8 @@ private struct SyncSettingsView: View {
     @State private var syncListenPort: UInt16 = SyncManager.shared.config.listenPort
     @State private var syncTargetAddress: String = SyncManager.shared.config.targetAddress
     @State private var syncInterval: Double = SyncManager.shared.config.syncInterval
+    @State private var syncPushToken: String = SecureStore.retrieve(key: Strings.Keys.syncPushToken) ?? ""
+    @State private var showPushToken: Bool = false
     @State private var syncConnectionStatus: SyncConnectionStatus = SyncManager.shared.observableStatus
     @State private var lastSyncTime: Date? = SyncManager.shared.lastSyncTime
 
@@ -318,6 +322,53 @@ private struct SyncSettingsView: View {
             }
 
             HStack(spacing: 8) {
+                Text(Strings.syncPushTokenLabel).font(.caption).foregroundColor(.secondary)
+                Group {
+                    if showPushToken {
+                        TextField("", text: $syncPushToken)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.caption, design: .monospaced))
+                    } else {
+                        SecureField("", text: $syncPushToken)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.caption, design: .monospaced))
+                    }
+                }
+                .disabled(syncEnabled)
+                .onChange(of: syncPushToken) { _, newVal in
+                    SecureStore.save(key: Strings.Keys.syncPushToken, value: newVal)
+                }
+                Button {
+                    showPushToken.toggle()
+                } label: {
+                    Image(systemName: showPushToken ? "eye.slash" : "eye")
+                }
+                .buttonStyle(.bordered)
+                .disabled(syncEnabled)
+                .help(Strings.syncPushTokenRevealHint)
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(syncPushToken, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+                .disabled(syncEnabled || syncPushToken.isEmpty)
+                .help(Strings.syncPushTokenCopyHint)
+                Button {
+                    let generated = generatePushToken()
+                    syncPushToken = generated
+                    SecureStore.save(key: Strings.Keys.syncPushToken, value: generated)
+                } label: {
+                    Image(systemName: "wand.and.stars")
+                }
+                .buttonStyle(.bordered)
+                .disabled(syncEnabled)
+                .help(Strings.syncPushTokenGenerateHint)
+            }
+            Text(Strings.syncPushTokenHint).font(.caption2).foregroundColor(.secondary)
+
+            HStack(spacing: 8) {
                 Text(Strings.syncIntervalLabel).font(.caption).foregroundColor(.secondary)
                 TextField("30", value: $syncInterval, format: .number)
                     .textFieldStyle(.roundedBorder).frame(width: 60).multilineTextAlignment(.trailing)
@@ -353,4 +404,13 @@ private struct SyncSettingsView: View {
             stats.refresh()
         }
     }
+}
+
+// MARK: - 工具
+
+/// 生成 256-bit 随机推送令牌（64 个十六进制字符，对应 `openssl rand -hex 32`）
+private func generatePushToken() -> String {
+    var bytes = [UInt8](repeating: 0, count: 32)
+    guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return "" }
+    return bytes.map { String(format: "%02x", $0) }.joined()
 }
