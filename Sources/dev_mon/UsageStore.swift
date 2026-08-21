@@ -10,7 +10,12 @@ struct ModelPricing: Codable, Equatable, Sendable {
     var missPrice: Double  // 缓存未命中输入
     var outPrice: Double   // 输出
 
-    static let displayedModels: [String] = ["deepseek-v4-flash", "deepseek-v4-pro"]
+    static let displayedModels: [String] = [
+        "deepseek-v4-flash", "deepseek-v4-pro",
+        "gpt-4o", "gpt-4o-mini",
+        "claude-sonnet-4", "claude-opus-4",
+        "kimi-k2.6",
+    ]
 
     static let `default`: [String: ModelPricing] = [
         "deepseek-v4-flash":  ModelPricing(label: "V4 Flash", hitPrice: 0.02, missPrice: 1.0,  outPrice: 2.0),
@@ -19,17 +24,66 @@ struct ModelPricing: Codable, Equatable, Sendable {
         "deepseek-reasoner":  ModelPricing(label: "V4 Flash", hitPrice: 0.02, missPrice: 1.0,  outPrice: 2.0),
     ]
 
+    /// OpenAI 定价（USD / 1M tokens）
+    static let openaiDefault: [String: ModelPricing] = [
+        "gpt-4o-mini": ModelPricing(label: "GPT-4o mini", hitPrice: 0.075, missPrice: 0.15, outPrice: 0.60),
+        "gpt-4o":      ModelPricing(label: "GPT-4o",      hitPrice: 1.25,  missPrice: 2.50, outPrice: 10.00),
+        "gpt-4.1":     ModelPricing(label: "GPT-4.1",     hitPrice: 0.50,  missPrice: 2.00, outPrice: 8.00),
+        "gpt-4":       ModelPricing(label: "GPT-4",       hitPrice: 15.0,  missPrice: 30.0, outPrice: 60.0),
+        "o1":          ModelPricing(label: "o1",          hitPrice: 7.5,   missPrice: 15.0, outPrice: 60.0),
+        "o3":          ModelPricing(label: "o3",          hitPrice: 1.0,   missPrice: 2.0,  outPrice: 8.0),
+        "o4-mini":     ModelPricing(label: "o4-mini",     hitPrice: 0.55,  missPrice: 1.10, outPrice: 4.40),
+        "o4":          ModelPricing(label: "o4",          hitPrice: 1.0,   missPrice: 2.0,  outPrice: 8.0),
+    ]
+
+    /// Anthropic 定价（USD / 1M tokens）
+    static let anthropicDefault: [String: ModelPricing] = [
+        "claude-3-5-sonnet": ModelPricing(label: "Claude 3.5 Sonnet", hitPrice: 0.30, missPrice: 3.00, outPrice: 15.00),
+        "claude-3-7-sonnet": ModelPricing(label: "Claude 3.7 Sonnet", hitPrice: 0.30, missPrice: 3.00, outPrice: 15.00),
+        "claude-sonnet-4":   ModelPricing(label: "Claude Sonnet 4",   hitPrice: 0.30, missPrice: 3.00, outPrice: 15.00),
+        "claude-sonnet-4-5": ModelPricing(label: "Claude Sonnet 4.5", hitPrice: 0.30, missPrice: 3.00, outPrice: 15.00),
+        "claude-opus-4":     ModelPricing(label: "Claude Opus 4",     hitPrice: 1.50, missPrice: 15.0, outPrice: 75.00),
+        "claude-opus-4-1":   ModelPricing(label: "Claude Opus 4.1",   hitPrice: 1.50, missPrice: 15.0, outPrice: 75.00),
+        "claude-haiku":      ModelPricing(label: "Claude Haiku",      hitPrice: 0.10, missPrice: 1.00, outPrice: 5.00),
+        "claude-haiku-3-5":  ModelPricing(label: "Claude Haiku 3.5",  hitPrice: 0.08, missPrice: 0.80, outPrice: 4.00),
+    ]
+
+    /// Kimi 定价（CNY / 1M tokens）
+    static let kimiDefault: [String: ModelPricing] = [
+        "kimi-k2.6":              ModelPricing(label: "K2.6",     hitPrice: 2.0, missPrice: 4.0, outPrice: 12.0),
+        "moonshot-v1-8k":         ModelPricing(label: "V1 8K",    hitPrice: 0.06, missPrice: 0.12, outPrice: 0.12),
+        "moonshot-v1-32k":        ModelPricing(label: "V1 32K",   hitPrice: 0.24, missPrice: 0.48, outPrice: 0.48),
+        "moonshot-v1-128k":       ModelPricing(label: "V1 128K",  hitPrice: 0.96, missPrice: 1.92, outPrice: 1.92),
+        "moonshot-v1-32k-vision-preview": ModelPricing(label: "V1 Vision", hitPrice: 0.24, missPrice: 0.48, outPrice: 0.48),
+    ]
+
     static func forModel(_ model: String, providerId: String? = nil) -> ModelPricing {
-        // 查全局自定义
-        let custom = Self.loadCustom()
-        for (key, pricing) in custom {
-            if model == key || model.hasPrefix(key) { return pricing }
+        // 1) 全局自定义（用户覆盖）优先
+        if let pricing = match(model, in: Self.loadCustom()) { return pricing }
+        // 2) 按提供商定价表查询
+        switch providerId ?? "" {
+        case "openai":
+            if let pricing = match(model, in: Self.openaiDefault) { return pricing }
+        case "anthropic":
+            if let pricing = match(model, in: Self.anthropicDefault) { return pricing }
+        case "kimi":
+            if let pricing = match(model, in: Self.kimiDefault) { return pricing }
+        default:
+            if let pricing = match(model, in: Self.default) { return pricing }
         }
-        // 查内置默认
-        for (key, pricing) in Self.default {
-            if model == key || model.hasPrefix(key) { return pricing }
-        }
+        // 3) 兜底：全局默认表，最后 deepseek-v4-flash
+        if let pricing = match(model, in: Self.default) { return pricing }
         return Self.default["deepseek-v4-flash"]!
+    }
+
+    /// 先精确匹配，再按 key 长度降序做前缀匹配，避免 "gpt-4o" 误配 "gpt-4o-mini"
+    private static func match(_ model: String, in table: [String: ModelPricing]) -> ModelPricing? {
+        if let exact = table[model] { return exact }
+        let keys = table.keys.sorted { $0.count > $1.count }
+        for key in keys where model.hasPrefix(key) {
+            return table[key]
+        }
+        return nil
     }
 
     static func computeCost(promptTokens: Int, completionTokens: Int,
@@ -60,9 +114,10 @@ struct ModelPricing: Codable, Equatable, Sendable {
 
     static var allWithOverrides: [String: ModelPricing] {
         var result = Self.default
-        for (key, pricing) in Self.loadCustom() {
-            result[key] = pricing
-        }
+        for (key, pricing) in Self.kimiDefault { result[key] = pricing }
+        for (key, pricing) in Self.openaiDefault { result[key] = pricing }
+        for (key, pricing) in Self.anthropicDefault { result[key] = pricing }
+        for (key, pricing) in Self.loadCustom() { result[key] = pricing }
         return result
     }
 }
@@ -251,7 +306,7 @@ actor UsageStore {
         defer { sqlite3_exec(handle, "COMMIT", nil, nil, nil) }
 
         let selectSql = """
-        SELECT id, model, prompt_tokens, completion_tokens, cached_tokens
+        SELECT id, model, prompt_tokens, completion_tokens, cached_tokens, provider_id
         FROM usage_log WHERE cost = 0;
         """
         var selectStmt: OpaquePointer?
@@ -269,8 +324,9 @@ actor UsageStore {
             let pt = Int(sqlite3_column_int64(selectStmt, 2))
             let ct = Int(sqlite3_column_int64(selectStmt, 3))
             let ca = Int(sqlite3_column_int64(selectStmt, 4))
+            let providerId = String(cString: sqlite3_column_text(selectStmt, 5))
 
-            let pricing = ModelPricing.forModel(model)
+            let pricing = ModelPricing.forModel(model, providerId: providerId)
             let cost = ModelPricing.computeCost(promptTokens: pt, completionTokens: ct, cachedTokens: ca, pricing: pricing)
 
             sqlite3_bind_double(updateStmt, 1, cost)
@@ -285,7 +341,7 @@ actor UsageStore {
 
     func insert(_ record: UsageRecord) {
         guard let db else { return }
-        let pricing = ModelPricing.forModel(record.model)
+        let pricing = ModelPricing.forModel(record.model, providerId: record.providerId)
         let cost = ModelPricing.computeCost(
             promptTokens: record.promptTokens,
             completionTokens: record.completionTokens,
@@ -365,7 +421,7 @@ actor UsageStore {
                 promptTokens: record.promptTokens,
                 completionTokens: record.completionTokens,
                 cachedTokens: record.cachedTokens,
-                pricing: ModelPricing.forModel(record.model)
+                pricing: ModelPricing.forModel(record.model, providerId: record.providerId)
             )
             bindRecord(stmt!, record, cost: cost)
             sqlite3_step(stmt!)

@@ -651,7 +651,7 @@ struct StatsPopoverView: View {
 
     private var tabBar: some View {
         HStack(spacing: 4) {
-            tabButton(title: "DeepSeek", icon: "brain.head.profile", tag: 0)
+            tabButton(title: Strings.usageTabTitle, icon: "brain.head.profile", tag: 0)
             tabButton(title: "GitHub", icon: "logo.github", tag: 1)
             tabButton(title: "AWS", icon: "cloud.fill", tag: 2)
             Spacer()

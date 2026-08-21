@@ -8,6 +8,7 @@ struct ThresholdView: View {
     enum SettingsTab: String, CaseIterable {
         case general  = "通用"
         case provider = "Provider"
+        case license  = "许可"
         case services = "服务"
         case about    = "关于"
 
@@ -15,6 +16,7 @@ struct ThresholdView: View {
             switch self {
             case .general:  return "switch.2"
             case .provider: return "cube.fill"
+            case .license:  return "checkmark.shield.fill"
             case .services: return "network"
             case .about:    return "info.circle"
             }
@@ -24,6 +26,7 @@ struct ThresholdView: View {
             switch self {
             case .general:  return Strings.settingsTabGeneral
             case .provider: return Strings.providerTitle
+            case .license:  return Strings.settingsTabLicense
             case .services: return Strings.settingsTabServices
             case .about:    return Strings.settingsTabAbout
             }
@@ -64,6 +67,7 @@ struct ThresholdView: View {
                 switch selectedTab {
                 case .general:  GeneralSettingsView()
                 case .provider: ProviderSettingsView(stats: stats)
+                case .license:  LicenseSettingsView()
                 case .services: ServicesSettingsView(stats: stats)
                 case .about:    AboutSettingsView()
                 }

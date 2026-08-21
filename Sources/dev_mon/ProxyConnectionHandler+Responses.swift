@@ -5,7 +5,7 @@ extension ProxyConnectionHandler {
     /// 直接处理 /v1/responses 请求：翻译 → URLSession 发送 → 返回响应
     func handleResponsesDirectly(
         method: String, path: String, headers: [String: String], body: Data,
-        providerInfo: (baseURL: String, authHeader: String?, providerId: String, apiPath: String, defaultModel: String?)?,
+        providerInfo: (baseURL: String, authHeaders: [String: String], providerId: String, apiPath: String, defaultModel: String?)?,
         requestModel: String, userAgent: String
     ) async {
         // 解析 Responses API 请求
@@ -73,8 +73,8 @@ extension ProxyConnectionHandler {
         urlReq.httpBody = chatBody
         urlReq.timeoutInterval = AppConfig.proxyRequestTimeout
         urlReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let auth = info.authHeader {
-            urlReq.setValue(auth, forHTTPHeaderField: "Authorization")
+        for (name, value) in info.authHeaders {
+            urlReq.setValue(value, forHTTPHeaderField: name)
         }
 
         let start = Date()

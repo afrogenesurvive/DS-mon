@@ -16,10 +16,17 @@ protocol Provider: Sendable {
     var opencodeProviderId: String { get }
     func parseBalance(_ json: [String: Any]) -> (total: Double, granted: Double, toppedUp: Double)?
     var currency: String { get }
+    /// 构造访问上游所需的认证请求头（默认 Authorization: Bearer）。
+    /// Anthropic 等提供商可覆盖为 x-api-key / anthropic-version。
+    func authHeaders(for apiKey: String) -> [String: String]
 }
 
 extension Provider {
     var authPrefix: String { "Bearer" }
+
+    func authHeaders(for apiKey: String) -> [String: String] {
+        ["Authorization": "\(authPrefix) \(apiKey)"]
+    }
     var apiPath: String { "/v1" }
     var preferredDefaultModel: String? { nil }
     var rpmLimit: Int? { nil }

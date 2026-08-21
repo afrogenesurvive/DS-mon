@@ -111,11 +111,11 @@ final class ProxyConnectionHandler: @unchecked Sendable {
         let isResponsesApi = path.contains("/v1/responses")
         let userAgent = headers["User-Agent"] ?? headers["user-agent"] ?? ""
         let upstreamBase: String
-        var pendingAuthHeader: String?
+        var pendingAuthHeaders: [String: String] = [:]
         var activeProviderId: String = ""
 
         // 从主 actor 获取活跃提供商信息
-        let providerInfo = await MainActor.run { () -> (baseURL: String, authHeader: String?, providerId: String, apiPath: String, defaultModel: String?)? in
+        let providerInfo = await MainActor.run { () -> (baseURL: String, authHeaders: [String: String], providerId: String, apiPath: String, defaultModel: String?)? in
             // 从请求 body 提取 model，查找匹配的提供商
             let model = (try? JSONSerialization.jsonObject(with: body)).flatMap { $0 as? [String: Any] }?["model"] as? String
             let p: (any Provider)?
@@ -126,13 +126,16 @@ final class ProxyConnectionHandler: @unchecked Sendable {
             }
             guard let p else { return nil }
             let key = ProviderManager.shared.apiKey(for: p.id)
-            let auth = key.isEmpty ? nil : "\(p.authPrefix) \(key)"
+            let authHeaders = key.isEmpty ? [:] : p.authHeaders(for: key)
             let defaultModel = p.preferredDefaultModel ?? p.fallbackModels.keys.sorted().first
-            return (p.baseURL, auth, p.id, p.apiPath, defaultModel)
+            return (p.baseURL, authHeaders, p.id, p.apiPath, defaultModel)
         }
 
-        // RPM 限流检查
-        let rpmLimit = await MainActor.run { ProviderManager.shared.activeProvider?.rpmLimit }
+        // RPM 限流检查（按实际路由到的提供商限流，而非默认提供商）
+        let rpmLimit = await MainActor.run { () -> Int? in
+            guard let info = providerInfo else { return nil }
+            return ProviderManager.shared.provider(byId: info.providerId)?.rpmLimit
+        }
         if let pid = providerInfo?.providerId, let limit = rpmLimit {
             guard RateLimiter.shared.check(providerId: pid, rpmLimit: limit) else {
                 let retryAfter = "60"
@@ -177,7 +180,7 @@ final class ProxyConnectionHandler: @unchecked Sendable {
         let targetURL: URL
         if let info = providerInfo {
             upstreamBase = info.baseURL
-            pendingAuthHeader = info.authHeader
+            pendingAuthHeaders = info.authHeaders
             activeProviderId = info.providerId
 
             let baseWithoutSlash = info.baseURL.hasSuffix("/")
@@ -221,9 +224,9 @@ final class ProxyConnectionHandler: @unchecked Sendable {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
 
-        // 使用活跃提供商的 API Key 覆盖 Authorization 头
-        if let auth = pendingAuthHeader {
-            req.setValue(auth, forHTTPHeaderField: "Authorization")
+        // 使用路由提供商的认证头覆盖（Bearer / x-api-key 等）
+        for (name, value) in pendingAuthHeaders {
+            req.setValue(value, forHTTPHeaderField: name)
         }
 
         let start = Date()
@@ -291,6 +294,9 @@ final class ProxyConnectionHandler: @unchecked Sendable {
             let isChatCompletion = statusCode == 200 && path.contains("/chat/completions")
             if isChatCompletion {
                 usageLogger.logChatUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, statusCode: statusCode, providerId: activeProviderId, userAgent: userAgent)
+            } else if path.contains("/v1/messages") {
+                // Anthropic Messages API
+                usageLogger.logMessagesUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, statusCode: statusCode, providerId: activeProviderId, userAgent: userAgent)
             } else {
                 usageLogger.logResponsesUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, providerId: activeProviderId, userAgent: userAgent)
                 let preview = String(data: accumulatedBody.prefix(800), encoding: .utf8) ?? "(非文本)"

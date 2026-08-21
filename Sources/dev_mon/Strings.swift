@@ -51,6 +51,8 @@ enum Strings {
         static let syncTargetAddress = "sync_target_address"
         static let syncInterval = "sync_interval"
         static let syncPushToken = "sync_push_token"
+        static let seatRegistry = "seat_registry"
+        static let seatRegistryFilePath = "seat_registry_file"
         static let defaultProviderId = "default_provider_id"
         static let menuBarColor = "menu_bar_color"
         static let currencySymbol = "currency_symbol"
@@ -139,7 +141,7 @@ enum Strings {
     static var parseFailed: String { isZH ? "查询失败：解析响应数据失败" : "Query failed: failed to parse response" }
     static var keyInvalid: String { isZH ? "API Key 无效或已过期" : "API Key invalid or expired" }
     static var rateLimited: String { isZH ? "请求过于频繁，请稍后重试" : "Rate limited, please retry later" }
-    static var serviceDown: String { isZH ? "DeepSeek 服务暂时不可用" : "DeepSeek service temporarily unavailable" }
+    static var serviceDown: String { isZH ? "服务暂时不可用" : "Service temporarily unavailable" }
     static func queryFailed(code: Int) -> String {
         isZH ? "查询失败（HTTP \(code)）" : "Query failed (HTTP \(code))"
     }
@@ -174,17 +176,41 @@ enum Strings {
         isZH ? "\(name) 的 API Key 将用于代理转发" : "API Key for \(name) will be used for proxy forwarding"
     }
     static var save: String { isZH ? "保存" : "Save" }
-    static var aboutDesc: String { isZH ? "实时监控 DeepSeek API 使用情况" : "Monitors DeepSeek API usage in real-time" }
+    static var aboutDesc: String { isZH ? "实时监控 AI API 使用情况" : "Monitors AI API usage in real-time" }
 
 
     // Proxy
     static var proxySection: String { isZH ? "本地代理" : "Proxy" }
     static var proxyToggle: String { isZH ? "启用代理" : "Enable Proxy" }
-    static var proxyToggleHint: String { isZH ? "拦截并记录 DeepSeek API 调用数据" : "Intercept and log DeepSeek API calls" }
+    static var proxyToggleHint: String { isZH ? "拦截并记录 API 调用数据" : "Intercept and log API calls" }
     static var proxyPortLabel: String { isZH ? "代理端口" : "Proxy Port" }
     static var proxyPortHint: String { isZH ? "客户端设置 base_url 为 http://localhost:{port}" : "Set client base_url to http://localhost:{port}" }
     static var proxyRunning: String { isZH ? "代理已启动" : "Proxy running" }
     static var proxyStopped: String { isZH ? "代理已停止" : "Proxy stopped" }
+
+    // License
+    static var settingsTabLicense: String { isZH ? "许可" : "License" }
+    static var licenseSection: String { isZH ? "席位注册表（吊销授权）" : "Seat Registry (revocation)" }
+    static func licenseSeatCount(_ n: Int) -> String {
+        isZH ? "共 \(n) 个席位" : "\(n) seats"
+    }
+    static var licenseNoSeats: String { isZH ? "暂无席位。添加一个 sub（座位标识）以管理吊销。" : "No seats. Add a sub to manage revocations." }
+    static var licenseAddSeat: String { isZH ? "添加席位" : "Add Seat" }
+    static var licenseAddButton: String { isZH ? "添加" : "Add" }
+    static var licenseSubPlaceholder: String { isZH ? "sub（座位标识）" : "sub" }
+    static var licenseKidPlaceholder: String { isZH ? "kid（可选）" : "kid (optional)" }
+    static var licenseExpPlaceholder: String { isZH ? "过期（unix 秒，0=不限）" : "exp (unix sec, 0=unlimited)" }
+    static var licenseUnlimited: String { isZH ? "不限" : "Unlimited" }
+    static func licenseExpires(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return isZH ? "过期 \(f.string(from: date))" : "exp \(f.string(from: date))"
+    }
+    static var licenseFileLabel: String { isZH ? "注册表文件" : "Registry File" }
+    static var licenseFileHint: String { isZH ? "可选 JSON 文件路径（[{sub,kid,exp,revoked}]）。文件优先于内嵌列表。" : "Optional JSON file path ([{sub,kid,exp,revoked}]). File takes precedence over the inline list." }
+    static var licenseRevokedHint: String { isZH ? "吊销此席位" : "Revoke this seat" }
+    static var licenseRemoveHint: String { isZH ? "移除席位" : "Remove seat" }
+    static var usageTabTitle: String { isZH ? "用量" : "Usage" }
 
     // Usage stats
     static var usageTitle: String { isZH ? "总用量" : "Total Usage" }

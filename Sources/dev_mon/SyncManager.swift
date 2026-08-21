@@ -63,6 +63,35 @@ final class SyncManager: @unchecked Sendable {
         return env.isEmpty ? nil : env
     }
 
+    /// 从 HTTP 请求头中解析 Bearer token
+    private func bearerToken(from lines: [String]) -> String {
+        for line in lines {
+            guard line.lowercased().hasPrefix("authorization:") else { continue }
+            let value = line.dropFirst("authorization:".count).trimmingCharacters(in: .whitespaces)
+            guard value.lowercased().hasPrefix("bearer ") else { continue }
+            return String(value.dropFirst("bearer ".count)).trimmingCharacters(in: .whitespaces)
+        }
+        return ""
+    }
+
+    /// 校验推送 / 许可检查令牌。失败时发送 401 并返回 false。注意：不得将令牌写入日志。
+    private func requirePushAuth(_ lines: [String], connection: NWConnection) -> Bool {
+        guard let expected = self.pushToken, !expected.isEmpty else { return true }
+        guard constantTimeEquals(bearerToken(from: lines), expected) else {
+            syncLog("[Sync] Server: UNAUTHORIZED (missing/mismatched token)")
+            sendHTTP(connection, 401, Data("{\"error\":\"unauthorized\"}".utf8), "application/json")
+            return false
+        }
+        return true
+    }
+
+    /// 可选信封解密：已配置密钥时尝试解开信封；失败则回退原始 body（兼容明文）
+    private func maybeDecryptEnvelope(_ body: Data) -> Data {
+        guard EnvelopeCrypto.isConfigured() else { return body }
+        if let opened = EnvelopeCrypto.open(body) { return opened }
+        return body
+    }
+
     @MainActor @Published private(set) var observableStatus: SyncConnectionStatus = .idle
     /// 同步完成计数器，每次同步完成后递增（用于触发 UI 刷新）
     @MainActor @Published private(set) var syncCount: UInt = 0
@@ -243,22 +272,9 @@ final class SyncManager: @unchecked Sendable {
                 }()
 
                 // 推送令牌校验（未配置令牌则保持开放）。注意：不得将令牌写入日志。
-                var providedToken = ""
-                for line in lines {
-                    if line.lowercased().hasPrefix("authorization:") {
-                        let value = line.dropFirst("authorization:".count).trimmingCharacters(in: .whitespaces)
-                        if value.lowercased().hasPrefix("bearer ") {
-                            providedToken = String(value.dropFirst("bearer ".count)).trimmingCharacters(in: .whitespaces)
-                        }
-                    }
-                }
-                if let expected = self.pushToken, !expected.isEmpty, !constantTimeEquals(providedToken, expected) {
-                    syncLog("[Sync] Server: UNAUTHORIZED push from \(clientIP) (missing/mismatched token)")
-                    sendHTTP(connection, 401, Data("{\"error\":\"unauthorized\"}".utf8), "application/json")
-                    break
-                }
+                guard requirePushAuth(lines, connection: connection) else { break }
 
-                if var records = try? decoder.decode([UsageRecord].self, from: body) {
+                if var records = try? decoder.decode([UsageRecord].self, from: maybeDecryptEnvelope(body)) {
                     // Stamp sourceIP if not already set by the client
                     for i in records.indices where records[i].sourceIP.isEmpty {
                         records[i] = UsageRecord(
@@ -288,6 +304,53 @@ final class SyncManager: @unchecked Sendable {
                     }
                     sendHTTP(connection, 400, Data("{\"ok\":false}".utf8), "application/json")
                 }
+
+            case ("POST", "/license/check"):
+                // Hybrid 授权权威：回答“该席位是否已被吊销”。与 push 共用令牌校验。
+                guard requirePushAuth(lines, connection: connection) else { break }
+
+                let payload = maybeDecryptEnvelope(body)
+
+                struct LicenseCheckRequest: Codable {
+                    let sub: String
+                    let kid: String
+                    let ts: Int
+                }
+                guard let req = try? JSONDecoder().decode(LicenseCheckRequest.self, from: payload) else {
+                    syncLog("[Sync] Server: /license/check bad request")
+                    sendHTTP(connection, 400, Data("{\"ok\":false,\"error\":\"bad_request\"}".utf8), "application/json")
+                    break
+                }
+
+                let status = SeatRegistry.shared.status(for: req.sub)
+                let revoked = status?.revoked ?? false
+                let exp = status?.exp ?? 0
+                syncLog("[Sync] Server: /license/check sub=\(req.sub) revoked=\(revoked) exp=\(exp)")
+
+                struct LicenseCheckResponse: Codable {
+                    let ok: Bool
+                    let revoked: Bool
+                    let exp: Int
+                    let seat: Seat
+                    let checkedAt: String
+                    struct Seat: Codable {
+                        let sub: String
+                        let kid: String
+                    }
+                }
+                let resp = LicenseCheckResponse(
+                    ok: true,
+                    revoked: revoked,
+                    exp: exp,
+                    seat: .init(sub: req.sub, kid: req.kid),
+                    checkedAt: ISO8601DateFormatter().string(from: Date())
+                )
+                guard let data = try? JSONEncoder().encode(resp) else {
+                    sendHTTP(connection, 500, Data())
+                    break
+                }
+                let out = EnvelopeCrypto.isConfigured() ? (EnvelopeCrypto.seal(data) ?? data) : data
+                sendHTTP(connection, 200, out, "application/json")
 
             default:
                 syncLog("[Sync] Server: unknown path \(path)")

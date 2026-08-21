@@ -98,6 +98,83 @@ struct UsageLogger: @unchecked Sendable {
         insertAndNotify(record)
     }
 
+    /// 记录 Anthropic Messages API（/v1/messages）用量
+    func logMessagesUsage(requestBody: Data, responseBody: Data, latencyMs: Double, statusCode: Int, providerId: String = "", userAgent: String = "") {
+        var usage: [String: Any]?
+
+        // 1) 非流式：顶层 usage 对象
+        if let json = try? JSONSerialization.jsonObject(with: responseBody) as? [String: Any],
+           let u = json["usage"] as? [String: Any] {
+            usage = u
+        } else if let text = String(data: responseBody, encoding: .utf8) {
+            // 2) 流式：聚合 message_start（输入）+ message_delta（输出）
+            var input = 0, output = 0, cacheCreation = 0, cacheRead = 0
+            var found = false
+            for line in text.components(separatedBy: "\n") {
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard trimmed.hasPrefix("data: ") else { continue }
+                let jsonStr = String(trimmed.dropFirst(6))
+                guard let chunkData = jsonStr.data(using: .utf8),
+                      let json = try? JSONSerialization.jsonObject(with: chunkData) as? [String: Any] else { continue }
+                switch json["type"] as? String ?? "" {
+                case "message_start":
+                    found = true
+                    if let message = json["message"] as? [String: Any],
+                       let u = message["usage"] as? [String: Any] {
+                        input = u["input_tokens"] as? Int ?? 0
+                        cacheRead = u["cache_read_input_tokens"] as? Int ?? 0
+                    }
+                case "message_delta":
+                    found = true
+                    if let u = json["usage"] as? [String: Any] {
+                        output = u["output_tokens"] as? Int ?? 0
+                        cacheCreation = u["cache_creation_input_tokens"] as? Int ?? 0
+                    }
+                default:
+                    break
+                }
+            }
+            guard found else { return }
+            usage = [
+                "input_tokens": input,
+                "output_tokens": output,
+                "total_tokens": input + output,
+                "cache_creation_input_tokens": cacheCreation,
+                "cache_read_input_tokens": cacheRead,
+            ]
+        }
+
+        guard let usage else { return }
+        writeMessagesUsage(requestBody: requestBody, usage: usage, latencyMs: latencyMs, statusCode: statusCode, providerId: providerId, userAgent: userAgent)
+    }
+
+    private func writeMessagesUsage(requestBody: Data, usage: [String: Any], latencyMs: Double, statusCode: Int, providerId: String = "", userAgent: String = "") {
+        var model = "unknown"
+        if let reqJSON = try? JSONSerialization.jsonObject(with: requestBody) as? [String: Any] {
+            model = reqJSON["model"] as? String ?? "unknown"
+        }
+        saveLastModel(model, providerId: providerId)
+        let input = usage["input_tokens"] as? Int ?? 0
+        let output = usage["output_tokens"] as? Int ?? 0
+        let record = UsageRecord(
+            uuid: UUID().uuidString,
+            timestamp: Date(),
+            providerId: providerId,
+            model: model,
+            endpoint: "/v1/messages",
+            promptTokens: input,
+            completionTokens: output,
+            totalTokens: usage["total_tokens"] as? Int ?? (input + output),
+            cachedTokens: usage["cache_read_input_tokens"] as? Int ?? 0,
+            reasoningTokens: 0,
+            latencyMs: latencyMs,
+            statusCode: statusCode,
+            userAgent: userAgent,
+            sourceIP: ""
+        )
+        insertAndNotify(record)
+    }
+
     private func writeUsage(requestBody: Data, usage: [String: Any], latencyMs: Double, statusCode: Int, providerId: String = "", userAgent: String = "") {
         var model = "unknown"
         if let reqJSON = try? JSONSerialization.jsonObject(with: requestBody) as? [String: Any] {

@@ -28,6 +28,8 @@ final class ProviderManager {
     private func registerBuiltInProviders() {
         register(DeepSeekProvider())
         register(KimiProvider())
+        register(OpenAIProvider())
+        register(AnthropicProvider())
     }
 
     func register(_ provider: any Provider) {
@@ -157,7 +159,9 @@ final class ProviderManager {
             let urlStr = provider.baseURL + provider.apiPath + "/models"
             guard let url = URL(string: urlStr) else { continue }
             var req = URLRequest(url: url)
-            req.setValue("\(provider.authPrefix) \(key)", forHTTPHeaderField: "Authorization")
+            for (name, value) in provider.authHeaders(for: key) {
+                req.setValue(value, forHTTPHeaderField: name)
+            }
             req.timeoutInterval = 10
             do {
                 let config = URLSessionConfiguration.default

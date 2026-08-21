@@ -12,13 +12,13 @@ if [ -n "$1" ]; then
 elif VERSION=$(git -C "$(dirname "$0")/.." describe --tags --abbrev=0 2>/dev/null); then
     VERSION="${VERSION#v}"  # 去掉前缀 v
 else
-    VERSION="2.2"
+    VERSION="0.1.9"
 fi
 # 构建号：git commit count
 BUILD=$(git -C "$(dirname "$0")/.." rev-list --count HEAD 2>/dev/null || echo "0")
 BUILD_VERSION="${VERSION}.${BUILD}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP="$ROOT/build/dev_mon.app"
+APP="$ROOT/build/dev_mon-${VERSION}.app"
 
 echo "==> 构建 release..."
 cd "$ROOT"
