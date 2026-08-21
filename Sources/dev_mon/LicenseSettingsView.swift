@@ -129,7 +129,7 @@ struct LicenseSettingsView: View {
                     Text("kid: \(seat.kid.isEmpty ? "—" : seat.kid)")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                    Text(seat.exp == 0 ? Strings.licenseUnlimited : Strings.licenseExpires(Date(timeIntervalSince1970: TimeInterval(seat.exp))))
+                    Text(Strings.licenseCountdown(seat.exp))
                         .font(.caption2)
                         .foregroundColor(seat.revoked ? .red : .secondary)
                 }

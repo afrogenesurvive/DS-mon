@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.0-2] — 2026-08-21
+
+### Changed
+
+- Key/license expiry is now shown as a remaining-time countdown in `dd:hh:mm:ss` format (e.g. `03:14:22:05`) in both the Settings → License seat rows and the popover License tab, instead of an absolute calendar date. Unlimited seats (`exp = 0`) show `不限/Unlimited`; already-expired seats show `已过期/Expired`.
+
 ## [0.2.0-1] — 2026-08-21
 
 ### Added

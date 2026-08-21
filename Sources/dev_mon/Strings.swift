@@ -197,10 +197,16 @@ enum Strings {
     }
     static var licenseNoSeats: String { isZH ? "暂无席位。请通过“检查许可”从 seats.json 导入。" : "No seats. Import via \"Check Licenses\" from seats.json." }
     static var licenseUnlimited: String { isZH ? "不限" : "Unlimited" }
-    static func licenseExpires(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        return isZH ? "过期 \(f.string(from: date))" : "exp \(f.string(from: date))"
+    /// 剩余有效期：dd:hh:mm:ss（exp<=0 显示不限；已过期显示“已过期”）
+    static func licenseCountdown(_ exp: Int) -> String {
+        guard exp > 0 else { return isZH ? "不限" : "Unlimited" }
+        let seconds = exp - Int(Date().timeIntervalSince1970)
+        guard seconds > 0 else { return isZH ? "已过期" : "Expired" }
+        let days = seconds / 86400
+        let hours = (seconds % 86400) / 3600
+        let minutes = (seconds % 3600) / 60
+        let secs = seconds % 60
+        return String(format: "%02d:%02d:%02d:%02d", days, hours, minutes, secs)
     }
     static var licenseFileLabel: String { isZH ? "注册表文件" : "Registry File" }
     static var licenseFileHint: String { isZH ? "可选 JSON 文件路径（[{sub,kid,exp,revoked}]）。文件优先于内嵌列表。" : "Optional JSON file path ([{sub,kid,exp,revoked}]). File takes precedence over the inline list." }
