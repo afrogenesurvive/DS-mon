@@ -14,6 +14,7 @@ struct StatsPopoverView: View {
 
     @State private var selectedTab: Int = 0
     @State private var licenseSeats: [SeatRecord] = []
+    @State private var licenseFilter: LicenseSeatFilter = .valid
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -702,6 +703,26 @@ struct StatsPopoverView: View {
 
     // MARK: - License Tab
 
+    private enum LicenseSeatFilter: String, CaseIterable {
+        case valid, revoked, expired
+    }
+
+    private var filteredLicenseSeats: [SeatRecord] {
+        switch licenseFilter {
+        case .valid: return licenseSeats.filter { !$0.revoked && !$0.isExpired }
+        case .revoked: return licenseSeats.filter { $0.revoked }
+        case .expired: return licenseSeats.filter { !$0.revoked && $0.isExpired }
+        }
+    }
+
+    private var licenseFilterLabel: String {
+        switch licenseFilter {
+        case .valid: return Strings.licenseFilterValid
+        case .revoked: return Strings.licenseFilterRevoked
+        case .expired: return Strings.licenseFilterExpired
+        }
+    }
+
     private var licenseTabContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
@@ -716,6 +737,14 @@ struct StatsPopoverView: View {
                     .foregroundColor(.secondary)
             }
 
+            Picker("", selection: $licenseFilter) {
+                Text(Strings.licenseFilterValid).tag(LicenseSeatFilter.valid)
+                Text(Strings.licenseFilterRevoked).tag(LicenseSeatFilter.revoked)
+                Text(Strings.licenseFilterExpired).tag(LicenseSeatFilter.expired)
+            }
+            .pickerStyle(.segmented)
+            .font(.system(size: 8))
+
             if licenseSeats.isEmpty {
                 HStack(spacing: 6) {
                     Image(systemName: "info.circle")
@@ -727,8 +756,19 @@ struct StatsPopoverView: View {
                         .foregroundColor(.secondary)
                 }
                 .padding(.vertical, 4)
+            } else if filteredLicenseSeats.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                        .frame(width: 14)
+                    Text(Strings.licenseNoFilteredSeats(licenseFilterLabel))
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
             } else {
-                ForEach(licenseSeats) { seat in
+                ForEach(filteredLicenseSeats) { seat in
                     licenseRow(seat)
                 }
             }
@@ -745,13 +785,13 @@ struct StatsPopoverView: View {
                     .foregroundColor(.secondary)
                 Spacer()
                 Button {
-                    StatusBarController.shared.closePopover()
-                    StatusBarController.shared.showSettings()
+                    _ = SeatRegistry.shared.checkLicenses()
+                    licenseSeats = SeatRegistry.shared.seats
                 } label: {
-                    Text(Strings.settings)
+                    Label(Strings.licenseCheckButton, systemImage: "checkmark.shield")
                         .font(.system(size: 8))
                 }
-                .buttonStyle(.link)
+                .buttonStyle(.borderedProminent)
             }
         }
         .padding(.vertical, 4)
@@ -942,6 +982,9 @@ struct StatsPopoverView: View {
                 stats.gitHub.refresh()
                 stats.aws.refresh()
                 loadUsage()
+            }
+            actionButton(icon: "square.and.arrow.up", label: Strings.exportUsageButton, color: .teal) {
+                UsageExporter.exportUsage()
             }
             actionButton(icon: "gearshape", label: Strings.settings, color: .secondary) {
                 StatusBarController.shared.closePopover()

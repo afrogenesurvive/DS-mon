@@ -5,6 +5,7 @@ struct ProviderSettingsView: View {
 
     @State private var selectedDefaultModel: String?
     @State private var showBaseURLHelp = false
+    @State private var showAPIKeys: [String: Bool] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -34,15 +35,36 @@ struct ProviderSettingsView: View {
                     }
 
                     HStack(spacing: 8) {
-                        SecureField("sk-...", text: Binding(
-                            get: { ProviderManager.shared.apiKey(for: provider.id) },
-                            set: { newValue in
-                                ProviderManager.shared.saveAPIKey(newValue, for: provider.id)
-                                stats.refresh()
+                        Group {
+                            if showAPIKeys[provider.id] ?? false {
+                                TextField("sk-...", text: Binding(
+                                    get: { ProviderManager.shared.apiKey(for: provider.id) },
+                                    set: { newValue in
+                                        ProviderManager.shared.saveAPIKey(newValue, for: provider.id)
+                                        stats.refresh()
+                                    }
+                                ))
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.body, design: .monospaced))
+                            } else {
+                                SecureField("sk-...", text: Binding(
+                                    get: { ProviderManager.shared.apiKey(for: provider.id) },
+                                    set: { newValue in
+                                        ProviderManager.shared.saveAPIKey(newValue, for: provider.id)
+                                        stats.refresh()
+                                    }
+                                ))
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.body, design: .monospaced))
                             }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(.body, design: .monospaced))
+                        }
+                        Button {
+                            showAPIKeys[provider.id] = !(showAPIKeys[provider.id] ?? false)
+                        } label: {
+                            Image(systemName: (showAPIKeys[provider.id] ?? false) ? "eye.slash" : "eye")
+                        }
+                        .buttonStyle(.bordered)
+                        .help(Strings.revealHint)
                     }
 
                     Text(Strings.apiKeyHint(provider.name))

@@ -6,11 +6,11 @@ set -e
 # 用法: ./scripts/build.sh [版本号]
 # ==============================
 
-# 版本号优先级：命令行参数 > git tag > 默认值
+# 版本号优先级：命令行参数 > 当前分支名 > 默认值
 if [ -n "$1" ]; then
     VERSION="$1"
-elif VERSION=$(git -C "$(dirname "$0")/.." describe --tags --abbrev=0 2>/dev/null); then
-    VERSION="${VERSION#v}"  # 去掉前缀 v
+elif BRANCH=$(git -C "$(dirname "$0")/.." branch --show-current 2>/dev/null); then
+    VERSION="${BRANCH}"
 else
     VERSION="0.1.9"
 fi

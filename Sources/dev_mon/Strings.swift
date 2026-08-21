@@ -195,12 +195,7 @@ enum Strings {
     static func licenseSeatCount(_ n: Int) -> String {
         isZH ? "共 \(n) 个席位" : "\(n) seats"
     }
-    static var licenseNoSeats: String { isZH ? "暂无席位。添加一个 sub（座位标识）以管理吊销。" : "No seats. Add a sub to manage revocations." }
-    static var licenseAddSeat: String { isZH ? "添加席位" : "Add Seat" }
-    static var licenseAddButton: String { isZH ? "添加" : "Add" }
-    static var licenseSubPlaceholder: String { isZH ? "sub（座位标识）" : "sub" }
-    static var licenseKidPlaceholder: String { isZH ? "kid（可选）" : "kid (optional)" }
-    static var licenseExpPlaceholder: String { isZH ? "过期（unix 秒，0=不限）" : "exp (unix sec, 0=unlimited)" }
+    static var licenseNoSeats: String { isZH ? "暂无席位。请通过“检查许可”从 seats.json 导入。" : "No seats. Import via \"Check Licenses\" from seats.json." }
     static var licenseUnlimited: String { isZH ? "不限" : "Unlimited" }
     static func licenseExpires(_ date: Date) -> String {
         let f = DateFormatter()
@@ -209,13 +204,33 @@ enum Strings {
     }
     static var licenseFileLabel: String { isZH ? "注册表文件" : "Registry File" }
     static var licenseFileHint: String { isZH ? "可选 JSON 文件路径（[{sub,kid,exp,revoked}]）。文件优先于内嵌列表。" : "Optional JSON file path ([{sub,kid,exp,revoked}]). File takes precedence over the inline list." }
-    static var licenseRevokedHint: String { isZH ? "吊销此席位" : "Revoke this seat" }
-    static var licenseRemoveHint: String { isZH ? "移除席位" : "Remove seat" }
     static var licenseTabTitle: String { isZH ? "许可" : "License" }
     static var licenseActiveBadge: String { isZH ? "正常" : "Active" }
     static var licenseRevokedBadge: String { isZH ? "已吊销" : "Revoked" }
     static var licensePopoverManageHint: String { isZH ? "DS-mon 为吊销授权权威；席位在 设置 → 许可 中管理" : "DS-mon is the revocation authority; manage seats in Settings → License" }
+    static var licenseCheckTitle: String { isZH ? "检查许可" : "Check Licenses" }
+    static var licenseCheckButton: String { isZH ? "检查许可" : "Check Licenses" }
+    static var licenseSourceLabel: String { isZH ? "来源文件" : "Source File" }
+    static func licenseCheckResult(_ n: Int, _ updatedAt: String?) -> String {
+        if let u = updatedAt {
+            return isZH ? "已导入 \(n) 个席位（更新于 \(u)）" : "Imported \(n) seats (updated \(u))"
+        }
+        return isZH ? "已导入 \(n) 个席位" : "Imported \(n) seats"
+    }
+    static var licenseFilterValid: String { isZH ? "有效" : "Valid" }
+    static var licenseFilterRevoked: String { isZH ? "已吊销" : "Revoked" }
+    static var licenseFilterExpired: String { isZH ? "已过期" : "Expired" }
+    static var licenseCheckIntervalLabel: String { isZH ? "自动检查间隔（小时）" : "Auto-check interval (h)" }
+    static var licenseCheckIntervalHint: String { isZH ? "每 N 小时自动读取 seats.json，另有手动“检查许可”按钮" : "Re-checks seats.json every N hours, in addition to the manual Check button" }
+    static func licenseNoFilteredSeats(_ label: String) -> String {
+        isZH ? "暂无\(label)席位" : "No \(label) seats"
+    }
     static var usageTabTitle: String { isZH ? "用量" : "Usage" }
+    static var exportUsageTitle: String { isZH ? "导出用量数据" : "Export Usage Data" }
+    static var exportUsageSave: String { isZH ? "导出" : "Export" }
+    static var exportUsageHelp: String { isZH ? "导出全部用量数据（JSON）" : "Export all usage data (JSON)" }
+    static var exportUsageButton: String { isZH ? "导出" : "Export" }
+    static var revealHint: String { isZH ? "显示/隐藏" : "Show / hide" }
 
     // Usage stats
     static var usageTitle: String { isZH ? "总用量" : "Total Usage" }

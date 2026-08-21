@@ -4,10 +4,11 @@ import SwiftUI
 /// DS-mon 作为 Hybrid 授权权威，按 sub 回答吊销状态（无签名校验）。
 struct LicenseSettingsView: View {
     @State private var seats: [SeatRecord] = SeatRegistry.shared.seats
-    @State private var newSub: String = ""
-    @State private var newKid: String = ""
-    @State private var newExp: String = ""
     @State private var filePath: String = SeatRegistry.shared.registryFilePath
+    @State private var licenseSourcePath: String = SeatRegistry.defaultLicensesSourceURL.path
+    @State private var checkIntervalHours: Double = SeatRegistry.shared.checkIntervalHours
+    @State private var checkResult: String?
+    @State private var checkError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -41,34 +42,6 @@ struct LicenseSettingsView: View {
 
             Divider()
 
-            Text(Strings.licenseAddSeat)
-                .font(.callout).bold()
-
-            HStack(spacing: 8) {
-                TextField(Strings.licenseSubPlaceholder, text: $newSub)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.caption, design: .monospaced))
-                TextField(Strings.licenseKidPlaceholder, text: $newKid)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(width: 130)
-            }
-
-            HStack(spacing: 8) {
-                TextField(Strings.licenseExpPlaceholder, text: $newExp)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(width: 170)
-                Button(action: addSeat) {
-                    Label(Strings.licenseAddButton, systemImage: "plus")
-                }
-                .buttonStyle(.bordered)
-                .disabled(newSub.trimmingCharacters(in: .whitespaces).isEmpty)
-                Spacer()
-            }
-
-            Divider()
-
             HStack(spacing: 8) {
                 Text(Strings.licenseFileLabel)
                     .font(.caption)
@@ -85,25 +58,68 @@ struct LicenseSettingsView: View {
                 .font(.caption2)
                 .foregroundColor(.secondary)
 
+            Divider()
+
+            Text(Strings.licenseCheckTitle)
+                .font(.callout).bold()
+
+            HStack(spacing: 8) {
+                Text(Strings.licenseSourceLabel)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("~/.../seats.json", text: $licenseSourcePath)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                    .onChange(of: licenseSourcePath) { _, newVal in
+                        UserDefaults.standard.set(newVal, forKey: SeatRegistry.checkSourceKey)
+                    }
+            }
+
+            HStack(spacing: 8) {
+                Button(action: checkLicenses) {
+                    Label(Strings.licenseCheckButton, systemImage: "checkmark.shield")
+                }
+                .buttonStyle(.borderedProminent)
+
+                if let err = checkError {
+                    Text(err).font(.caption2).foregroundColor(.red).lineLimit(2)
+                } else if let res = checkResult {
+                    Text(res).font(.caption2).foregroundColor(.green).lineLimit(2)
+                }
+                Spacer()
+            }
+
+            HStack(spacing: 8) {
+                Text(Strings.licenseCheckIntervalLabel)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("6", value: $checkIntervalHours, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 60)
+                    .multilineTextAlignment(.trailing)
+                    .onSubmit { SeatRegistry.shared.setCheckInterval(hours: checkIntervalHours) }
+                Stepper("", value: $checkIntervalHours, in: 1...168, step: 1)
+                    .labelsHidden()
+                    .onChange(of: checkIntervalHours) { _, newVal in
+                        SeatRegistry.shared.setCheckInterval(hours: newVal)
+                    }
+                Spacer()
+            }
+            Text(Strings.licenseCheckIntervalHint)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+
             Spacer()
         }
         .padding(20)
         .padding(.horizontal, 4)
+        .onReceive(NotificationCenter.default.publisher(for: .seatRegistryChanged)) { _ in
+            seats = SeatRegistry.shared.seats
+        }
     }
 
     private func seatRow(_ seat: SeatRecord) -> some View {
         HStack(spacing: 8) {
-            Toggle("", isOn: Binding(
-                get: { seat.revoked },
-                set: { newVal in
-                    SeatRegistry.shared.setRevoked(newVal, for: seat.sub)
-                    seats = SeatRegistry.shared.seats
-                }
-            ))
-            .toggleStyle(.switch)
-            .labelsHidden()
-            .help(Strings.licenseRevokedHint)
-
             VStack(alignment: .leading, spacing: 2) {
                 Text(seat.sub)
                     .font(.caption)
@@ -118,32 +134,26 @@ struct LicenseSettingsView: View {
                         .foregroundColor(seat.revoked ? .red : .secondary)
                 }
             }
-
             Spacer()
-
-            Button(role: .destructive) {
-                SeatRegistry.shared.remove(sub: seat.sub)
-                seats = SeatRegistry.shared.seats
-            } label: {
-                Image(systemName: "trash")
-            }
-            .buttonStyle(.bordered)
-            .help(Strings.licenseRemoveHint)
+            Text(seat.revoked ? Strings.licenseRevokedBadge : Strings.licenseActiveBadge)
+                .font(.caption2)
+                .foregroundColor(seat.revoked ? .red : .green)
         }
         .padding(8)
         .background(Color.gray.opacity(0.08))
         .cornerRadius(8)
     }
 
-    private func addSeat() {
-        let sub = newSub.trimmingCharacters(in: .whitespaces)
-        guard !sub.isEmpty else { return }
-        let kid = newKid.trimmingCharacters(in: .whitespaces)
-        let exp = Int(newExp.trimmingCharacters(in: .whitespaces)) ?? 0
-        SeatRegistry.shared.upsert(SeatRecord(sub: sub, kid: kid, exp: max(0, exp), revoked: false))
-        newSub = ""
-        newKid = ""
-        newExp = ""
+    private func checkLicenses() {
+        let url = URL(fileURLWithPath: (licenseSourcePath as NSString).expandingTildeInPath)
+        let result = SeatRegistry.shared.checkLicenses(from: url)
         seats = SeatRegistry.shared.seats
+        if let err = result.error {
+            checkError = err
+            checkResult = nil
+        } else {
+            checkResult = Strings.licenseCheckResult(result.imported, result.updatedAt)
+            checkError = nil
+        }
     }
 }

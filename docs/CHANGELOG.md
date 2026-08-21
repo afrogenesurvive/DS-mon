@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.0-1] — 2026-08-21
+
+### Added
+
+- License seats are now read-only (manual add / revoke / delete removed); the list mirrors the source `seats.json`.
+- Auto-check for license seats: new "Auto-check interval (h)" setting in Settings → License (default 6 h) re-imports `seats.json` periodically, in addition to the manual "Check Licenses" button.
+- The popover License tab now has **Valid / Revoked / Expired** sub-tabs.
+- New **Export** action (popover action bar): saves a verbose JSON via the file picker with DeepSeek + other provider usage across today/week/month/all-time, daily/weekly/monthly aggregates, breakdowns, per-source usage, and every raw record.
+- Show/hide (eye) toggles added to the provider API key fields and the AWS Secret Key field.
+
+### Changed
+
+- App bundle name and version now derive from the current git branch (e.g. branch `0.2.0` → `dev_mon-0.2.0.app`).
+- Export button moved to the popover action bar for visibility.
+
+### Fixed
+
+- Popover License tab "Check Licenses" button no longer emits an unused-result warning.
+
 ## [main-6] — 2026-08-05
 
 ### Added

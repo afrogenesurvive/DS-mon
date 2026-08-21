@@ -22,13 +22,13 @@ jobs:
         run: bash scripts/build.sh "${GITHUB_REF_NAME#v}"
 
       - name: Code sign
-        run: codesign --force --sign - build/dev_mon.app
+        run: codesign --force --sign - build/dev_mon-${GITHUB_REF_NAME#v}.app
 
       - name: Package as .zip
         run: |
           rm -f build/dev_mon-*.zip
           cd build
-          ditto -c -k --keepParent dev_mon.app "dev_mon-${GITHUB_REF_NAME}.zip"
+          ditto -c -k --keepParent "dev_mon-${GITHUB_REF_NAME#v}.app" "dev_mon-${GITHUB_REF_NAME}.zip"
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2

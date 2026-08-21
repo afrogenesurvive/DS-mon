@@ -28,7 +28,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         StatusBarController.shared.setup()
         restoreProxy()
         SyncManager.shared.start()
-
+        SeatRegistry.shared.startAutoCheck()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

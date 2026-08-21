@@ -171,6 +171,7 @@ private struct AWSSettingsView: View {
     @State private var awsEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.awsEnabled)
     @State private var awsAccessKey: String = SecureStore.retrieve(key: Strings.Keys.awsAccessKey) ?? ""
     @State private var awsSecretKey: String = SecureStore.retrieve(key: Strings.Keys.awsSecretKey) ?? ""
+    @State private var showAwsSecret: Bool = false
     @State private var awsRegion: String = UserDefaults.standard.string(forKey: Strings.Keys.awsRegion) ?? "us-east-1"
 
     private let regions = ["us-east-1", "us-east-2", "us-west-1", "us-west-2",
@@ -208,13 +209,30 @@ private struct AWSSettingsView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(Strings.awsSecretKeyLabel).font(.caption).foregroundColor(.secondary)
-                SecureField("...", text: $awsSecretKey)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.caption, design: .monospaced))
+                HStack(spacing: 8) {
+                    Group {
+                        if showAwsSecret {
+                            TextField("...", text: $awsSecretKey)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.caption, design: .monospaced))
+                        } else {
+                            SecureField("...", text: $awsSecretKey)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.caption, design: .monospaced))
+                        }
+                    }
                     .onChange(of: awsSecretKey) { _, newVal in
                         SecureStore.save(key: Strings.Keys.awsSecretKey, value: newVal)
                         if awsEnabled { stats.aws.refresh() }
                     }
+                    Button {
+                        showAwsSecret.toggle()
+                    } label: {
+                        Image(systemName: showAwsSecret ? "eye.slash" : "eye")
+                    }
+                    .buttonStyle(.bordered)
+                    .help(Strings.revealHint)
+                }
             }
 
             VStack(alignment: .leading, spacing: 4) {
