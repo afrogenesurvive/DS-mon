@@ -219,7 +219,9 @@ final class DeepSeekStats {
         guard let url = URL(string: provider.baseURL + balancePath) else { return }
 
         var req = URLRequest(url: url)
-        req.setValue("\(provider.authPrefix) \(apiKey)", forHTTPHeaderField: "Authorization")
+        for (name, value) in provider.authHeaders(for: apiKey) {
+            req.setValue(value, forHTTPHeaderField: name)
+        }
         req.timeoutInterval = AppConfig.balanceRequestTimeout
         do {
             let (data, resp) = try await AppConfig.directURLSession.data(for: req)

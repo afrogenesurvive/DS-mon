@@ -20,6 +20,8 @@ struct SourceRequestListView: View {
             case "source":
                 let sa = sourceName(a), sb = sourceName(b)
                 return sortAsc ? sa < sb : sa > sb
+            case "pid":
+                return sortAsc ? a.providerId < b.providerId : a.providerId > b.providerId
             case "model":
                 return sortAsc ? a.model < b.model : a.model > b.model
             case "tok":
@@ -43,6 +45,7 @@ struct SourceRequestListView: View {
             HStack(spacing: 6) {
                 sortableHeader("Time", key: "time", width: 70, align: .leading)
                 sortableHeader("Source", key: "source", width: 52, align: .leading)
+                sortableHeader("pid", key: "pid", width: 52, align: .leading)
                 sortableHeader("Model", key: "model", width: nil, align: .leading)
                 sortableHeader("Tok", key: "tok", width: 36, align: .trailing)
                 sortableHeader("Status", key: "status", width: 32, align: .trailing)
@@ -97,6 +100,11 @@ struct SourceRequestListView: View {
                 .frame(width: 70, alignment: .leading)
 
             Text(sourceName(record))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: 52, alignment: .leading)
+
+            Text(record.providerId)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(width: 52, alignment: .leading)
