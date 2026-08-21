@@ -156,9 +156,11 @@ struct AggregatedUsage: Sendable {
     }
 }
 
-/// 按来源（sourceIP）聚合的用量（含最近一次请求时间）
+/// 按来源（sourceIP）聚合的用量（含最近一次请求时间、该来源使用过的提供商）
 struct SourceUsage: Sendable {
     let sourceIP: String
+    /// 该来源使用过的去重提供商 id（逗号连接，如 "deepseek,openai"；无则为空字符串）
+    let providerIds: String
     let requestCount: Int
     let promptTokens: Int
     let completionTokens: Int
@@ -487,7 +489,9 @@ actor UsageStore {
         let hasSince = since != nil
         let hasSource = sourceIP.map { !$0.isEmpty } ?? false
         let sql = """
-        SELECT source_ip, COUNT(*),
+        SELECT source_ip,
+               GROUP_CONCAT(DISTINCT CASE WHEN provider_id IS NULL OR provider_id = '' THEN NULL ELSE provider_id END),
+               COUNT(*),
                SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens),
                SUM(cached_tokens), SUM(cost), MAX(timestamp)
         FROM usage_log
@@ -511,15 +515,18 @@ actor UsageStore {
         var results: [SourceUsage] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
             let ip = String(cString: sqlite3_column_text(stmt, 0))
+            let pidPtr = sqlite3_column_text(stmt, 1)
+            let providerIds = pidPtr.map { String(cString: $0) } ?? ""
             results.append(SourceUsage(
                 sourceIP: ip,
-                requestCount: Int(sqlite3_column_int64(stmt, 1)),
-                promptTokens: Int(sqlite3_column_int64(stmt, 2)),
-                completionTokens: Int(sqlite3_column_int64(stmt, 3)),
-                totalTokens: Int(sqlite3_column_int64(stmt, 4)),
-                cachedTokens: Int(sqlite3_column_int64(stmt, 5)),
-                totalCost: sqlite3_column_double(stmt, 6),
-                lastTimestamp: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 7))
+                providerIds: providerIds,
+                requestCount: Int(sqlite3_column_int64(stmt, 2)),
+                promptTokens: Int(sqlite3_column_int64(stmt, 3)),
+                completionTokens: Int(sqlite3_column_int64(stmt, 4)),
+                totalTokens: Int(sqlite3_column_int64(stmt, 5)),
+                cachedTokens: Int(sqlite3_column_int64(stmt, 6)),
+                totalCost: sqlite3_column_double(stmt, 7),
+                lastTimestamp: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 8))
             ))
         }
         return results

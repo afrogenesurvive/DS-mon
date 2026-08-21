@@ -83,6 +83,8 @@ struct AggregatedUsageExport: Codable {
 
 struct SourceUsageExport: Codable {
     let sourceIP: String
+    /// 该来源使用过的去重提供商 id（逗号连接）
+    let providerIds: String
     let requestCount: Int
     let promptTokens: Int
     let completionTokens: Int
@@ -93,6 +95,7 @@ struct SourceUsageExport: Codable {
 
     init(_ s: SourceUsage) {
         sourceIP = s.sourceIP
+        providerIds = s.providerIds
         requestCount = s.requestCount
         promptTokens = s.promptTokens
         completionTokens = s.completionTokens

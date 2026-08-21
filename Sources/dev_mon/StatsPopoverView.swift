@@ -456,6 +456,8 @@ struct StatsPopoverView: View {
             case "source":
                 let sa = sourceDisplayName(a), sb = sourceDisplayName(b)
                 return aggregateSortAsc ? sa < sb : sa > sb
+            case "pid":
+                return aggregateSortAsc ? a.providerIds < b.providerIds : a.providerIds > b.providerIds
             case "req":
                 return aggregateSortAsc ? a.requestCount < b.requestCount : a.requestCount > b.requestCount
             case "tokens":
@@ -502,11 +504,12 @@ struct StatsPopoverView: View {
         } else {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
-                    aggregateSortableHeader("Source", key: "source", width: 80, align: .leading)
-                    aggregateSortableHeader("Req", key: "req", width: 30, align: .trailing)
-                    aggregateSortableHeader("Tokens", key: "tokens", width: 42, align: .trailing)
-                    aggregateSortableHeader("Cost", key: "cost", width: 50, align: .trailing)
-                    aggregateSortableHeader(Strings.lastSeenLabel, key: "last", width: 70, align: .trailing)
+                    aggregateSortableHeader("Source", key: "source", width: 60, align: .leading)
+                    aggregateSortableHeader("pid", key: "pid", width: 46, align: .leading)
+                    aggregateSortableHeader("Req", key: "req", width: 24, align: .trailing)
+                    aggregateSortableHeader("Tokens", key: "tokens", width: 34, align: .trailing)
+                    aggregateSortableHeader("Cost", key: "cost", width: 44, align: .trailing)
+                    aggregateSortableHeader(Strings.lastSeenLabel, key: "last", width: 50, align: .trailing)
                 }
                 .font(.system(size: 8, weight: .semibold))
                 .foregroundColor(.secondary)
@@ -523,19 +526,25 @@ struct StatsPopoverView: View {
                                     .font(.system(size: 8.5))
                                     .lineLimit(1)
                                     .truncationMode(.tail)
-                                    .frame(width: 80, alignment: .leading)
+                                    .frame(width: 60, alignment: .leading)
+                                Text(item.providerIds.isEmpty ? "—" : item.providerIds)
+                                    .font(.system(size: 8.5))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .frame(width: 46, alignment: .leading)
+                                    .foregroundColor(.secondary)
                                 Text("\(item.requestCount)")
                                     .font(.system(size: 8.5).monospacedDigit())
-                                    .frame(width: 30, alignment: .trailing)
+                                    .frame(width: 24, alignment: .trailing)
                                 Text(Strings.tokensShort(item.totalTokens))
                                     .font(.system(size: 8.5).monospacedDigit())
-                                    .frame(width: 42, alignment: .trailing)
+                                    .frame(width: 34, alignment: .trailing)
                                 Text(Strings.costShort(item.totalCost))
                                     .font(.system(size: 8.5, weight: .medium).monospacedDigit())
-                                    .frame(width: 50, alignment: .trailing)
+                                    .frame(width: 44, alignment: .trailing)
                                 Text(Self.sourceTimeFormatter.string(from: item.lastTimestamp))
                                     .font(.system(size: 7).monospacedDigit())
-                                    .frame(width: 70, alignment: .trailing)
+                                    .frame(width: 50, alignment: .trailing)
                                     .foregroundColor(.secondary)
                                     .help(Strings.lastSeenLabel)
                             }

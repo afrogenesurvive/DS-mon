@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.1-1] — 2026-08-21
+
+### Added
+
+- **Provider id (`pid`) column** in the Source Usage lists:
+  - Individual list: new `pid` column after the source column, showing each request's provider id (`deepseek` / `kimi` / `openai` / `anthropic`).
+  - Aggregate list: new `pid` column showing the providers a source used, comma-joined (e.g. `deepseek,openai`).
+  - Both columns are sortable — click the header to toggle ascending/descending.
+- JSON usage export now includes provider ids: the per-source (`bySource`) entries report the providers each source used (`providerIds`); raw records already carried `providerId` and the per-provider section already carried it.
+
+### Changed
+
+- Source Usage aggregate list columns rebalanced to fit the new `pid` column.
+- Balance/credit refresh is now provider-aware: it uses each provider's own authentication scheme. OpenAI and Anthropic have no public balance API, so they continue to show "—".
+
 ## [0.2.0-2] — 2026-08-21
 
 ### Changed
