@@ -113,11 +113,16 @@ final class SeatRegistry: @unchecked Sendable {
         if let data = try? JSONEncoder().encode(_seats) {
             UserDefaults.standard.set(data, forKey: Self.storageKey)
         }
-        guard !filePath.isEmpty else { return }
-        let url = URL(fileURLWithPath: (filePath as NSString).expandingTildeInPath)
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(_seats) {
-            try? data.write(to: url, options: .atomic)
+        if !filePath.isEmpty {
+            let url = URL(fileURLWithPath: (filePath as NSString).expandingTildeInPath)
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if let data = try? JSONEncoder().encode(_seats) {
+                try? data.write(to: url, options: .atomic)
+            }
+        }
+        // 通知 UI 刷新（异步投递，避免持锁状态下同步回调导致死锁）
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .seatRegistryChanged, object: nil)
         }
     }
 }

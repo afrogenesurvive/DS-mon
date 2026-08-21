@@ -13,6 +13,7 @@ struct StatsPopoverView: View {
     }
 
     @State private var selectedTab: Int = 0
+    @State private var licenseSeats: [SeatRecord] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -24,7 +25,9 @@ struct StatsPopoverView: View {
                 deepSeekTabContent
             } else {
                 ScrollView {
-                    if selectedTab == 1 { gitHubTabContent } else { awsTabContent }
+                    if selectedTab == 1 { licenseTabContent }
+                    else if selectedTab == 2 { gitHubTabContent }
+                    else { awsTabContent }
                 }
             }
             Divider().padding(.horizontal, 14)
@@ -652,8 +655,9 @@ struct StatsPopoverView: View {
     private var tabBar: some View {
         HStack(spacing: 4) {
             tabButton(title: Strings.usageTabTitle, icon: "brain.head.profile", tag: 0)
-            tabButton(title: "GitHub", icon: "logo.github", tag: 1)
-            tabButton(title: "AWS", icon: "cloud.fill", tag: 2)
+            tabButton(title: Strings.licenseTabTitle, icon: "checkmark.shield.fill", tag: 1)
+            tabButton(title: "GitHub", icon: "logo.github", tag: 2)
+            tabButton(title: "AWS", icon: "cloud.fill", tag: 3)
             Spacer()
         }
         .padding(.horizontal, 14)
@@ -694,6 +698,101 @@ struct StatsPopoverView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
+    }
+
+    // MARK: - License Tab
+
+    private var licenseTabContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.shield.fill")
+                    .font(.system(size: 10))
+                    .foregroundColor(.green)
+                Text(Strings.licenseSection)
+                    .font(.system(size: 10, weight: .semibold))
+                Spacer()
+                Text(Strings.licenseSeatCount(licenseSeats.count))
+                    .font(.system(size: 8))
+                    .foregroundColor(.secondary)
+            }
+
+            if licenseSeats.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                        .frame(width: 14)
+                    Text(Strings.licenseNoSeats)
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
+            } else {
+                ForEach(licenseSeats) { seat in
+                    licenseRow(seat)
+                }
+            }
+
+            Divider()
+
+            HStack(spacing: 6) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 8))
+                    .foregroundColor(.secondary)
+                    .frame(width: 14)
+                Text(Strings.licensePopoverManageHint)
+                    .font(.system(size: 8))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button {
+                    StatusBarController.shared.closePopover()
+                    StatusBarController.shared.showSettings()
+                } label: {
+                    Text(Strings.settings)
+                        .font(.system(size: 8))
+                }
+                .buttonStyle(.link)
+            }
+        }
+        .padding(.vertical, 4)
+        .onAppear { licenseSeats = SeatRegistry.shared.seats }
+        .onReceive(NotificationCenter.default.publisher(for: .seatRegistryChanged)) { _ in
+            licenseSeats = SeatRegistry.shared.seats
+        }
+    }
+
+    private func licenseRow(_ seat: SeatRecord) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: seat.revoked ? "xmark.circle.fill" : "checkmark.circle.fill")
+                .font(.system(size: 10))
+                .foregroundColor(seat.revoked ? .red : .green)
+                .frame(width: 14)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(seat.sub)
+                    .font(.system(size: 9))
+                    .monospaced()
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text("kid: \(seat.kid.isEmpty ? "—" : seat.kid)")
+                        .font(.system(size: 7))
+                        .foregroundColor(.secondary)
+                    Text(seat.exp == 0 ? Strings.licenseUnlimited : Strings.licenseExpires(Date(timeIntervalSince1970: TimeInterval(seat.exp))))
+                        .font(.system(size: 7))
+                        .foregroundColor(seat.revoked ? .red : .secondary)
+                }
+            }
+            Spacer()
+            Text(seat.revoked ? Strings.licenseRevokedBadge : Strings.licenseActiveBadge)
+                .font(.system(size: 7, weight: .semibold))
+                .foregroundColor(seat.revoked ? .red : .green)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background((seat.revoked ? Color.red : Color.green).opacity(0.12))
+                .cornerRadius(4)
+        }
+        .padding(6)
+        .background(seat.revoked ? Color.red.opacity(0.06) : Color.gray.opacity(0.06))
+        .cornerRadius(6)
     }
 
     // MARK: - GitHub Tab

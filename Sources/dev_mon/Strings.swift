@@ -9,6 +9,7 @@ extension Notification.Name {
     static let menuBarColorDidChange = Notification.Name("menuBarColorDidChange")
     static let currencyDidChange = Notification.Name("currencyDidChange")
     static let providerChanged = Notification.Name("providerChanged")
+    static let seatRegistryChanged = Notification.Name("seatRegistryChanged")
 }
 
 enum Language: String, CaseIterable, Identifiable {
@@ -210,6 +211,10 @@ enum Strings {
     static var licenseFileHint: String { isZH ? "可选 JSON 文件路径（[{sub,kid,exp,revoked}]）。文件优先于内嵌列表。" : "Optional JSON file path ([{sub,kid,exp,revoked}]). File takes precedence over the inline list." }
     static var licenseRevokedHint: String { isZH ? "吊销此席位" : "Revoke this seat" }
     static var licenseRemoveHint: String { isZH ? "移除席位" : "Remove seat" }
+    static var licenseTabTitle: String { isZH ? "许可" : "License" }
+    static var licenseActiveBadge: String { isZH ? "正常" : "Active" }
+    static var licenseRevokedBadge: String { isZH ? "已吊销" : "Revoked" }
+    static var licensePopoverManageHint: String { isZH ? "DS-mon 为吊销授权权威；席位在 设置 → 许可 中管理" : "DS-mon is the revocation authority; manage seats in Settings → License" }
     static var usageTabTitle: String { isZH ? "用量" : "Usage" }
 
     // Usage stats
