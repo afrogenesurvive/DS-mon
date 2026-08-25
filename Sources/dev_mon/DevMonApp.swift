@@ -29,6 +29,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         restoreProxy()
         SyncManager.shared.start()
         SeatRegistry.shared.startAutoCheck()
+        PeakNotifier.requestAuthorization()
+        PeakNotifier.scheduleNextTransition()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

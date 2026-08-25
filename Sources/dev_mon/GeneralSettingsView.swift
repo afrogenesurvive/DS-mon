@@ -6,6 +6,8 @@ struct GeneralSettingsView: View {
     @AppStorage(Strings.Keys.menuBarTextDisplay) var menuBarTextDisplay: String = "balance"
     @AppStorage(Strings.Keys.appLanguage) var appLanguage: String = "auto"
     @AppStorage(Strings.Keys.currencySymbol) var currencySymbol: String = "¥"
+    @AppStorage(Strings.Keys.showPeakDot) var showPeakDot: Bool = false
+    @AppStorage(Strings.Keys.peakNotificationEnabled) var peakNotificationEnabled: Bool = false
 
     @State private var menuBarColor: Color = Color(nsColor: .labelColor)
 
@@ -51,6 +53,28 @@ struct GeneralSettingsView: View {
                 .toggleStyle(.switch)
                 .onChange(of: showIndicator) {
                     NotificationCenter.default.post(name: .showIndicatorDidChange, object: nil)
+                }
+
+                Toggle(isOn: $showPeakDot) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "sun.max.fill").font(.caption)
+                        Text(Strings.peakDotLabel)
+                    }
+                }
+                .toggleStyle(.switch)
+                .onChange(of: showPeakDot) {
+                    NotificationCenter.default.post(name: .peakSettingsDidChange, object: nil)
+                }
+
+                Toggle(isOn: $peakNotificationEnabled) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "bell.badge.fill").font(.caption)
+                        Text(Strings.peakNotifyLabel)
+                    }
+                }
+                .toggleStyle(.switch)
+                .onChange(of: peakNotificationEnabled) {
+                    PeakNotifier.scheduleNextTransition()
                 }
 
                 HStack(spacing: 8) {

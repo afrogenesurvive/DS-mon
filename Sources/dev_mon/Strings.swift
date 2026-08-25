@@ -10,6 +10,7 @@ extension Notification.Name {
     static let currencyDidChange = Notification.Name("currencyDidChange")
     static let providerChanged = Notification.Name("providerChanged")
     static let seatRegistryChanged = Notification.Name("seatRegistryChanged")
+    static let peakSettingsDidChange = Notification.Name("peakSettingsDidChange")
 }
 
 enum Language: String, CaseIterable, Identifiable {
@@ -64,6 +65,8 @@ enum Strings {
         static let awsSecretKey = "aws_secret_key"
         static let awsRegion = "aws_region"
         static let awsEnabled = "aws_enabled"
+        static let showPeakDot = "show_peak_dot"
+        static let peakNotificationEnabled = "peak_notification_enabled"
         static func lastModel(for providerId: String) -> String { "last_model_\(providerId)" }
     }
 
@@ -105,6 +108,7 @@ enum Strings {
 
     // Balance section
     static var currentBalance: String { isZH ? "当前余额" : "Balance" }
+    static var accountSectionTitle: String { isZH ? "账户" : "Account" }
     static var grantedPrefix: String { isZH ? "赠送 \(currencySymbol)%.2f" : "Granted \(currencySymbol)%.2f" }
     static var toppedUpPrefix: String { isZH ? "充值 \(currencySymbol)%.2f" : "Topped Up \(currencySymbol)%.2f" }
 
@@ -115,6 +119,19 @@ enum Strings {
     static var available: String { isZH ? "可用" : "Available" }
     static var insufficient: String { isZH ? "余额不足" : "Insufficient" }
     static var errorLabel: String { isZH ? "错误" : "Error" }
+
+    // DeepSeek pricing window (peak/off-peak)
+    static var pricingWindowLabel: String { isZH ? "DeepSeek 计费时段" : "DeepSeek Pricing" }
+    static var peakStatusPeak: String { isZH ? "高峰" : "Peak" }
+    static var peakStatusOffPeak: String { isZH ? "低谷" : "Off-Peak" }
+    static var peakCountdown: String { isZH ? "高峰 · %@ 后切换" : "Peak · %@ left" }
+    static var offPeakCountdown: String { isZH ? "低谷 · %@ 后切换" : "Off-Peak · %@ left" }
+    static var peakDotLabel: String { isZH ? "高峰/低谷状态点" : "Peak Status Dot" }
+    static var peakNotifyLabel: String { isZH ? "高峰/低谷切换通知" : "Peak Transition Notification" }
+    static var peakNotifyTitle: String { isZH ? "DeepSeek 高峰时段开始" : "DeepSeek Peak started" }
+    static var peakNotifyBody: String { isZH ? "高峰计费已开始（价格为低谷的 2 倍）" : "Peak pricing is now active (2× off-peak)." }
+    static var offPeakNotifyTitle: String { isZH ? "DeepSeek 低谷时段开始" : "DeepSeek Off-Peak started" }
+    static var offPeakNotifyBody: String { isZH ? "低谷计费已开始（价格约为高峰一半）" : "Off-peak discount is now active (~50% off)." }
 
     // Action bar
     static var refresh: String { isZH ? "刷新" : "Refresh" }
@@ -240,6 +257,7 @@ enum Strings {
 
     // Usage stats
     static var usageTitle: String { isZH ? "总用量" : "Total Usage" }
+    static var requestHistoryTitle: String { isZH ? "请求记录" : "Request History" }
     static var requestsLabel: String { isZH ? "请求数" : "Requests" }
     static var totalTokensLabel: String { isZH ? "总 Tokens" : "Total Tokens" }
     static var cachedTokensLabel: String { isZH ? "缓存命中" : "Cache Hit" }

@@ -26,6 +26,8 @@ class StatusBarView: NSView {
     var hitRateText: String = ""
     var balanceAmount: String = ""
     var costText: String = ""
+    /// 高峰/低谷状态点：nil = 不显示；true = 高峰（黄）；false = 低谷（绿）
+    var isPeakHour: Bool?
 
     // MARK: 数据
     private var balanceRatio: Double = 0
@@ -101,6 +103,21 @@ class StatusBarView: NSView {
 
         let leftX: CGFloat = showIcon ? 21 : 2
         var cursorX = leftX
+
+        // ── 高峰/低谷状态点（位于图标右上角，仅显示图标时绘制）──
+        if showIcon, let peak = isPeakHour {
+            let iconFrame = iconView.frame
+            let dotSize: CGFloat = 6
+            let dotRect = CGRect(x: iconFrame.maxX - dotSize - 1,
+                                 y: iconFrame.maxY - dotSize - 1,
+                                 width: dotSize, height: dotSize)
+            // 白色描边提升在深浅色菜单栏下的对比度
+            ctx.setFillColor(NSColor.white.withAlphaComponent(0.9).cgColor)
+            ctx.fillEllipse(in: dotRect.insetBy(dx: -1, dy: -1))
+            let dotColor: NSColor = peak ? .systemYellow : .systemGreen
+            ctx.setFillColor(dotColor.cgColor)
+            ctx.fillEllipse(in: dotRect)
+        }
 
         // ── 三个指示灯条 ──
         if showIndicator {

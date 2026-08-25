@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.2-1] — 2026-08-25
+
+### Added
+
+- **Collapsible sections** in the popover — click any section header to collapse/expand it:
+  - **Account**: balance, topped-up/granted amounts, and the alert/info lines (threshold, default model, account status, pricing window, error).
+  - **Total Usage** stats: requests, total tokens, cache hit, reasoning tokens, est. cost, response time.
+  - **Request history**: the chart ↔ list view.
+  - **Source Usage**: the graph ↔ list view, in both aggregate and individual modes.
+- **DeepSeek peak/off-peak pricing**: the popover shows the current pricing window (peak vs off-peak), and an optional system notification fires on each window transition (off by default).
+
+### Changed
+
+- Popover content now scrolls when it exceeds 550 pt instead of being crammed into a fixed height.
+- More top/bottom padding in the popover container; the License tab content is now inset from the container edges.
+- Collapsible section headers highlight on hover to make them obviously clickable.
+
+### Fixed
+
+- Release builds no longer lose UI strings: `scripts/build.sh` builds with `-Onone` to work around a Swift 6.3.3 `-O` (whole-module) bug that silently stripped `Strings.swift` literals (empty section titles / missing labels).
+
 ## [0.2.1-1] — 2026-08-21
 
 ### Added

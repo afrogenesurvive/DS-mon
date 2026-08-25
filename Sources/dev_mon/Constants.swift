@@ -22,7 +22,7 @@ enum AppConfig {
 
     // 🪟 UI
     static let popoverWidth: CGFloat = 334
-    static let popoverHeight: CGFloat = 540
+    static let popoverHeight: CGFloat = 550
     /// 弹窗内容可用宽度（减去左右各 14pt 的 padding）
     static var contentWidth: CGFloat { popoverWidth - 28 }
     static let settingsWidth: CGFloat = 520

@@ -36,6 +36,7 @@ class StatusBarController: NSObject, NSWindowDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(menuBarTextDisplayChanged), name: .menuBarTextDisplayDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(menuBarColorChanged), name: .menuBarColorDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(currencyChanged), name: .currencyDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(peakSettingsChanged), name: .peakSettingsDidChange, object: nil)
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: AppConfig.popoverWidth, height: AppConfig.popoverHeight),
                               styleMask: [.borderless, .fullSizeContentView],
@@ -164,6 +165,11 @@ class StatusBarController: NSObject, NSWindowDelegate {
         let hitRateText = hr > 0 ? String(format: "%.1f%%", hr * 100) : ""
         let costText = statusView?.costText ?? ""
 
+        // 高峰/低谷状态点：仅 DeepSeek 且开启设置时显示
+        let showPeakDot = UserDefaults.standard.object(forKey: Strings.Keys.showPeakDot) as? Bool ?? false
+        let isDeepSeek = s.providerID == "deepseek"
+        statusView?.isPeakHour = (isDeepSeek && showPeakDot) ? DeepSeekPricing.isPeak() : nil
+
         applyLabel(balanceRatio: ratio, balanceAmount: balanceText, hitRateText: hitRateText, costText: costText, isError: isError, isLow: isLow, blinkOn: blinkOn, isWarning: isWarning)
     }
 
@@ -230,6 +236,10 @@ class StatusBarController: NSObject, NSWindowDelegate {
     @objc private func menuIconChanged() {
         let showIcon = UserDefaults.standard.object(forKey: Strings.Keys.showMenuIcon) as? Bool ?? false
         statusView?.showIcon = showIcon
+        updateLabel()
+    }
+
+    @objc private func peakSettingsChanged() {
         updateLabel()
     }
 

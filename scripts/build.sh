@@ -22,7 +22,9 @@ APP="$ROOT/build/dev_mon-${VERSION}.app"
 
 echo "==> 构建 release..."
 cd "$ROOT"
-swift build -c release --disable-sandbox
+# 注：Swift 6.3.3 的 -O + 全模块优化存在 bug，会静默丢弃部分 Strings.swift 字符串字面量（
+# 导致界面文案/可折叠区段标题为空）。使用 -Onone 规避。
+swift build -c release --disable-sandbox -Xswiftc -Onone
 
 echo "==> 打包 .app (v$VERSION)..."
 rm -rf "$APP"

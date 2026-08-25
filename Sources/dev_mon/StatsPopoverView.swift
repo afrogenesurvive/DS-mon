@@ -16,6 +16,12 @@ struct StatsPopoverView: View {
     @State private var licenseSeats: [SeatRecord] = []
     @State private var licenseFilter: LicenseSeatFilter = .valid
 
+    // 折叠区段状态（DeepSeek 页）
+    @State private var showAccountSection = true    // 余额/充值/提示行
+    @State private var showUsageStatsSection = true // 用量统计
+    @State private var showUsageListSection = true  // 请求列表/图表
+    @State private var showSourceUsageSection = true // 来源用量（图表/列表）
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerSection
@@ -23,7 +29,9 @@ struct StatsPopoverView: View {
             tabBar
             Divider().padding(.horizontal, 14)
             if selectedTab == 0 {
-                deepSeekTabContent
+                ScrollView {
+                    deepSeekTabContent
+                }
             } else {
                 ScrollView {
                     if selectedTab == 1 { licenseTabContent }
@@ -34,8 +42,10 @@ struct StatsPopoverView: View {
             Divider().padding(.horizontal, 14)
             actionBar
         }
-        .padding(.vertical, 12)
-        .frame(width: AppConfig.popoverWidth, height: AppConfig.popoverHeight)
+        .padding(.vertical, 16)
+        .frame(width: AppConfig.popoverWidth)
+        .frame(maxHeight: 550)
+        .scrollIndicators(.hidden)
         .onAppear { loadUsage(); loadSourceUsage(); loadSourceOptions() }
         .onReceive(NotificationCenter.default.publisher(for: .usageRecorded)) { _ in
             loadUsage(); loadSourceUsage(); loadSourceOptions()
@@ -172,6 +182,13 @@ struct StatsPopoverView: View {
                     label: Strings.accountStatus,
                     value: stats.availabilityText,
                     valueColor: stats.isAvailable ? .green : .red)
+            if stats.supportsPricingWindow {
+                infoRow(icon: stats.isPeakHour ? "sun.max.fill" : "moon.zzz.fill",
+                        iconColor: stats.isPeakHour ? .yellow : .green,
+                        label: Strings.pricingWindowLabel,
+                        value: stats.pricingWindowDetailText,
+                        valueColor: stats.isPeakHour ? .yellow : .green)
+            }
             if let error = stats.errorMessage {
                 infoRow(icon: "exclamationmark.triangle.fill", iconColor: .orange, label: Strings.errorLabel, value: error, valueColor: .orange)
             }
@@ -217,18 +234,23 @@ struct StatsPopoverView: View {
     @State private var aggregateSortAsc = false
 
     private var usageSection: some View {
+        VStack(spacing: 0) {
+            CollapsibleSection(title: Strings.usageTitle, icon: "brain.head.profile",
+                               isExpanded: $showUsageStatsSection) {
+                usageStatsContent
+            }
+            CollapsibleSection(title: Strings.requestHistoryTitle, icon: "chart.bar",
+                               isExpanded: $showUsageListSection) {
+                usageListContent
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    @ViewBuilder
+    private var usageStatsContent: some View {
         VStack(spacing: 8) {
             HStack {
-                Text(Strings.usageTitle)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                Spacer()
-                Button(action: { showChart.toggle() }) {
-                    Image(systemName: showChart ? "list.bullet" : "chart.bar.fill")
-                        .font(.system(size: 10))
-                }
-                .buttonStyle(.plain)
-                .padding(.trailing, 4)
                 HStack(spacing: 2) {
                     pillTab(Strings.todayLabel, tag: 0, selection: $usagePeriod)
                     pillTab(Strings.weekLabel, tag: 1, selection: $usagePeriod)
@@ -236,6 +258,13 @@ struct StatsPopoverView: View {
                 }
                 .font(.system(size: 10))
                 .onChange(of: usagePeriod) { _, _ in loadUsage() }
+                Spacer()
+                Button(action: { showChart.toggle() }) {
+                    Image(systemName: showChart ? "list.bullet" : "chart.bar.fill")
+                        .font(.system(size: 10))
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 4)
             }
 
             if let u = usageData, u.requestCount > 0, usagePeriod != 0 || isTodayData(u) {
@@ -249,18 +278,6 @@ struct StatsPopoverView: View {
                     usageRow("yensign.circle", .orange, Strings.estimatedCostLabel, Strings.costShort(u.estimatedCost))
                     usageRow("stopwatch", .teal.opacity(0.7), Strings.latencyLabel, Strings.latencyMsFormat(u.avgLatencyMs))
                 }
-
-                Divider().padding(.vertical, 2)
-
-                if !chartData.isEmpty {
-                    if showChart {
-                        UsageBarChart(data: chartData, frameWidth: AppConfig.contentWidth)
-                            .frame(height: 120)
-                            .padding(.top, 10)
-                    } else {
-                        RequestListView(frameWidth: AppConfig.contentWidth)
-                    }
-                }
             } else {
                 HStack {
                     Spacer()
@@ -269,6 +286,23 @@ struct StatsPopoverView: View {
                         .foregroundColor(.secondary)
                         .padding(.vertical, 8)
                     Spacer()
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private var usageListContent: some View {
+        Group {
+            if let u = usageData, u.requestCount > 0, usagePeriod != 0 || isTodayData(u), !chartData.isEmpty {
+                if showChart {
+                    UsageBarChart(data: chartData, frameWidth: AppConfig.contentWidth)
+                        .frame(height: 120)
+                        .padding(.top, 10)
+                } else {
+                    RequestListView(frameWidth: AppConfig.contentWidth)
                 }
             }
         }
@@ -372,16 +406,21 @@ struct StatsPopoverView: View {
     }
 
     private var sourceUsageSection: some View {
-        VStack(spacing: 8) {
-            sourceToolbar
-            if sourceMode == 0 {
-                sourceAggregateContent
-            } else {
-                sourceIndividualContent
+        VStack(spacing: 0) {
+            CollapsibleSection(title: Strings.sourceUsageTitle, icon: "network",
+                               isExpanded: $showSourceUsageSection) {
+                VStack(spacing: 8) {
+                    sourceToolbar
+                    if sourceMode == 0 {
+                        sourceAggregateContent
+                    } else {
+                        sourceIndividualContent
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
@@ -557,9 +596,9 @@ struct StatsPopoverView: View {
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: 260)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
     }
 
@@ -694,10 +733,12 @@ struct StatsPopoverView: View {
 
     private var deepSeekTabContent: some View {
         VStack(spacing: 0) {
-            balanceSection
-            Divider().padding(.horizontal, 14)
-            infoSection
-            Divider().padding(.horizontal, 14)
+            CollapsibleSection(title: Strings.accountSectionTitle, icon: "wallet.pass.fill",
+                               isExpanded: $showAccountSection) {
+                balanceSection
+                Divider().padding(.horizontal, 14)
+                infoSection
+            }
             usageSwitcher
             Divider().padding(.horizontal, 14)
             if usageSubTab == 0 {
@@ -803,7 +844,8 @@ struct StatsPopoverView: View {
                 .buttonStyle(.borderedProminent)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
         .onAppear { licenseSeats = SeatRegistry.shared.seats }
         .onReceive(NotificationCenter.default.publisher(for: .seatRegistryChanged)) { _ in
             licenseSeats = SeatRegistry.shared.seats

@@ -175,6 +175,31 @@ final class DeepSeekStats {
         return .green
     }
 
+    // MARK: - 高峰/低谷计费时段（DeepSeek）
+
+    /// 仅 DeepSeek 有官方公布的高峰/低谷时段
+    var supportsPricingWindow: Bool {
+        providerID == "deepseek"
+    }
+
+    var isPeakHour: Bool {
+        DeepSeekPricing.isPeak()
+    }
+
+    var pricingWindowText: String {
+        isPeakHour ? Strings.peakStatusPeak : Strings.peakStatusOffPeak
+    }
+
+    var pricingWindowColor: Color {
+        isPeakHour ? .yellow : .green
+    }
+
+    /// 弹窗信息行展示文本（含剩余时间），如 "高峰 · 3h 12m 后切换"
+    var pricingWindowDetailText: String {
+        let countdown = DeepSeekPricing.timeToTransitionText()
+        return String(format: isPeakHour ? Strings.peakCountdown : Strings.offPeakCountdown, countdown)
+    }
+
     // MARK: - 刷新
 
     func refresh() {
