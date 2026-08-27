@@ -8,6 +8,8 @@ struct KimiProvider: Provider {
     let balanceURL: String? = "/v1/users/me/balance"
     let rpmLimit: Int? = 200
     let developerPlatformURL = "https://platform.kimi.com/console/account"
+    let logoAsset: String? = "logo-kimi"
+    let iconName = "moon.stars.fill"
 
     let fallbackModels: [String: ModelPricing] = [
         "kimi-k2.6":                  ModelPricing(label: "K2.6",     hitPrice: 2.0, missPrice: 4.0, outPrice: 12.0),

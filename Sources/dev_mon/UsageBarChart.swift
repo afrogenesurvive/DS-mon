@@ -38,8 +38,11 @@ struct UsageBarChart: View {
                         .fixedSize()
                         .offset(x: clampTooltipX(mouseX: loc.x),
                                 y: max(loc.y - 56, 4))
+                        .allowsHitTesting(false)
+                        .zIndex(10_000)
                 }
             }
+            .zIndex(hoveredBar == nil ? 0 : 10_000)
     }
 
     /// 将 tooltip 的 x 偏移钳制在 [4, frameWidth - tooltipW - 4] 内

@@ -212,7 +212,13 @@ final class ProxyConnectionHandler: @unchecked Sendable {
 
         var req = URLRequest(url: targetURL)
         req.httpMethod = method
-        req.httpBody = applyDefaultModel(body, providerInfo?.defaultModel)
+        var outboundBody = applyDefaultModel(body, providerInfo?.defaultModel)
+        // OpenAI 流式请求需显式 include_usage 才会在最后一个 chunk 返回 usage，
+        // 否则代理无法记录逐条用量（DeepSeek 总是返回 usage，不受影响）。
+        if path.contains("/chat/completions") {
+            outboundBody = ensureUsageCapture(outboundBody)
+        }
+        req.httpBody = outboundBody
         req.timeoutInterval = AppConfig.proxyRequestTimeout
 
         for (key, value) in headers {
@@ -330,6 +336,24 @@ final class ProxyConnectionHandler: @unchecked Sendable {
 
     /// 不需要替换模型名——路由已通过 model→provider 查表完成
     private func applyDefaultModel(_ body: Data, _ defaultModel: String?) -> Data { body }
+
+    /// 为流式 Chat Completions 请求注入 stream_options.include_usage = true。
+    /// OpenAI 仅在显式请求 include_usage 时才会在流式响应的最后一个 chunk 返回 usage，
+    /// 否则拿不到逐条用量数据。仅对 /chat/completions 生效（Anthropic /v1/messages 不适用）。
+    private func ensureUsageCapture(_ body: Data) -> Data {
+        guard let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
+              json["stream"] as? Bool == true else { return body }
+        var mutated = json
+        var options = (mutated["stream_options"] as? [String: Any]) ?? [:]
+        if options["include_usage"] as? Bool != true {
+            options["include_usage"] = true
+            mutated["stream_options"] = options
+            if let data = try? JSONSerialization.data(withJSONObject: mutated) {
+                return data
+            }
+        }
+        return body
+    }
 
     // MARK: - 响应辅助
 

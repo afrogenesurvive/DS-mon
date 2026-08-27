@@ -167,7 +167,8 @@ func toChatRequest(
         tools: convertedTools.isEmpty ? nil : convertedTools,
         temperature: req.temperature,
         maxTokens: req.maxOutputTokens,
-        streamOptions: nil,
+        // 流式翻译请求显式请求 include_usage，确保 OpenAI 返回 usage 以便记录逐条用量
+        streamOptions: (req.stream ?? false) ? ChatStreamOptions(includeUsage: true) : nil,
         stream: req.stream ?? false
     )
 }

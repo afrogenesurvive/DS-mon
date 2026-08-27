@@ -68,6 +68,8 @@ enum Strings {
         static let showPeakDot = "show_peak_dot"
         static let peakNotificationEnabled = "peak_notification_enabled"
         static func lastModel(for providerId: String) -> String { "last_model_\(providerId)" }
+        /// 按月计费提供商的手填月度预算（用于推导剩余额度）
+        static func monthlyBudget(for providerId: String) -> String { "monthly_budget_\(providerId)" }
     }
 
     /// 判断当前是否为中文界面。直接读取 UserDefaults，无需缓存。
@@ -319,6 +321,44 @@ enum Strings {
     static var tokenInputText: String { isZH ? "输入 %@" : "In %@" }
     static var tokenOutputText: String { isZH ? "输出 %@" : "Out %@" }
     static var tokenCachedText: String { isZH ? "缓存 %@" : "Cache %@" }
+
+    // MARK: - 月度预算 / 剩余额度（按月计费提供商）
+    static var spentThisMonthLabel: String { isZH ? "本月已花费" : "Spent this month" }
+    static var remainingBudgetLabel: String { isZH ? "剩余额度" : "Remaining" }
+    static var monthlyBudgetLabel: String { isZH ? "月度预算" : "Monthly budget" }
+    static var budgetSourceSpendLimit: String {
+        isZH ? "来源：提供商消费上限"
+             : "Source: provider spend limit"
+    }
+    static var budgetSourceManual: String {
+        isZH ? "来源：设置中手填的月度预算" : "Source: monthly budget set in Settings"
+    }
+    static var budgetSourceNone: String {
+        isZH ? "OpenAI 与 Anthropic 均未提供余额查询接口。请在 设置 → 提供商 中填写月度预算以显示剩余额度。"
+             : "Neither OpenAI nor Anthropic offers a balance API. Set a monthly budget in Settings → Providers to show remaining."
+    }
+    static var monthlyBudgetHint: String {
+        isZH ? "用于推导剩余额度（本月预算 − 本月费用）。填 0 表示不显示。"
+             : "Used to derive remaining (budget − month-to-date cost). 0 hides it."
+    }
+    static var monthlyBudgetHintOpenAI: String {
+        isZH ? "仅在未配置组织消费上限时作为回退值使用。"
+             : "Fallback only — used when no org spend limit is configured."
+    }
+
+    // MARK: - 图标提示（Tooltip）
+    static var providerTabTooltipBalance: String {
+        isZH ? "%@ — 查看余额与用量" : "%@ — balance & usage"
+    }
+    static var providerTabTooltipSpend: String {
+        isZH ? "%@ — 查看本月费用与剩余额度" : "%@ — month-to-date spend & remaining"
+    }
+    static var usageTabTooltip: String { isZH ? "用量统计与请求历史" : "Usage stats & request history" }
+    static var licenseTabTooltip: String { isZH ? "许可证席位与有效期" : "License seats & expiry" }
+    static var githubTabTooltip: String { isZH ? "GitHub Actions 免费额度用量" : "GitHub Actions free-tier usage" }
+    static var awsTabTooltip: String { isZH ? "AWS 免费套餐与费用" : "AWS free tier & costs" }
+    static var showChartTooltip: String { isZH ? "切换为图表视图" : "Switch to chart view" }
+    static var showListTooltip: String { isZH ? "切换为列表视图" : "Switch to list view" }
 
     // Chart
     static var chartMiss: String { isZH ? "Miss" : "Miss" }

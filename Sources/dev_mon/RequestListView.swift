@@ -2,6 +2,8 @@ import SwiftUI
 
 struct RequestListView: View {
     let frameWidth: CGFloat
+    let providerId: String?
+    let since: Date?
     @State private var records: [UsageRecord] = []
 
     @State private var sortKey = "time"
@@ -68,6 +70,8 @@ struct RequestListView: View {
         .onReceive(NotificationCenter.default.publisher(for: .usageRecorded)) { _ in
             loadRecords()
         }
+        .onChange(of: providerId ?? "") { _, _ in loadRecords() }
+        .onChange(of: since?.timeIntervalSince1970 ?? 0) { _, _ in loadRecords() }
     }
 
     @ViewBuilder
@@ -147,7 +151,7 @@ struct RequestListView: View {
 
     private func loadRecords() {
         Task {
-            records = await UsageStore.shared.recentRecords(limit: 50)
+            records = await UsageStore.shared.recentRecords(limit: 50, providerId: providerId, since: since)
         }
     }
 }

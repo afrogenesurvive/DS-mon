@@ -22,8 +22,15 @@ protocol Provider: Sendable {
     var balanceQueryItems: [URLQueryItem]? { get }
     /// 可选的 token 用量接口路径（OpenAI/Anthropic 管理端）。
     var tokenUsageURL: String? { get }
+    /// 可选的月度硬性消费上限接口路径（当前内置提供商均未提供）。
+    /// 注意：该接口不接受 query 参数，请勿附加 balanceQueryItems。
+    var spendLimitURL: String? { get }
     /// 预付费余额(false) vs 按月计费费用(true)；费用型不触发低余额告警。
     var isSpendBased: Bool { get }
+    /// 打包在 App 内的商标图片资源名（不含扩展名）；缺失时回退到 iconName。
+    var logoAsset: String? { get }
+    /// SF Symbol 兜底图标名，用于商标资源缺失时。
+    var iconName: String { get }
     var fallbackModels: [String: ModelPricing] { get }
     var preferredDefaultModel: String? { get }
     var rpmLimit: Int? { get }
@@ -31,6 +38,8 @@ protocol Provider: Sendable {
     var opencodeProviderId: String { get }
     func parseBalance(_ json: [String: Any]) -> (total: Double, granted: Double, toppedUp: Double)?
     func parseTokenUsage(_ json: [String: Any]) -> ProviderTokenUsage?
+    /// 解析月度消费上限，返回值单位与 currency 一致（美元而非美分）。
+    func parseSpendLimit(_ json: [String: Any]) -> Double?
     var currency: String { get }
     /// 构造访问上游所需的认证请求头（默认 Authorization: Bearer）。
     /// Anthropic 等提供商可覆盖为 x-api-key / anthropic-version。
@@ -41,8 +50,12 @@ extension Provider {
     var authPrefix: String { "Bearer" }
     var balanceQueryItems: [URLQueryItem]? { nil }
     var tokenUsageURL: String? { nil }
+    var spendLimitURL: String? { nil }
     var isSpendBased: Bool { false }
+    var logoAsset: String? { nil }
+    var iconName: String { "cube.fill" }
     func parseTokenUsage(_ json: [String: Any]) -> ProviderTokenUsage? { nil }
+    func parseSpendLimit(_ json: [String: Any]) -> Double? { nil }
 
     func authHeaders(for apiKey: String) -> [String: String] {
         ["Authorization": "\(authPrefix) \(apiKey)"]

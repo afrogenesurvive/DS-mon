@@ -38,6 +38,13 @@ struct ModelPricing: Codable, Equatable, Sendable {
 
     /// Anthropic 定价（USD / 1M tokens）
     static let anthropicDefault: [String: ModelPricing] = [
+        "claude-opus-5":       ModelPricing(label: "Claude Opus 5",       hitPrice: 0.50, missPrice: 5.00, outPrice: 25.00),
+        "claude-sonnet-5":     ModelPricing(label: "Claude Sonnet 5",     hitPrice: 0.20, missPrice: 2.00, outPrice: 10.00),
+        "claude-haiku-4-5":    ModelPricing(label: "Claude Haiku 4.5",    hitPrice: 0.10, missPrice: 1.00, outPrice: 5.00),
+        "claude-opus-4-8":     ModelPricing(label: "Claude Opus 4.8",     hitPrice: 0.50, missPrice: 5.00, outPrice: 25.00),
+        "claude-opus-4-7":     ModelPricing(label: "Claude Opus 4.7",     hitPrice: 0.50, missPrice: 5.00, outPrice: 25.00),
+        "claude-opus-4-6":     ModelPricing(label: "Claude Opus 4.6",     hitPrice: 0.50, missPrice: 5.00, outPrice: 25.00),
+        "claude-sonnet-4-6":   ModelPricing(label: "Claude Sonnet 4.6",   hitPrice: 0.30, missPrice: 3.00, outPrice: 15.00),
         "claude-3-5-sonnet": ModelPricing(label: "Claude 3.5 Sonnet", hitPrice: 0.30, missPrice: 3.00, outPrice: 15.00),
         "claude-3-7-sonnet": ModelPricing(label: "Claude 3.7 Sonnet", hitPrice: 0.30, missPrice: 3.00, outPrice: 15.00),
         "claude-sonnet-4":   ModelPricing(label: "Claude Sonnet 4",   hitPrice: 0.30, missPrice: 3.00, outPrice: 15.00),
@@ -433,31 +440,44 @@ actor UsageStore {
         sqlite3_exec(db, "COMMIT", nil, nil, nil)
     }
 
-    func recentRecords(limit: Int = 5) -> [UsageRecord] {
+    func recentRecords(limit: Int = 5, providerId: String? = nil, since: Date? = nil) -> [UsageRecord] {
         guard let db else { return [] }
+        let hasProvider = providerId.map { !$0.isEmpty } ?? false
+        let hasSince = since != nil
         let sql = """
-        SELECT timestamp, model, endpoint, latency_ms, status_code, user_agent, uuid, source_ip
+        SELECT timestamp, model, endpoint, latency_ms, status_code, user_agent, uuid, source_ip, provider_id,
+               prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens
         FROM usage_log
+        WHERE 1=1\(hasProvider ? " AND provider_id = ?" : "")\(hasSince ? " AND timestamp >= ?" : "")
         ORDER BY timestamp DESC
         LIMIT ?;
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        sqlite3_bind_int(stmt, 1, Int32(limit))
+        var bindIdx: Int32 = 1
+        if let pid = providerId, hasProvider {
+            sqlite3_bind_text(stmt, bindIdx, pid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            bindIdx += 1
+        }
+        if let since {
+            sqlite3_bind_double(stmt, bindIdx, since.timeIntervalSince1970)
+            bindIdx += 1
+        }
+        sqlite3_bind_int(stmt, bindIdx, Int32(limit))
         defer { sqlite3_finalize(stmt) }
         var results: [UsageRecord] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
             results.append(UsageRecord(
                 uuid: String(cString: sqlite3_column_text(stmt, 6)),
                 timestamp: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 0)),
-                providerId: "",
+                providerId: String(cString: sqlite3_column_text(stmt, 8)),
                 model: String(cString: sqlite3_column_text(stmt, 1)),
                 endpoint: String(cString: sqlite3_column_text(stmt, 2)),
-                promptTokens: 0,
-                completionTokens: 0,
-                totalTokens: 0,
-                cachedTokens: 0,
-                reasoningTokens: 0,
+                promptTokens: Int(sqlite3_column_int64(stmt, 9)),
+                completionTokens: Int(sqlite3_column_int64(stmt, 10)),
+                totalTokens: Int(sqlite3_column_int64(stmt, 11)),
+                cachedTokens: Int(sqlite3_column_int64(stmt, 12)),
+                reasoningTokens: Int(sqlite3_column_int64(stmt, 13)),
                 latencyMs: sqlite3_column_double(stmt, 3),
                 statusCode: Int(sqlite3_column_int64(stmt, 4)),
                 userAgent: String(cString: sqlite3_column_text(stmt, 5)),
@@ -484,10 +504,11 @@ actor UsageStore {
     /// - Parameters:
     ///   - since: only include records at/after this date (period filter); nil = all time
     ///   - sourceIP: restrict to one source; nil/empty = all sources
-    func aggregateBySourceIP(since: Date? = nil, sourceIP: String? = nil) -> [SourceUsage] {
+    func aggregateBySourceIP(since: Date? = nil, sourceIP: String? = nil, providerId: String? = nil) -> [SourceUsage] {
         guard let db else { return [] }
         let hasSince = since != nil
         let hasSource = sourceIP.map { !$0.isEmpty } ?? false
+        let hasProvider = providerId.map { !$0.isEmpty } ?? false
         let sql = """
         SELECT source_ip,
                GROUP_CONCAT(DISTINCT CASE WHEN provider_id IS NULL OR provider_id = '' THEN NULL ELSE provider_id END),
@@ -495,7 +516,7 @@ actor UsageStore {
                SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens),
                SUM(cached_tokens), SUM(cost), MAX(timestamp)
         FROM usage_log
-        WHERE 1=1\(hasSince ? " AND timestamp >= ?" : "")\(hasSource ? " AND source_ip = ?" : "")
+        WHERE 1=1\(hasSince ? " AND timestamp >= ?" : "")\(hasSource ? " AND source_ip = ?" : "")\(hasProvider ? " AND provider_id = ?" : "")
         GROUP BY source_ip
         ORDER BY SUM(cost) DESC;
         """
@@ -508,6 +529,10 @@ actor UsageStore {
         }
         if let src = sourceIP, hasSource {
             sqlite3_bind_text(stmt, bindIdx, src, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            bindIdx += 1
+        }
+        if let pid = providerId, hasProvider {
+            sqlite3_bind_text(stmt, bindIdx, pid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
             bindIdx += 1
         }
         defer { sqlite3_finalize(stmt) }
@@ -553,7 +578,7 @@ actor UsageStore {
     /// Individual usage records, optionally filtered by period + source, newest first.
     /// When `perSourceLimit` is set (and no specific source filter), balances across sources
     /// so a high-volume source (e.g. the local host) can't hide the others.
-    func records(since: Date? = nil, sourceIP: String? = nil, limit: Int = 50, perSourceLimit: Int? = nil) -> [UsageRecord] {
+    func records(since: Date? = nil, sourceIP: String? = nil, providerId: String? = nil, limit: Int = 50, perSourceLimit: Int? = nil) -> [UsageRecord] {
         let hasSource = sourceIP.map { !$0.isEmpty } ?? false
         let balanced = !hasSource && (perSourceLimit != nil)
 
@@ -562,10 +587,10 @@ actor UsageStore {
             let sources = distinctSources()
             var all: [UsageRecord] = []
             for src in sources {
-                all.append(contentsOf: sourceRecords(since: since, sourceIP: src, limit: per))
+                all.append(contentsOf: sourceRecords(since: since, sourceIP: src, providerId: providerId, limit: per))
             }
             // local (empty/NULL source_ip) partition — always included so it can't be dropped
-            all.append(contentsOf: sourceRecords(since: since, sourceIP: "", limit: per))
+            all.append(contentsOf: sourceRecords(since: since, sourceIP: "", providerId: providerId, limit: per))
             all.sort { $0.timestamp > $1.timestamp }
             if all.count > limit {
                 all = Array(all.prefix(limit))
@@ -573,14 +598,15 @@ actor UsageStore {
             return all
         }
 
-        return sourceRecords(since: since, sourceIP: hasSource ? sourceIP : nil, limit: limit)
+        return sourceRecords(since: since, sourceIP: hasSource ? sourceIP : nil, providerId: providerId, limit: limit)
     }
 
     /// Per-source records query. `sourceIP` = "" matches the local (empty/NULL) partition;
     /// `nil` matches all sources.
-    private func sourceRecords(since: Date?, sourceIP: String?, limit: Int) -> [UsageRecord] {
+    private func sourceRecords(since: Date?, sourceIP: String?, providerId: String?, limit: Int) -> [UsageRecord] {
         guard let db else { return [] }
         let hasSince = since != nil
+        let hasProvider = providerId.map { !$0.isEmpty } ?? false
         let sourceClause: String
         if let src = sourceIP, src.isEmpty {
             sourceClause = " AND (source_ip = '' OR source_ip IS NULL)"
@@ -594,7 +620,7 @@ actor UsageStore {
                prompt_tokens, completion_tokens, total_tokens, cached_tokens,
                reasoning_tokens, latency_ms, status_code, user_agent, source_ip
         FROM usage_log
-        WHERE 1=1\(hasSince ? " AND timestamp >= ?" : "")\(sourceClause)
+        WHERE 1=1\(hasSince ? " AND timestamp >= ?" : "")\(sourceClause)\(hasProvider ? " AND provider_id = ?" : "")
         ORDER BY timestamp DESC
         LIMIT ?;
         """
@@ -607,6 +633,10 @@ actor UsageStore {
         }
         if let src = sourceIP, !src.isEmpty {
             sqlite3_bind_text(stmt, bindIdx, src, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            bindIdx += 1
+        }
+        if let pid = providerId, hasProvider {
+            sqlite3_bind_text(stmt, bindIdx, pid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
             bindIdx += 1
         }
         sqlite3_bind_int(stmt, bindIdx, Int32(limit))

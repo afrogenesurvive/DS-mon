@@ -8,6 +8,8 @@ struct DeepSeekProvider: Provider {
     let preferredDefaultModel: String? = "deepseek-v4-flash"
     let rpmLimit: Int? = 200
     let developerPlatformURL = "https://platform.deepseek.com/usage"
+    let logoAsset: String? = "logo-deepseek"
+    let iconName = "water.waves"
 
     let fallbackModels: [String: ModelPricing] = [
         "deepseek-v4-flash": ModelPricing(label: "V4 Flash", hitPrice: 0.02, missPrice: 1.0, outPrice: 2.0),

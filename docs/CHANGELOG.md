@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.5-1] — 2026-08-27
+
+### Added
+
+- **提供商商标 Logo**：弹窗顶部提供商标签行显示 DeepSeek / OpenAI / Anthropic / Kimi 官方商标（模板渲染、跟随选中态），资源缺失时自动回退到 SF Symbol 图标。
+- **月度预算 / 剩余额度**：按月计费提供商（OpenAI / Anthropic）账户区新增「本月预算」「剩余预算」；优先读取提供商消费上限，未配置时可在设置中按提供商手填月度预算。
+- **管理端用量分页**：OpenAI / Anthropic 管理端用量与费用报告支持游标分页拉取，并估算 Anthropic 当日未结清的 UTC 费用桶，月度费用显示更准确。
+- **新 Claude 模型定价**：新增 Opus 5 / Sonnet 5 / Haiku 4.5 / Opus 4.6–4.8 / Sonnet 4.6 定价表。
+- **请求列表增强**：总用量与来源用量列表支持按活跃提供商过滤，并展示逐条 token 用量。
+
+### Changed
+
+- **弹窗悬停提示**：标签页、提供商与底部操作栏按钮改用自定义悬停提示（此前系统 tooltip 在无边框弹出窗口中不显示）。
+- **OpenAI 流式用量捕获**：代理自动为流式 Chat Completions 请求注入 `stream_options.include_usage`，使 OpenAI 流式请求也能记录逐条用量（此前需客户端显式开启）。
+
+### Fixed
+
+- 用量图表悬停 tooltip 不再拦截鼠标事件，可连续查看各时段数据。
+
 ## [0.2.3-1] — 2026-08-27
 
 ### Added

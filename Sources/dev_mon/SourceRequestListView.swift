@@ -6,6 +6,7 @@ struct SourceRequestListView: View {
     let frameWidth: CGFloat
     var sourceIP: String = ""
     var since: Date?
+    var providerId: String?
 
     @State private var records: [UsageRecord] = []
     @State private var isLoading = false
@@ -83,6 +84,7 @@ struct SourceRequestListView: View {
         .onAppear { loadRecords() }
         .onChange(of: sourceIP) { _, _ in loadRecords() }
         .onChange(of: since) { _, _ in loadRecords() }
+        .onChange(of: providerId ?? "") { _, _ in loadRecords() }
         .onReceive(NotificationCenter.default.publisher(for: .usageRecorded)) { _ in
             reloadTask?.cancel()
             reloadTask = Task {
@@ -179,6 +181,7 @@ struct SourceRequestListView: View {
             let result = await UsageStore.shared.records(
                 since: since,
                 sourceIP: sourceIP,
+                providerId: providerId,
                 limit: 2000,
                 perSourceLimit: sourceIP.isEmpty ? 50 : nil
             )

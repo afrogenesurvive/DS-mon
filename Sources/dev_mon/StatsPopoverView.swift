@@ -75,17 +75,8 @@ struct StatsPopoverView: View {
                 providerTabButton(provider)
             }
             Spacer()
-            Button(action: openConsole) {
-                Image(systemName: "arrow.up.right.square")
-                    .font(.system(size: 10))
-                    .foregroundColor(.blue)
-                    .frame(width: 24, height: 22)
-                    .contentShape(Rectangle())
-                    .background(Color.blue.opacity(0.12))
-                    .cornerRadius(6)
-            }
-            .buttonStyle(.plain)
-            .help(Strings.openConsole)
+            iconButton(icon: "arrow.up.right.square", label: Strings.openConsole, color: .blue,
+                       action: openConsole)
         }
         .padding(.horizontal, 14)
         .padding(.bottom, 8)
@@ -93,19 +84,19 @@ struct StatsPopoverView: View {
 
     private func providerTabButton(_ provider: any Provider) -> some View {
         let active = stats.providerID == provider.id
+        let tint = providerTint(provider.id)
+        let tooltipFormat = provider.isSpendBased
+            ? Strings.providerTabTooltipSpend
+            : Strings.providerTabTooltipBalance
         return Button {
             ProviderManager.shared.setDefaultProvider(id: provider.id)
         } label: {
-            Text(provider.name)
-                .font(.system(size: 10, weight: active ? .semibold : .regular))
-                .foregroundColor(active ? .white : .secondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(active ? Color.blue : Color.clear)
-                .cornerRadius(6)
+            ProviderLogo(provider: provider, size: 12)
+                .modifier(IconButtonChrome(color: tint, active: active))
         }
         .buttonStyle(.plain)
-        .help(provider.developerPlatformURL)
+        .modifier(HoverTooltip(text: String(format: tooltipFormat, provider.name), position: .below))
+        .fixedSize()
     }
 
     private func openConsole() {
@@ -188,6 +179,30 @@ struct StatsPopoverView: View {
                         Spacer()
                     }
                 }
+            }
+            if stats.providerIsSpendBased && stats.hasBudget {
+                HStack(spacing: 6) {
+                    Image(systemName: "calendar.badge.clock")
+                        .font(.system(size: 9)).foregroundColor(.secondary).frame(width: 14)
+                    Text(Strings.monthlyBudgetLabel)
+                        .font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                    Text(String(format: "%@%.2f", Strings.currencySymbol, stats.monthlyBudget))
+                        .font(.system(size: 9).monospacedDigit())
+                }
+                HStack(spacing: 6) {
+                    Image(systemName: "hourglass")
+                        .font(.system(size: 9)).foregroundColor(.secondary).frame(width: 14)
+                    Text(Strings.balanceLabel)
+                        .font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                    Text(String(format: "%@%.2f", Strings.currencySymbol, stats.remainingBudget))
+                        .font(.system(size: 9).monospacedDigit())
+                        .foregroundColor(stats.budgetFraction >= 0.8 ? .orange : .secondary)
+                }
+                Text(stats.budgetSourceText)
+                    .font(.system(size: 7))
+                    .foregroundColor(.secondary)
             }
         }
         .padding(.horizontal, 14)
@@ -337,7 +352,7 @@ struct StatsPopoverView: View {
                         .frame(height: 120)
                         .padding(.top, 10)
                 } else {
-                    RequestListView(frameWidth: AppConfig.contentWidth)
+                    RequestListView(frameWidth: AppConfig.contentWidth, providerId: activeUsageProviderId, since: usagePeriodStart)
                 }
             }
         }
@@ -367,10 +382,23 @@ struct StatsPopoverView: View {
         return u.period == f.string(from: Date())
     }
 
+    private var activeUsageProviderId: String? {
+        stats.providerID.isEmpty ? nil : stats.providerID
+    }
+
+    private var usagePeriodStart: Date? {
+        let cal = Calendar.current
+        switch usagePeriod {
+        case 0: return cal.startOfDay(for: Date())
+        case 1: return cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date()))
+        default: return cal.date(from: cal.dateComponents([.year, .month], from: Date()))
+        }
+    }
+
     private func loadUsage() {
         Task { @MainActor in
             let store = UsageStore.shared
-            let pid = stats.providerID.isEmpty ? nil : stats.providerID
+            let pid = activeUsageProviderId
             switch usagePeriod {
             case 0:
                 usageData = await store.queryDaily(limit: 1, providerId: pid).first
@@ -416,8 +444,9 @@ struct StatsPopoverView: View {
         let since = sourcePeriodStart
         Task { @MainActor in
             let store = UsageStore.shared
+            let pid = activeUsageProviderId
             if sourceMode == 0 {
-                let rows = await store.aggregateBySourceIP(since: since, sourceIP: src)
+                let rows = await store.aggregateBySourceIP(since: since, sourceIP: src, providerId: pid)
                 sourceData = rows
                 sourceChartData = rows.map { item in
                     TokenBar(label: sourceDisplayName(item),
@@ -427,7 +456,6 @@ struct StatsPopoverView: View {
                              requestCount: item.requestCount)
                 }
             } else {
-                let pid = stats.providerID.isEmpty ? nil : stats.providerID
                 switch sourcePeriod {
                 case 0:
                     sourceChartData = await store.queryHourlyBreakdown(providerId: pid, sourceIP: src)
@@ -638,7 +666,7 @@ struct StatsPopoverView: View {
     }
 
     private var sourceListID: String {
-        "\(selectedSource)|\(sourcePeriodStart?.timeIntervalSince1970 ?? 0)"
+        "\(selectedSource)|\(stats.providerID)|\(sourcePeriodStart?.timeIntervalSince1970 ?? 0)"
     }
 
     @ViewBuilder
@@ -652,7 +680,7 @@ struct StatsPopoverView: View {
                     .padding(.top, 6)
             }
         } else {
-            SourceRequestListView(frameWidth: AppConfig.contentWidth, sourceIP: selectedSource, since: sourcePeriodStart)
+            SourceRequestListView(frameWidth: AppConfig.contentWidth, sourceIP: selectedSource, since: sourcePeriodStart, providerId: activeUsageProviderId)
                 .id(sourceListID)
         }
     }
@@ -690,6 +718,7 @@ struct StatsPopoverView: View {
                 .cornerRadius(6)
         }
         .buttonStyle(.plain)
+        .modifier(HoverTooltip(text: title, position: .below))
     }
 
     // MARK: - Cloud Helpers (reused by GitHub & AWS tabs)
@@ -744,17 +773,17 @@ struct StatsPopoverView: View {
 
     private var tabBar: some View {
         HStack(spacing: 4) {
-            tabButton(title: Strings.usageTabTitle, icon: "brain.head.profile", tag: 0)
-            tabButton(title: Strings.licenseTabTitle, icon: "checkmark.shield.fill", tag: 1)
-            tabButton(title: "GitHub", icon: "logo.github", tag: 2)
-            tabButton(title: "AWS", icon: "cloud.fill", tag: 3)
+            tabButton(title: Strings.usageTabTitle, icon: "brain.head.profile", tag: 0, tooltip: Strings.usageTabTooltip)
+            tabButton(title: Strings.licenseTabTitle, icon: "checkmark.shield.fill", tag: 1, tooltip: Strings.licenseTabTooltip)
+            tabButton(title: "GitHub", icon: "logo.github", tag: 2, tooltip: Strings.githubTabTooltip)
+            tabButton(title: "AWS", icon: "cloud.fill", tag: 3, tooltip: Strings.awsTabTooltip)
             Spacer()
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 4)
     }
 
-    private func tabButton(title: String, icon: String, tag: Int) -> some View {
+    private func tabButton(title: String, icon: String, tag: Int, tooltip: String) -> some View {
         let active = selectedTab == tag
         return Button(action: { selectedTab = tag }) {
             HStack(spacing: 4) {
@@ -768,6 +797,7 @@ struct StatsPopoverView: View {
             .cornerRadius(6)
         }
         .buttonStyle(.plain)
+        .modifier(HoverTooltip(text: tooltip, position: .below))
     }
 
     // MARK: - DeepSeek Tab
@@ -1145,19 +1175,159 @@ struct StatsPopoverView: View {
         .padding(.top, 6)
     }
 
-    private func iconButton(icon: String, label: String, color: Color, action: @escaping () -> Void) -> some View {
+    private func iconButton(icon: String, label: String, color: Color, active: Bool = false,
+                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(color)
-                .frame(width: 24, height: 22)
-                .contentShape(Rectangle())
-                .background(color.opacity(0.12))
-                .cornerRadius(6)
+                .modifier(IconButtonChrome(color: color, active: active))
         }
         .buttonStyle(.plain)
-        .help(label)
+        .modifier(HoverTooltip(text: label, position: .above))
         .fixedSize()
     }
 }
 
+/// 图标按钮外框：底部操作栏与提供商标签行共用同一几何与配色，保证视觉一致。
+/// - active: 选中态为蓝底白图标；未选中态为着色底 + 同色图标。
+struct IconButtonChrome: ViewModifier {
+    let color: Color
+    var active: Bool = false
+
+    func body(content: Content) -> some View {
+        content
+            .foregroundColor(active ? .white : color)
+            .frame(width: 24, height: 22)
+            .contentShape(Rectangle())
+            .background(active ? Color.blue : color.opacity(0.12))
+            .cornerRadius(6)
+    }
+}
+
+/// 自定义悬停提示。SwiftUI 的 .help() 在无边框 popUpMenu 级窗口中（菜单栏弹出面板）不会显示，
+/// 因此改用 onHover + overlay 实现（与 UsageBarChart 的悬停 tooltip 同一思路）。
+struct HoverTooltip: ViewModifier {
+    enum Position { case above, below }
+
+    let text: String
+    var position: Position = .below
+
+    @State private var hovering = false
+    @State private var tooltipID = UUID()
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering = $0 }
+            .background(TooltipAnchor(text: text, position: position, isPresented: hovering, id: tooltipID))
+            .zIndex(hovering ? 10_000 : 0)
+    }
+}
+
+private struct TooltipAnchor: NSViewRepresentable {
+    let text: String
+    let position: HoverTooltip.Position
+    let isPresented: Bool
+    let id: UUID
+
+    func makeNSView(context: Context) -> NSView {
+        NSView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        Task { @MainActor in
+            if isPresented {
+                FloatingTooltipController.shared.show(text: text, from: nsView, position: position, id: id)
+            } else {
+                FloatingTooltipController.shared.hide(id: id)
+            }
+        }
+    }
+}
+
+private struct FloatingTooltipBubble: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 9))
+            .foregroundColor(.primary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color(nsColor: .windowBackgroundColor))
+                    .shadow(color: .black.opacity(0.18), radius: 3, x: 0, y: 1)
+            )
+            .fixedSize()
+            .allowsHitTesting(false)
+    }
+}
+
+@MainActor
+private final class FloatingTooltipController {
+    static let shared = FloatingTooltipController()
+
+    private var panel: NSPanel?
+    private var currentID: UUID?
+
+    func show(text: String, from anchor: NSView, position: HoverTooltip.Position, id: UUID) {
+        guard let sourceWindow = anchor.window else { return }
+        let host = NSHostingController(rootView: FloatingTooltipBubble(text: text))
+        host.view.frame.size = host.view.fittingSize
+        let size = host.view.fittingSize
+        let panel = panel ?? makePanel()
+        panel.contentView = host.view
+        panel.setContentSize(size)
+        currentID = id
+
+        if panel.parent !== sourceWindow {
+            panel.parent?.removeChildWindow(panel)
+            sourceWindow.addChildWindow(panel, ordered: .above)
+        }
+        panel.level = NSWindow.Level(
+            rawValue: max(NSWindow.Level.popUpMenu.rawValue, sourceWindow.level.rawValue + 1)
+        )
+
+        let anchorRect = anchor.convert(anchor.bounds, to: nil)
+        let screenRect = sourceWindow.convertToScreen(anchorRect)
+        let gap: CGFloat = 6
+        var origin = NSPoint(
+            x: screenRect.midX - size.width / 2,
+            y: position == .above ? screenRect.maxY + gap : screenRect.minY - size.height - gap
+        )
+
+        if let screen = sourceWindow.screen ?? NSScreen.main {
+            let frame = screen.visibleFrame
+            origin.x = min(max(origin.x, frame.minX + 4), frame.maxX - size.width - 4)
+            origin.y = min(max(origin.y, frame.minY + 4), frame.maxY - size.height - 4)
+        }
+
+        panel.setFrameOrigin(origin)
+        panel.orderFrontRegardless()
+        self.panel = panel
+    }
+
+    func hide(id: UUID) {
+        guard currentID == id else { return }
+        panel?.orderOut(nil)
+        currentID = nil
+    }
+
+    private func makePanel() -> NSPanel {
+        let panel = NSPanel(
+            contentRect: .zero,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.level = .popUpMenu
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        return panel
+    }
+}

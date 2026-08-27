@@ -36,6 +36,19 @@ final class DeepSeekStats {
     private(set) var providerIsSpendBased: Bool = false
     private(set) var tokenUsage = ProviderTokenUsage.empty
 
+    // MARK: - 月度预算（按月计费提供商的"剩余额度"来源）
+
+    /// 剩余额度的推导依据。OpenAI/Anthropic 均无余额查询接口，
+    /// 只能用提供商消费上限（若可用）或用户手填预算减去本月费用。
+    enum BudgetSource {
+        case spendLimit  // provider-reported limit
+        case manual      // 设置中手填
+        case none        // 未知
+    }
+
+    private(set) var monthlyBudget: Double = 0
+    private(set) var budgetSource: BudgetSource = .none
+
     /// 余额预警阈值（默认 20）
     var threshold: Double {
         get { UserDefaults.standard.double(forKey: Strings.Keys.balanceThreshold) }
@@ -55,6 +68,56 @@ final class DeepSeekStats {
     var isWarningBalance: Bool {
         guard hasBalanceAPI, !providerIsSpendBased else { return false }
         return !isLowBalance && balance >= 0 && balance < maxBalanceAmount * 0.5
+    }
+
+    // MARK: - 剩余额度
+
+    var hasBudget: Bool { providerIsSpendBased && monthlyBudget > 0 }
+
+    /// 按月计费提供商的 `balance` 保存的是本月累计费用
+    var spentThisMonth: Double { balance }
+
+    var remainingBudget: Double { max(0, monthlyBudget - spentThisMonth) }
+
+    /// 已用占预算的比例，0...1
+    var budgetFraction: Double {
+        guard monthlyBudget > 0 else { return 0 }
+        return min(1, max(0, spentThisMonth / monthlyBudget))
+    }
+
+    var budgetSourceText: String {
+        switch budgetSource {
+        case .spendLimit: return Strings.budgetSourceSpendLimit
+        case .manual:     return Strings.budgetSourceManual
+        case .none:       return Strings.budgetSourceNone
+        }
+    }
+
+    /// 用户手填的月度预算，按提供商独立保存
+    func manualBudget(for providerId: String) -> Double {
+        UserDefaults.standard.double(forKey: Strings.Keys.monthlyBudget(for: providerId))
+    }
+
+    func setManualBudget(_ value: Double, for providerId: String) {
+        UserDefaults.standard.set(max(0, value), forKey: Strings.Keys.monthlyBudget(for: providerId))
+        if providerId == providerID { applyManualBudgetFallback() }
+    }
+
+    /// 当没有（或未取到）组织消费上限时，回退到手填预算
+    private func applyManualBudgetFallback() {
+        guard providerIsSpendBased else {
+            monthlyBudget = 0
+            budgetSource = .none
+            return
+        }
+        let manual = manualBudget(for: providerID)
+        if manual > 0 {
+            monthlyBudget = manual
+            budgetSource = .manual
+        } else {
+            monthlyBudget = 0
+            budgetSource = .none
+        }
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -239,6 +302,12 @@ final class DeepSeekStats {
             if hasTokenUsageAPI {
                 await fetchTokenUsage(apiKey: apiKey)
             }
+            if providerIsSpendBased {
+                await fetchSpendLimit(apiKey: apiKey)
+            } else {
+                monthlyBudget = 0
+                budgetSource = .none
+            }
             // 每次 refresh 都重新拉取模型列表
             if await fetchModels(apiKey: apiKey) {
                 lastModelsFetch = Date()
@@ -251,45 +320,41 @@ final class DeepSeekStats {
     private func fetchBalance(apiKey: String) async {
         guard let provider = ProviderManager.shared.activeProvider else { return }
         guard let balancePath = provider.balanceURL else { return }
-        guard var url = URL(string: provider.baseURL + balancePath) else { return }
-        if let items = provider.balanceQueryItems {
-            url.append(queryItems: items)
-        }
-
-        var req = URLRequest(url: url)
-        for (name, value) in provider.authHeaders(for: apiKey) {
-            req.setValue(value, forHTTPHeaderField: name)
-        }
-        req.timeoutInterval = AppConfig.balanceRequestTimeout
         do {
-            let (data, resp) = try await AppConfig.directURLSession.data(for: req)
-            guard let http = resp as? HTTPURLResponse else {
-                errorMessage = Strings.invalidResponse
-                return
-            }
-            switch http.statusCode {
-            case 200:
-                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                    errorMessage = Strings.parseFailed
-                    return
-                }
+            let pages = try await fetchReportPages(provider: provider, path: balancePath, apiKey: apiKey)
+            var total = 0.0
+            var granted = 0.0
+            var toppedUp = 0.0
+            for json in pages {
                 if let result = provider.parseBalance(json) {
-                    balance = result.total
-                    grantedBalance = result.granted
-                    toppedUpBalance = result.toppedUp
-                    isAvailable = true
-                } else {
-                    errorMessage = Strings.parseFailed
+                    total += result.total
+                    granted += result.granted
+                    toppedUp += result.toppedUp
                 }
-            case 401:
-                errorMessage = Strings.keyInvalid
-            case 429:
-                errorMessage = Strings.rateLimited
-            case 500...599:
-                errorMessage = Strings.serviceDown
-            default:
-                errorMessage = Strings.queryFailed(code: http.statusCode)
             }
+            if let anthropic = provider as? AnthropicProvider {
+                total += (try? await fetchAnthropicLiveCost(
+                    provider: anthropic,
+                    apiKey: apiKey,
+                    finalizedPages: pages
+                )) ?? 0
+            }
+            balance = total
+            grantedBalance = granted
+            toppedUpBalance = toppedUp
+            isAvailable = true
+        } catch ReportFetchError.httpStatus(401) {
+                errorMessage = Strings.keyInvalid
+        } catch ReportFetchError.httpStatus(429) {
+                errorMessage = Strings.rateLimited
+        } catch ReportFetchError.httpStatus(let code) where (500...599).contains(code) {
+                errorMessage = Strings.serviceDown
+        } catch ReportFetchError.httpStatus(let code) {
+            errorMessage = Strings.queryFailed(code: code)
+        } catch ReportFetchError.invalidResponse {
+            errorMessage = Strings.invalidResponse
+        } catch ReportFetchError.parseFailed {
+            errorMessage = Strings.parseFailed
         } catch let error as URLError {
             switch error.code {
             case .timedOut:
@@ -307,9 +372,111 @@ final class DeepSeekStats {
     private func fetchTokenUsage(apiKey: String) async {
         guard let provider = ProviderManager.shared.activeProvider else { return }
         guard let path = provider.tokenUsageURL else { return }
-        guard var url = URL(string: provider.baseURL + path) else { return }
-        if let items = provider.balanceQueryItems {
-            url.append(queryItems: items)
+        do {
+            let pages = try await fetchReportPages(provider: provider, path: path, apiKey: apiKey)
+            var combined = ProviderTokenUsage()
+            for json in pages {
+                guard let usage = provider.parseTokenUsage(json) else { continue }
+                combined.inputTokens += usage.inputTokens
+                combined.outputTokens += usage.outputTokens
+                combined.cachedInputTokens += usage.cachedInputTokens
+            }
+            tokenUsage = combined
+        } catch {}
+    }
+
+    private enum ReportFetchError: Error {
+        case invalidResponse
+        case parseFailed
+        case httpStatus(Int)
+    }
+
+    /// Fetch every cursor page returned by the OpenAI and Anthropic admin reports.
+    private func fetchReportPages(
+        provider: any Provider,
+        path: String,
+        apiKey: String,
+        queryItems: [URLQueryItem]? = nil,
+        timeout: TimeInterval = AppConfig.balanceRequestTimeout
+    ) async throws -> [[String: Any]] {
+        guard var baseURL = URL(string: provider.baseURL + path) else {
+            throw ReportFetchError.invalidResponse
+        }
+        if let items = queryItems ?? provider.balanceQueryItems {
+            baseURL.append(queryItems: items)
+        }
+
+        var pages: [[String: Any]] = []
+        var pageToken: String?
+        var seenTokens = Set<String>()
+
+        repeat {
+            var url = baseURL
+            if let pageToken {
+                url.append(queryItems: [URLQueryItem(name: "page", value: pageToken)])
+            }
+            var req = URLRequest(url: url)
+            for (name, value) in provider.authHeaders(for: apiKey) {
+                req.setValue(value, forHTTPHeaderField: name)
+            }
+            req.timeoutInterval = timeout
+
+            let (data, response) = try await AppConfig.directURLSession.data(for: req)
+            guard let http = response as? HTTPURLResponse else {
+                throw ReportFetchError.invalidResponse
+            }
+            guard http.statusCode == 200 else {
+                throw ReportFetchError.httpStatus(http.statusCode)
+            }
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw ReportFetchError.parseFailed
+            }
+            pages.append(json)
+
+            guard json["has_more"] as? Bool == true,
+                  let next = json["next_page"] as? String,
+                  !next.isEmpty,
+                  seenTokens.insert(next).inserted else {
+                pageToken = nil
+                break
+            }
+            pageToken = next
+        } while pageToken != nil
+
+        return pages
+    }
+
+    private func fetchAnthropicLiveCost(
+        provider: AnthropicProvider,
+        apiKey: String,
+        finalizedPages: [[String: Any]]
+    ) async throws -> Double {
+        guard let usagePath = provider.tokenUsageURL else { return 0 }
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(secondsFromGMT: 0)!
+        let monthStart = utc.date(from: utc.dateComponents([.year, .month], from: Date())) ?? Date()
+        let since = max(provider.latestFinalizedCostEnd(finalizedPages) ?? monthStart, monthStart)
+        guard since < Date() else { return 0 }
+
+        let pages = try await fetchReportPages(
+            provider: provider,
+            path: usagePath,
+            apiKey: apiKey,
+            queryItems: provider.liveCostQueryItems(since: since),
+            timeout: 30
+        )
+        return pages.reduce(0) { $0 + provider.estimateLiveCost($1) }
+    }
+
+    /// 拉取提供商可选的月度硬性消费上限。
+    /// 注意：该接口不接受 query 参数，因此不能附加 balanceQueryItems。
+    /// 未提供该接口、请求失败或未配置上限时，回退到手填预算。
+    private func fetchSpendLimit(apiKey: String) async {
+        guard let provider = ProviderManager.shared.activeProvider,
+              let path = provider.spendLimitURL,
+              let url = URL(string: provider.baseURL + path) else {
+            applyManualBudgetFallback()
+            return
         }
 
         var req = URLRequest(url: url)
@@ -319,12 +486,17 @@ final class DeepSeekStats {
         req.timeoutInterval = AppConfig.balanceRequestTimeout
         do {
             let (data, resp) = try await AppConfig.directURLSession.data(for: req)
-            guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return }
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-            if let usage = provider.parseTokenUsage(json) {
-                tokenUsage = usage
+            guard let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                  let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let limit = provider.parseSpendLimit(json) else {
+                applyManualBudgetFallback()
+                return
             }
-        } catch {}
+            monthlyBudget = limit
+            budgetSource = .spendLimit
+        } catch {
+            applyManualBudgetFallback()
+        }
     }
 
     // MARK: - 余额解析策略
@@ -347,4 +519,3 @@ final class DeepSeekStats {
         return !models.isEmpty
     }
 }
-
