@@ -34,6 +34,22 @@ struct AWSFreeTierStatus: Sendable, Equatable {
     )
 }
 
+// MARK: - AWS Billing Snapshot (Cost Explorer)
+
+struct AWSBillingSnapshot: Sendable, Equatable {
+    let monthToDateCost: Double      // total unblended cost, current month
+    let ec2Cost: Double              // EC2-only cost
+    let creditsApplied: Double       // all credits applied this month (positive $)
+    let ec2CreditsApplied: Double    // credits applied to EC2 (positive $)
+    let forecastedCost: Double?      // month-end cost forecast
+
+    static let empty = AWSBillingSnapshot(
+        monthToDateCost: 0, ec2Cost: 0,
+        creditsApplied: 0, ec2CreditsApplied: 0,
+        forecastedCost: nil
+    )
+}
+
 // MARK: - AWS Error
 
 enum AWSError: LocalizedError {
@@ -47,7 +63,7 @@ enum AWSError: LocalizedError {
         let isZH = Self.checkZH()
         switch self {
         case .invalidCredentials: return isZH ? "AWS 凭证无效" : "Invalid AWS credentials"
-        case .accessDenied: return isZH ? "权限不足（需要 ec2:DescribeInstances）" : "Insufficient permissions (need ec2:DescribeInstances)"
+        case .accessDenied: return isZH ? "权限不足（需要 ec2:DescribeInstances 和 ce:GetCostAndUsage）" : "Insufficient permissions (need ec2:DescribeInstances and ce:GetCostAndUsage)"
         case .networkError(let msg): return isZH ? "网络错误: \(msg)" : "Network error: \(msg)"
         case .parseFailed: return isZH ? "解析响应失败" : "Failed to parse response"
         case .regionRequired: return isZH ? "请选择区域" : "Please select a region"
@@ -75,6 +91,7 @@ final class AWSUsageTracker {
     private var refreshTask: Task<Void, Never>?
 
     private(set) var status = AWSFreeTierStatus.empty
+    private(set) var billing = AWSBillingSnapshot.empty
     private(set) var isLoading = false
     private(set) var errorMessage: String?
     private(set) var lastUpdate = "-"
@@ -130,6 +147,7 @@ final class AWSUsageTracker {
 
         Task {
             await fetchEC2Usage()
+            await fetchBillingCredits()
             isLoading = false
             let df = DateFormatter()
             df.dateFormat = "HH:mm:ss"
@@ -193,6 +211,135 @@ final class AWSUsageTracker {
             }
         } catch {
             errorMessage = AWSError.networkError(error.localizedDescription).localizedDescription
+        }
+    }
+
+    // MARK: - Billing & Credits (Cost Explorer)
+
+    /// Pulls current-month spend, credits applied (RECORD_TYPE = Credit), and a
+    /// month-end forecast from the AWS Cost Explorer API (service `ce`).
+    private func fetchBillingCredits() async {
+        let ak = accessKey
+        let sk = secretKey
+        guard !ak.isEmpty, !sk.isEmpty else { return }
+
+        let now = Date()
+        let cal = Calendar.current
+        let start = cal.date(from: cal.dateComponents([.year, .month], from: now)) ?? now
+        let end = cal.date(byAdding: .month, value: 1, to: start) ?? now
+
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.timeZone = TimeZone(abbreviation: "UTC")
+        df.locale = Locale(identifier: "en_US_POSIX")
+        let period = "\"Start\":\"\(df.string(from: start))\",\"End\":\"\(df.string(from: end))\""
+
+        // Month-to-date cost grouped by service (EC2 key = "Amazon Elastic Compute Cloud - Compute")
+        var monthToDateCost = 0.0
+        var ec2Cost = 0.0
+        let costBody = """
+        {"TimePeriod":{\(period)},"Granularity":"MONTHLY",
+         "Metrics":["UnblendedCost","NetUnblendedCost"],
+         "GroupBy":[{"Type":"DIMENSION","Key":"SERVICE"}]}
+        """
+        if let json = await callCostExplorer(action: "GetCostAndUsage", body: costBody, ak: ak, sk: sk) {
+            for time in json["ResultsByTime"] as? [[String: Any]] ?? [] {
+                for group in time["Groups"] as? [[String: Any]] ?? [] {
+                    let keys = group["Keys"] as? [String] ?? []
+                    let amountDict = (group["Metrics"] as? [String: Any])?["UnblendedCost"] as? [String: Any]
+                    let value = Double(amountDict?["Amount"] as? String ?? "0") ?? 0
+                    monthToDateCost += value
+                    if keys.first?.contains("Elastic Compute Cloud") == true {
+                        ec2Cost += value
+                    }
+                }
+            }
+        }
+
+        // Credits applied this month (negative amounts) — total + EC2 only
+        var creditsApplied = 0.0
+        var ec2CreditsApplied = 0.0
+        let creditsBody = """
+        {"TimePeriod":{\(period)},"Granularity":"MONTHLY",
+         "Metrics":["UnblendedCost"],
+         "Filter":{"Dimensions":{"Key":"RECORD_TYPE","Values":["Credit"]}},
+         "GroupBy":[{"Type":"DIMENSION","Key":"SERVICE"}]}
+        """
+        if let json = await callCostExplorer(action: "GetCostAndUsage", body: creditsBody, ak: ak, sk: sk) {
+            for time in json["ResultsByTime"] as? [[String: Any]] ?? [] {
+                for group in time["Groups"] as? [[String: Any]] ?? [] {
+                    let keys = group["Keys"] as? [String] ?? []
+                    let amountDict = (group["Metrics"] as? [String: Any])?["UnblendedCost"] as? [String: Any]
+                    let value = abs(Double(amountDict?["Amount"] as? String ?? "0") ?? 0)
+                    creditsApplied += value
+                    if keys.first?.contains("Elastic Compute Cloud") == true {
+                        ec2CreditsApplied += value
+                    }
+                }
+            }
+        }
+
+        // Month-end cost forecast
+        let forecastedCost = await callCostForecast(ak: ak, sk: sk)
+
+        billing = AWSBillingSnapshot(
+            monthToDateCost: monthToDateCost,
+            ec2Cost: ec2Cost,
+            creditsApplied: creditsApplied,
+            ec2CreditsApplied: ec2CreditsApplied,
+            forecastedCost: forecastedCost
+        )
+    }
+
+    private func callCostExplorer(action: String, body: String, ak: String, sk: String) async -> [String: Any]? {
+        guard let url = URL(string: "https://ce.us-east-1.amazonaws.com/") else { return nil }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/x-amz-json-1.1", forHTTPHeaderField: "Content-Type")
+        req.setValue("AWSInsightsIndexService.\(action)", forHTTPHeaderField: "X-Amz-Target")
+        req.httpBody = Data(body.utf8)
+        let signer = SigV4Signer(region: "us-east-1", service: "ce", accessKey: ak, secretKey: sk)
+        signer.sign(request: &req, payload: req.httpBody)
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            return try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        } catch {
+            return nil
+        }
+    }
+
+    private func callCostForecast(ak: String, sk: String) async -> Double? {
+        let now = Date()
+        let cal = Calendar.current
+        let monthStart = cal.date(from: cal.dateComponents([.year, .month], from: now)) ?? now
+        let monthEnd = cal.date(byAdding: .month, value: 1, to: monthStart) ?? now
+
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.timeZone = TimeZone(abbreviation: "UTC")
+        df.locale = Locale(identifier: "en_US_POSIX")
+        let body = """
+        {"TimePeriod":{"Start":"\(df.string(from: now))","End":"\(df.string(from: monthEnd))"},
+         "Granularity":"MONTHLY","Metric":"UNBLENDED_COST"}
+        """
+        guard let url = URL(string: "https://ce.us-east-1.amazonaws.com/") else { return nil }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/x-amz-json-1.1", forHTTPHeaderField: "Content-Type")
+        req.setValue("AWSInsightsIndexService.GetCostForecast", forHTTPHeaderField: "X-Amz-Target")
+        req.httpBody = Data(body.utf8)
+        let signer = SigV4Signer(region: "us-east-1", service: "ce", accessKey: ak, secretKey: sk)
+        signer.sign(request: &req, payload: req.httpBody)
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            guard let total = json?["Total"] as? [String: Any],
+                  let amount = total["Amount"] as? String else { return nil }
+            return Double(amount)
+        } catch {
+            return nil
         }
     }
 

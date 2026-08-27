@@ -24,7 +24,8 @@ struct StatsPopoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            headerSection
+            appTitleRow
+            providerTabRow
             Divider().padding(.horizontal, 14)
             tabBar
             Divider().padding(.horizontal, 14)
@@ -53,7 +54,7 @@ struct StatsPopoverView: View {
         .onChange(of: stats.providerID) { _, _ in loadUsage(); loadSourceUsage(); loadSourceOptions() }
     }
 
-    private var headerSection: some View {
+    private var appTitleRow: some View {
         HStack(spacing: 6) {
             Text("dev_mon")
                 .font(.system(size: 13, weight: .semibold))
@@ -61,42 +62,62 @@ struct StatsPopoverView: View {
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
             Spacer()
-            Menu {
-                ForEach(ProviderManager.shared.providers, id: \.id) { provider in
-                    Button(provider.name) {
-                        ProviderManager.shared.setDefaultProvider(id: provider.id)
-                    }
-                }
-                Divider()
-                Button(action: {
-                    let urlStr = ProviderManager.shared.activeProvider?.developerPlatformURL ?? ""
-                    guard !urlStr.isEmpty, let url = URL(string: urlStr) else { return }
-                    let ok = NSWorkspace.shared.open(url)
-                    if !ok,
-                       let safariURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Safari") {
-                        NSWorkspace.shared.open([url],
-                            withApplicationAt: safariURL,
-                            configuration: NSWorkspace.OpenConfiguration())
-                    }
-                }) {
-                    Text(Strings.openConsole)
-                }
-            } label: {
-                Text(stats.providerName)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(.blue)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .background(Color.blue.opacity(0.1))
-            .cornerRadius(4)
-            .help(ProviderManager.shared.activeProvider?.developerPlatformURL ?? "")
             statusBadge
         }
         .padding(.horizontal, 14)
-        .padding(.bottom, 10)
+        .padding(.bottom, 8)
+    }
+
+    // 提供商标签行：样式与 Usage/License 等 tab 一致
+    private var providerTabRow: some View {
+        HStack(spacing: 4) {
+            ForEach(ProviderManager.shared.providers, id: \.id) { provider in
+                providerTabButton(provider)
+            }
+            Spacer()
+            Button(action: openConsole) {
+                Image(systemName: "arrow.up.right.square")
+                    .font(.system(size: 10))
+                    .foregroundColor(.blue)
+                    .frame(width: 24, height: 22)
+                    .contentShape(Rectangle())
+                    .background(Color.blue.opacity(0.12))
+                    .cornerRadius(6)
+            }
+            .buttonStyle(.plain)
+            .help(Strings.openConsole)
+        }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 8)
+    }
+
+    private func providerTabButton(_ provider: any Provider) -> some View {
+        let active = stats.providerID == provider.id
+        return Button {
+            ProviderManager.shared.setDefaultProvider(id: provider.id)
+        } label: {
+            Text(provider.name)
+                .font(.system(size: 10, weight: active ? .semibold : .regular))
+                .foregroundColor(active ? .white : .secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(active ? Color.blue : Color.clear)
+                .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .help(provider.developerPlatformURL)
+    }
+
+    private func openConsole() {
+        let urlStr = ProviderManager.shared.activeProvider?.developerPlatformURL ?? ""
+        guard !urlStr.isEmpty, let url = URL(string: urlStr) else { return }
+        let ok = NSWorkspace.shared.open(url)
+        if !ok,
+           let safariURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Safari") {
+            NSWorkspace.shared.open([url],
+                withApplicationAt: safariURL,
+                configuration: NSWorkspace.OpenConfiguration())
+        }
     }
 
     private var statusBadge: some View {
@@ -127,7 +148,7 @@ struct StatsPopoverView: View {
         VStack(spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 StatusDotView(color: statusDotColor, size: 6)
-                Text(Strings.currentBalance)
+                Text(stats.providerIsSpendBased ? Strings.monthSpend : Strings.currentBalance)
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                 Spacer()
@@ -152,6 +173,20 @@ struct StatsPopoverView: View {
                         .font(.system(size: 9))
                         .foregroundColor(.green)
                     Spacer()
+                }
+            }
+            if stats.hasTokenUsageAPI {
+                let tu = stats.tokenUsage
+                if tu.inputTokens + tu.outputTokens + tu.cachedInputTokens > 0 {
+                    HStack(spacing: 10) {
+                        Label(String(format: Strings.tokenInputText, Self.compactTokens(tu.inputTokens)), systemImage: "arrow.down.left.circle")
+                            .font(.system(size: 9)).foregroundColor(.secondary)
+                        Label(String(format: Strings.tokenOutputText, Self.compactTokens(tu.outputTokens)), systemImage: "arrow.up.right.circle")
+                            .font(.system(size: 9)).foregroundColor(.secondary)
+                        Label(String(format: Strings.tokenCachedText, Self.compactTokens(tu.cachedInputTokens)), systemImage: "bolt.circle")
+                            .font(.system(size: 9)).foregroundColor(.secondary)
+                        Spacer()
+                    }
                 }
             }
         }
@@ -659,6 +694,12 @@ struct StatsPopoverView: View {
 
     // MARK: - Cloud Helpers (reused by GitHub & AWS tabs)
 
+    private static func compactTokens(_ n: Double) -> String {
+        if n >= 1_000_000 { return String(format: "%.1fM", n / 1_000_000) }
+        if n >= 1_000 { return String(format: "%.0fK", n / 1_000) }
+        return String(format: "%.0f", n)
+    }
+
     private func cloudRow(icon: String, color: Color, label: String, value: String, progress: Double, progressColor: Color) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon).font(.system(size: 8)).foregroundColor(color).frame(width: 14)
@@ -975,6 +1016,43 @@ struct StatsPopoverView: View {
                         .font(.system(size: 9).monospacedDigit())
                 }
             }
+            let b = stats.aws.billing
+            if b.creditsApplied > 0 {
+                HStack(spacing: 6) {
+                    Image(systemName: "creditcard.fill").font(.system(size: 8)).foregroundColor(.green).frame(width: 14)
+                    Text(Strings.awsCreditsLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                    Text(String(format: "+$%.2f", b.creditsApplied))
+                        .font(.system(size: 9).monospacedDigit()).foregroundColor(.green)
+                }
+            }
+            if b.ec2CreditsApplied > 0 {
+                HStack(spacing: 6) {
+                    Image(systemName: "server.rack").font(.system(size: 8)).foregroundColor(.purple).frame(width: 14)
+                    Text(Strings.awsEc2CreditsLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                    Text(String(format: "+$%.2f", b.ec2CreditsApplied))
+                        .font(.system(size: 9).monospacedDigit()).foregroundColor(.green)
+                }
+            }
+            if b.monthToDateCost > 0 {
+                HStack(spacing: 6) {
+                    Image(systemName: "dollarsign.circle").font(.system(size: 8)).foregroundColor(.orange).frame(width: 14)
+                    Text(Strings.awsMtdCostLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                    Text(String(format: "$%.2f", b.monthToDateCost))
+                        .font(.system(size: 9).monospacedDigit()).foregroundColor(.orange)
+                }
+            }
+            if let fc = b.forecastedCost {
+                HStack(spacing: 6) {
+                    Image(systemName: "chart.line.uptrend.xyaxis").font(.system(size: 8)).foregroundColor(.teal).frame(width: 14)
+                    Text(Strings.awsCostForecastLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                    Text(String(format: "~$%.2f", fc))
+                        .font(.system(size: 9).monospacedDigit()).foregroundColor(.teal)
+                }
+            }
             HStack(spacing: 6) {
                 Image(systemName: "server.rack").font(.system(size: 8)).foregroundColor(.purple).frame(width: 14)
                 Text(Strings.awsInstancesLabel).font(.system(size: 9)).foregroundColor(.secondary)
@@ -1025,23 +1103,32 @@ struct StatsPopoverView: View {
     }
 
     private var actionBar: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             Spacer()
-
-            actionButton(icon: "arrow.clockwise", label: Strings.refresh, color: .blue) {
+            iconButton(icon: "arrow.clockwise", label: Strings.refresh, color: .blue) {
                 stats.refresh()
                 stats.gitHub.refresh()
                 stats.aws.refresh()
                 loadUsage()
             }
-            actionButton(icon: "square.and.arrow.up", label: Strings.exportUsageButton, color: .teal) {
+            iconButton(icon: "square.and.arrow.up", label: Strings.exportUsageButton, color: .teal) {
                 UsageExporter.exportUsage()
             }
-            actionButton(icon: "gearshape", label: Strings.settings, color: .secondary) {
+            iconButton(icon: "square.and.arrow.down", label: Strings.configExportButton, color: .purple) {
+                ConfigExporter.exportConfig()
+            }
+            iconButton(icon: "square.and.arrow.up.on.square", label: Strings.configImportButton, color: .purple) {
+                ConfigExporter.importConfig()
+                stats.refresh()
+                stats.gitHub.refresh()
+                stats.aws.refresh()
+                loadUsage()
+            }
+            iconButton(icon: "gearshape", label: Strings.settings, color: .secondary) {
                 StatusBarController.shared.closePopover()
                 StatusBarController.shared.showSettings()
             }
-            actionButton(icon: "power", label: Strings.quit, color: .red) {
+            iconButton(icon: "power", label: Strings.quit, color: .red) {
                 StatusBarController.shared.closePopover()
                 let alert = NSAlert()
                 alert.messageText = Strings.quitTitle
@@ -1058,21 +1145,18 @@ struct StatsPopoverView: View {
         .padding(.top, 6)
     }
 
-    private func actionButton(icon: String, label: String, color: Color, action: @escaping () -> Void) -> some View {
+    private func iconButton(icon: String, label: String, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 3) {
-                Image(systemName: icon)
-                    .font(.system(size: 9))
-                Text(label)
-                    .font(.system(size: 10))
-            }
-            .foregroundColor(color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(color.opacity(0.12))
-            .cornerRadius(6)
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(color)
+                .frame(width: 24, height: 22)
+                .contentShape(Rectangle())
+                .background(color.opacity(0.12))
+                .cornerRadius(6)
         }
         .buttonStyle(.plain)
+        .help(label)
         .fixedSize()
     }
 }

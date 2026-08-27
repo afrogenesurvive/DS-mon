@@ -31,7 +31,10 @@ final class DeepSeekStats {
     private(set) var providerName: String = "DeepSeek"
     private(set) var providerID: String = "deepseek"
     private(set) var hasBalanceAPI: Bool = true
+    private(set) var hasTokenUsageAPI: Bool = false
     private(set) var providerIsFree: Bool = false
+    private(set) var providerIsSpendBased: Bool = false
+    private(set) var tokenUsage = ProviderTokenUsage.empty
 
     /// 余额预警阈值（默认 20）
     var threshold: Double {
@@ -40,7 +43,8 @@ final class DeepSeekStats {
     }
 
     var isLowBalance: Bool {
-        balance >= 0 && balance < threshold
+        guard !providerIsSpendBased else { return false }
+        return balance >= 0 && balance < threshold
     }
 
     var maxBalanceAmount: Double {
@@ -49,7 +53,7 @@ final class DeepSeekStats {
     }
 
     var isWarningBalance: Bool {
-        guard hasBalanceAPI else { return false }
+        guard hasBalanceAPI, !providerIsSpendBased else { return false }
         return !isLowBalance && balance >= 0 && balance < maxBalanceAmount * 0.5
     }
 
@@ -97,6 +101,9 @@ final class DeepSeekStats {
             providerName = provider.name
             providerID = provider.id
             hasBalanceAPI = provider.balanceURL != nil
+            hasTokenUsageAPI = provider.tokenUsageURL != nil
+            providerIsSpendBased = provider.isSpendBased
+            tokenUsage = .empty
             providerIsFree = false
             currency = provider.currency
         } else {
@@ -229,6 +236,9 @@ final class DeepSeekStats {
                 isAvailable = true
                 isAvailable = true
             }
+            if hasTokenUsageAPI {
+                await fetchTokenUsage(apiKey: apiKey)
+            }
             // 每次 refresh 都重新拉取模型列表
             if await fetchModels(apiKey: apiKey) {
                 lastModelsFetch = Date()
@@ -241,7 +251,10 @@ final class DeepSeekStats {
     private func fetchBalance(apiKey: String) async {
         guard let provider = ProviderManager.shared.activeProvider else { return }
         guard let balancePath = provider.balanceURL else { return }
-        guard let url = URL(string: provider.baseURL + balancePath) else { return }
+        guard var url = URL(string: provider.baseURL + balancePath) else { return }
+        if let items = provider.balanceQueryItems {
+            url.append(queryItems: items)
+        }
 
         var req = URLRequest(url: url)
         for (name, value) in provider.authHeaders(for: apiKey) {
@@ -289,6 +302,29 @@ final class DeepSeekStats {
         } catch {
             errorMessage = Strings.networkError(error.localizedDescription)
         }
+    }
+
+    private func fetchTokenUsage(apiKey: String) async {
+        guard let provider = ProviderManager.shared.activeProvider else { return }
+        guard let path = provider.tokenUsageURL else { return }
+        guard var url = URL(string: provider.baseURL + path) else { return }
+        if let items = provider.balanceQueryItems {
+            url.append(queryItems: items)
+        }
+
+        var req = URLRequest(url: url)
+        for (name, value) in provider.authHeaders(for: apiKey) {
+            req.setValue(value, forHTTPHeaderField: name)
+        }
+        req.timeoutInterval = AppConfig.balanceRequestTimeout
+        do {
+            let (data, resp) = try await AppConfig.directURLSession.data(for: req)
+            guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return }
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            if let usage = provider.parseTokenUsage(json) {
+                tokenUsage = usage
+            }
+        } catch {}
     }
 
     // MARK: - 余额解析策略

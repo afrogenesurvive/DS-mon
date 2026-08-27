@@ -142,6 +142,17 @@ enum Strings {
     static var quitConfirm: String { isZH ? "退出" : "Quit" }
     static var cancel: String { isZH ? "取消" : "Cancel" }
     static var openConsole: String { isZH ? "打开控制台" : "Open Console" }
+    static var configExportButton: String { isZH ? "导出配置" : "Export Config" }
+    static var configImportButton: String { isZH ? "导入配置" : "Import Config" }
+    static var configExportTitle: String { isZH ? "导出配置" : "Export Config" }
+    static var configExportSave: String { isZH ? "导出" : "Export" }
+    static var configImportTitle: String { isZH ? "导入配置" : "Import Config" }
+    static var configImportOpen: String { isZH ? "导入" : "Import" }
+    static var ok: String { isZH ? "好" : "OK" }
+    static var configExportWarningTitle: String { isZH ? "导出包含密钥" : "Export contains keys" }
+    static var configExportWarningMessage: String { isZH ? "导出的 JSON 将以明文包含 API Key 与密钥，请妥善保管，不要上传到公共位置。" : "The exported JSON includes your API keys and secrets in plaintext. Keep it private and secure." }
+    static var configImportInvalid: String { isZH ? "配置文件无效或版本不匹配" : "Invalid or unsupported config file" }
+    static var configImportDone: String { isZH ? "配置已导入" : "Config imported" }
 
     // Settings window
     static var settingsTitle: String { isZH ? "设置" : "Settings" }
@@ -304,6 +315,10 @@ enum Strings {
     static var balanceText: String { "\(currencySymbol)%.2f" }
     static var grantedText: String { isZH ? "赠送余额 \(currencySymbol)%.2f" : "Granted \(currencySymbol)%.2f" }
     static var toppedUpText: String { isZH ? "充值余额 \(currencySymbol)%.2f" : "Topped Up \(currencySymbol)%.2f" }
+    static var monthSpend: String { isZH ? "本月费用" : "This month" }
+    static var tokenInputText: String { isZH ? "输入 %@" : "In %@" }
+    static var tokenOutputText: String { isZH ? "输出 %@" : "Out %@" }
+    static var tokenCachedText: String { isZH ? "缓存 %@" : "Cache %@" }
 
     // Chart
     static var chartMiss: String { isZH ? "Miss" : "Miss" }
@@ -362,6 +377,10 @@ enum Strings {
     static var awsForecastLabel: String { isZH ? "预测月底用量" : "Month-end forecast" }
     static var awsForecastFormat: String { isZH ? "~%.0f 小时" : "~%.0f hrs" }
     static var awsOverageLabel: String { isZH ? "预估超额费用" : "Est. overage cost" }
+    static var awsCreditsLabel: String { isZH ? "本月已用抵扣" : "Credits applied" }
+    static var awsEc2CreditsLabel: String { isZH ? "EC2 抵扣" : "EC2 credits" }
+    static var awsMtdCostLabel: String { isZH ? "本月已产生费用" : "Month-to-date cost" }
+    static var awsCostForecastLabel: String { isZH ? "预计月末费用" : "Forecasted cost" }
     static var awsFreeStatus: String { isZH ? "✅ 在免费套餐内" : "✅ Within free tier" }
     static var awsWarningStatus: String { isZH ? "⚠️ 接近免费套餐上限" : "⚠️ Approaching free tier limit" }
     static var awsExceededStatus: String { isZH ? "❌ 超出免费套餐" : "❌ Exceeded free tier" }
