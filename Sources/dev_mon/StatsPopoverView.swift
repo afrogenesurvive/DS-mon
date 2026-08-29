@@ -1065,6 +1065,15 @@ struct StatsPopoverView: View {
                         .font(.system(size: 9).monospacedDigit()).foregroundColor(.green)
                 }
             }
+            if b.maxCredits > 0 {
+                HStack(spacing: 6) {
+                    Image(systemName: "creditcard").font(.system(size: 8)).foregroundColor(.teal).frame(width: 14)
+                    Text(Strings.awsRemainingCreditsLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                    Text(String(format: Strings.awsRemainingCreditsFormat, b.remainingCredits, b.maxCredits))
+                        .font(.system(size: 9).monospacedDigit()).foregroundColor(.teal)
+                }
+            }
             if b.monthToDateCost > 0 {
                 HStack(spacing: 6) {
                     Image(systemName: "dollarsign.circle").font(.system(size: 8)).foregroundColor(.orange).frame(width: 14)

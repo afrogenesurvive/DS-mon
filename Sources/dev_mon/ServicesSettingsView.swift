@@ -173,6 +173,10 @@ private struct AWSSettingsView: View {
     @State private var awsSecretKey: String = SecureStore.retrieve(key: Strings.Keys.awsSecretKey) ?? ""
     @State private var showAwsSecret: Bool = false
     @State private var awsRegion: String = UserDefaults.standard.string(forKey: Strings.Keys.awsRegion) ?? "us-east-1"
+    @State private var awsMaxCredits: String = {
+        let v = UserDefaults.standard.double(forKey: Strings.Keys.awsMaxCredits)
+        return v > 0 ? String(format: "%.2f", v) : ""
+    }()
 
     private let regions = ["us-east-1", "us-east-2", "us-west-1", "us-west-2",
                            "eu-west-1", "eu-central-1", "ap-northeast-1", "ap-southeast-1"]
@@ -247,6 +251,19 @@ private struct AWSSettingsView: View {
                     UserDefaults.standard.set(newVal, forKey: Strings.Keys.awsRegion)
                     if awsEnabled { stats.aws.refresh() }
                 }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(Strings.awsMaxCreditsLabel).font(.caption).foregroundColor(.secondary)
+                TextField("0.00", text: $awsMaxCredits)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                    .onChange(of: awsMaxCredits) { _, newVal in
+                        let value = Double(newVal.replacingOccurrences(of: ",", with: "")) ?? 0
+                        stats.aws.maxCredits = value
+                        if awsEnabled { stats.aws.refresh() }
+                    }
+                Text(Strings.awsMaxCreditsHint).font(.caption2).foregroundColor(.secondary)
             }
         }
         .padding(20)

@@ -65,6 +65,7 @@ enum Strings {
         static let awsSecretKey = "aws_secret_key"
         static let awsRegion = "aws_region"
         static let awsEnabled = "aws_enabled"
+        static let awsMaxCredits = "aws_max_credits"
         static let showPeakDot = "show_peak_dot"
         static let peakNotificationEnabled = "peak_notification_enabled"
         static func lastModel(for providerId: String) -> String { "last_model_\(providerId)" }
@@ -411,14 +412,18 @@ enum Strings {
     static var awsSecretKeyLabel: String { isZH ? "Secret Access Key" : "Secret Access Key" }
     static var awsRegionLabel: String { isZH ? "区域" : "Region" }
     static var awsHoursLabel: String { isZH ? "运行小时" : "Running Hours" }
-    static var awsHoursFormat: String { isZH ? "%.0f / %.0f 小时" : "%.0f / %.0f hrs" }
+    static var awsHoursFormat: String { isZH ? "%.1f / %.0f 小时" : "%.1f / %.0f hrs" }
     static var awsInstancesLabel: String { isZH ? "实例" : "Instances" }
     static var awsInstancesFormat: String { isZH ? "%d 个 (%d 合格, %d 不合格)" : "%d (%d eligible, %d non-eligible)" }
     static var awsForecastLabel: String { isZH ? "预测月底用量" : "Month-end forecast" }
-    static var awsForecastFormat: String { isZH ? "~%.0f 小时" : "~%.0f hrs" }
+    static var awsForecastFormat: String { isZH ? "~%.1f 小时" : "~%.1f hrs" }
     static var awsOverageLabel: String { isZH ? "预估超额费用" : "Est. overage cost" }
     static var awsCreditsLabel: String { isZH ? "本月已用抵扣" : "Credits applied" }
     static var awsEc2CreditsLabel: String { isZH ? "EC2 抵扣" : "EC2 credits" }
+    static var awsMaxCreditsLabel: String { isZH ? "抵扣总额（手动填写）" : "Max credits (manual)" }
+    static var awsMaxCreditsHint: String { isZH ? "AWS 无公开 API 查询剩余抵扣，请到控制台 账单→抵扣 页查看总额后手动填写" : "AWS has no public API for remaining credits — enter your total from Billing → Credits" }
+    static var awsRemainingCreditsLabel: String { isZH ? "剩余抵扣" : "Credits remaining" }
+    static var awsRemainingCreditsFormat: String { isZH ? "$%.2f / $%.2f" : "$%.2f / $%.2f" }
     static var awsMtdCostLabel: String { isZH ? "本月已产生费用" : "Month-to-date cost" }
     static var awsCostForecastLabel: String { isZH ? "预计月末费用" : "Forecasted cost" }
     static var awsFreeStatus: String { isZH ? "✅ 在免费套餐内" : "✅ Within free tier" }

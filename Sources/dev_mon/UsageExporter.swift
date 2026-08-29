@@ -15,6 +15,7 @@ struct UsageExportPayload: Codable {
     let providers: [ProviderExport]
     let bySource: [SourceUsageExport]
     let records: [UsageRecord]
+    let cloud: CloudUsageExport?
 }
 
 struct PeriodSummary: Codable {
@@ -122,6 +123,96 @@ struct TokenBarExport: Codable {
     }
 }
 
+// MARK: - Cloud (AWS / GitHub) Snapshot Export
+
+struct CloudUsageExport: Codable {
+    let aws: AWSExport?
+    let gitHub: GitHubExport?
+}
+
+struct AWSExport: Codable {
+    // Free tier
+    let ec2RunningHours: Double
+    let freeTierLimitHours: Double
+    let usagePercentage: Double
+    let hoursRemaining: Double
+    let isWithinFreeTier: Bool
+    let isWarning: Bool
+    let instanceCount: Int
+    let eligibleCount: Int
+    let nonEligibleCount: Int
+    let nonEligibleInstances: [NonEligibleInstanceExport]
+    let forecastedHours: Double?
+    let estimatedOverageCost: Double
+    // Billing & credits
+    let monthToDateCost: Double
+    let ec2Cost: Double
+    let creditsApplied: Double
+    let ec2CreditsApplied: Double
+    let maxCredits: Double
+    let remainingCredits: Double
+    let forecastedCost: Double?
+    let lastUpdate: String
+
+    init(status: AWSFreeTierStatus, billing: AWSBillingSnapshot, lastUpdate: String) {
+        ec2RunningHours = status.ec2RunningHours
+        freeTierLimitHours = status.freeTierLimitHours
+        usagePercentage = status.usagePercentage
+        hoursRemaining = status.hoursRemaining
+        isWithinFreeTier = status.isWithinFreeTier
+        isWarning = status.isWarning
+        instanceCount = status.instanceCount
+        eligibleCount = status.eligibleCount
+        nonEligibleCount = status.nonEligibleCount
+        nonEligibleInstances = status.nonEligibleInstances.map {
+            NonEligibleInstanceExport(instanceId: $0.instanceId, instanceType: $0.instanceType)
+        }
+        forecastedHours = status.forecastedHours
+        estimatedOverageCost = status.estimatedOverageCost
+        monthToDateCost = billing.monthToDateCost
+        ec2Cost = billing.ec2Cost
+        creditsApplied = billing.creditsApplied
+        ec2CreditsApplied = billing.ec2CreditsApplied
+        maxCredits = billing.maxCredits
+        remainingCredits = billing.remainingCredits
+        forecastedCost = billing.forecastedCost
+        self.lastUpdate = lastUpdate
+    }
+}
+
+struct NonEligibleInstanceExport: Codable {
+    let instanceId: String
+    let instanceType: String
+}
+
+struct GitHubExport: Codable {
+    let minutesUsed: Int
+    let includedMinutes: Int
+    let minutesRemaining: Int
+    let minutesPercentage: Double
+    let storageMB: Double
+    let storageLimitMB: Double
+    let storagePercentage: Double
+    let paidMinutesUsed: Int
+    let billingCycleDaysLeft: Int
+    let isWithinFreeTier: Bool
+    let lastUpdate: String
+
+    init(_ usage: GitHubActionsUsage, lastUpdate: String) {
+        minutesUsed = usage.minutesUsed
+        includedMinutes = usage.includedMinutes
+        minutesRemaining = usage.minutesRemaining
+        minutesPercentage = usage.minutesPercentage
+        storageMB = usage.storageMB
+        storageLimitMB = usage.storageLimitMB
+        storagePercentage = usage.storagePercentage
+        paidMinutesUsed = usage.paidMinutesUsed
+        billingCycleDaysLeft = usage.billingCycleDaysLeft
+        isWithinFreeTier = usage.isWithinFreeTier
+        self.lastUpdate = lastUpdate
+    }
+}
+
 // MARK: - 导出器
 
 /// 导出全部用量数据为 verbose JSON（通过文件选择器选择保存位置）。
@@ -204,9 +295,18 @@ enum UsageExporter {
             ))
         }
 
+        let cloud: CloudUsageExport? = {
+            let aws = AppDelegate.sharedStats.aws
+            let gh = AppDelegate.sharedStats.gitHub
+            return CloudUsageExport(
+                aws: AWSExport(status: aws.status, billing: aws.billing, lastUpdate: aws.lastUpdate),
+                gitHub: GitHubExport(gh.usage, lastUpdate: gh.lastUpdate)
+            )
+        }()
+
         return UsageExportPayload(
             format: "dev-mon-usage-export",
-            formatVersion: 1,
+            formatVersion: 2,
             exportedAt: Date(),
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev",
             summary: PeriodSummary(today: today, week: week, month: month, allTime: allTime),
@@ -218,7 +318,8 @@ enum UsageExporter {
                                    monthByWeek: monthWeeks.map(TokenBarExport.init)),
             providers: providers,
             bySource: bySource.map(SourceUsageExport.init),
-            records: allRecords
+            records: allRecords,
+            cloud: cloud
         )
     }
 
@@ -334,12 +435,14 @@ enum ConfigExporter {
             Strings.Keys.githubEnabled,
             Strings.Keys.awsRegion,
             Strings.Keys.awsEnabled,
+            Strings.Keys.awsMaxCredits,
             Strings.Keys.showPeakDot,
             Strings.Keys.peakNotificationEnabled,
         ]
-        // 每个提供商最近使用的模型
+        // 每个提供商最近使用的模型 + 手填月度预算
         for p in ProviderManager.shared.providers {
             keys.append(Strings.Keys.lastModel(for: p.id))
+            keys.append(Strings.Keys.monthlyBudget(for: p.id))
         }
         return keys
     }

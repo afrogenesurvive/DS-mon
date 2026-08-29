@@ -42,11 +42,15 @@ struct AWSBillingSnapshot: Sendable, Equatable {
     let creditsApplied: Double       // all credits applied this month (positive $)
     let ec2CreditsApplied: Double    // credits applied to EC2 (positive $)
     let forecastedCost: Double?      // month-end cost forecast
+    let maxCredits: Double           // user-entered total credit balance (manual)
+
+    /// Remaining credit balance = manual max minus credits applied this month.
+    var remainingCredits: Double { max(0, maxCredits - creditsApplied) }
 
     static let empty = AWSBillingSnapshot(
         monthToDateCost: 0, ec2Cost: 0,
         creditsApplied: 0, ec2CreditsApplied: 0,
-        forecastedCost: nil
+        forecastedCost: nil, maxCredits: 0
     )
 }
 
@@ -108,6 +112,11 @@ final class AWSUsageTracker {
     }
     var region: String {
         UserDefaults.standard.string(forKey: Strings.Keys.awsRegion) ?? "us-east-1"
+    }
+    /// User-entered total credit balance (from Billing → Credits). Used to derive remaining credits.
+    var maxCredits: Double {
+        get { UserDefaults.standard.double(forKey: Strings.Keys.awsMaxCredits) }
+        set { UserDefaults.standard.set(max(0, newValue), forKey: Strings.Keys.awsMaxCredits) }
     }
 
     init() {
@@ -287,7 +296,8 @@ final class AWSUsageTracker {
             ec2Cost: ec2Cost,
             creditsApplied: creditsApplied,
             ec2CreditsApplied: ec2CreditsApplied,
-            forecastedCost: forecastedCost
+            forecastedCost: forecastedCost,
+            maxCredits: maxCredits
         )
     }
 
@@ -371,8 +381,10 @@ final class AWSUsageTracker {
 
             let isEligible = eligibleTypes.contains(instanceType)
 
-            // If the instance is running, calculate hours from launch time
-            if stateName == "running" || stateName == "stopped" {
+            // Only running instances count toward free-tier hours. Hours are measured
+            // since the instance was last launched, clamped to the start of the current
+            // calendar month (the free tier is 750 hrs per calendar month).
+            if stateName == "running" {
                 if let launchTimeStr = extractSingleTag(instanceXML, tag: "launchTime") {
                     let df = ISO8601DateFormatter()
                     df.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -380,7 +392,10 @@ final class AWSUsageTracker {
                         df.formatOptions = [.withInternetDateTime]
                         return df.date(from: launchTimeStr)
                     }() {
-                        let hours = now.timeIntervalSince(launchTime) / 3600
+                        let monthStart = Calendar.current.date(
+                            from: Calendar.current.dateComponents([.year, .month], from: now)) ?? now
+                        let effective = max(launchTime, monthStart)
+                        let hours = max(0, now.timeIntervalSince(effective)) / 3600
                         totalRunningHours += hours
                     }
                 }
