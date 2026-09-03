@@ -64,6 +64,30 @@ struct ModelPricing: Codable, Equatable, Sendable {
         "moonshot-v1-32k-vision-preview": ModelPricing(label: "V1 Vision", hitPrice: 0.24, missPrice: 0.48, outPrice: 0.48),
     ]
 
+    /// Z.ai / GLM 定价（USD / 1M tokens）。与 ZAIProvider.fallbackModels 共用。
+    /// hitPrice = 缓存命中输入, missPrice = 未命中输入, outPrice = 输出。
+    /// 免费 Flash 模型全为 0；2026-09-09 前的 5.3-Flash 半价促销可由用户定价覆盖处理。
+    static let zaiDefault: [String: ModelPricing] = [
+        "glm-5.3":             ModelPricing(label: "GLM-5.3",      hitPrice: 0.26, missPrice: 1.40, outPrice: 4.40),
+        "glm-5.3-flash":       ModelPricing(label: "GLM-5.3 Flash",hitPrice: 0.03, missPrice: 0.15, outPrice: 0.50),
+        "glm-5.2":             ModelPricing(label: "GLM-5.2",      hitPrice: 0.26, missPrice: 1.40, outPrice: 4.40),
+        "glm-5.1":             ModelPricing(label: "GLM-5.1",      hitPrice: 0.26, missPrice: 1.40, outPrice: 4.40),
+        "glm-5":               ModelPricing(label: "GLM-5",        hitPrice: 0.20, missPrice: 1.00, outPrice: 3.20),
+        "glm-4.7":             ModelPricing(label: "GLM-4.7",      hitPrice: 0.11, missPrice: 0.60, outPrice: 2.20),
+        "glm-4.7-flash":       ModelPricing(label: "GLM-4.7 Flash",hitPrice: 0,    missPrice: 0,    outPrice: 0),
+        "glm-4.7-flashx":      ModelPricing(label: "GLM-4.7 FlashX", hitPrice: 0.01, missPrice: 0.07, outPrice: 0.40),
+        "glm-4.6":             ModelPricing(label: "GLM-4.6",      hitPrice: 0.11, missPrice: 0.60, outPrice: 2.20),
+        "glm-4.6v":            ModelPricing(label: "GLM-4.6V",     hitPrice: 0.05, missPrice: 0.30, outPrice: 0.90),
+        "glm-4.6v-flash":      ModelPricing(label: "GLM-4.6V Flash", hitPrice: 0, missPrice: 0, outPrice: 0),
+        "glm-4.6v-flashx":     ModelPricing(label: "GLM-4.6V FlashX", hitPrice: 0.004, missPrice: 0.04, outPrice: 0.40),
+        "glm-4.5":             ModelPricing(label: "GLM-4.5",      hitPrice: 0.11, missPrice: 0.60, outPrice: 2.20),
+        "glm-4.5-x":           ModelPricing(label: "GLM-4.5 X",    hitPrice: 0.45, missPrice: 2.20, outPrice: 8.90),
+        "glm-4.5-air":         ModelPricing(label: "GLM-4.5 Air",  hitPrice: 0.03, missPrice: 0.20, outPrice: 1.10),
+        "glm-4.5-airx":        ModelPricing(label: "GLM-4.5 AirX", hitPrice: 0.22, missPrice: 1.10, outPrice: 4.50),
+        "glm-4.5-flash":       ModelPricing(label: "GLM-4.5 Flash", hitPrice: 0, missPrice: 0, outPrice: 0),
+        "glm-4-32b-0414-128k": ModelPricing(label: "GLM-4 32B",    hitPrice: 0.10, missPrice: 0.10, outPrice: 0.10),
+    ]
+
     static func forModel(_ model: String, providerId: String? = nil) -> ModelPricing {
         // 1) 全局自定义（用户覆盖）优先
         if let pricing = match(model, in: Self.loadCustom()) { return pricing }
@@ -75,6 +99,8 @@ struct ModelPricing: Codable, Equatable, Sendable {
             if let pricing = match(model, in: Self.anthropicDefault) { return pricing }
         case "kimi":
             if let pricing = match(model, in: Self.kimiDefault) { return pricing }
+        case "zai":
+            if let pricing = match(model, in: Self.zaiDefault) { return pricing }
         default:
             if let pricing = match(model, in: Self.default) { return pricing }
         }
@@ -124,6 +150,7 @@ struct ModelPricing: Codable, Equatable, Sendable {
         for (key, pricing) in Self.kimiDefault { result[key] = pricing }
         for (key, pricing) in Self.openaiDefault { result[key] = pricing }
         for (key, pricing) in Self.anthropicDefault { result[key] = pricing }
+        for (key, pricing) in Self.zaiDefault { result[key] = pricing }
         for (key, pricing) in Self.loadCustom() { result[key] = pricing }
         return result
     }
@@ -771,6 +798,23 @@ actor UsageStore {
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return 0 }
         sqlite3_bind_double(stmt, 1, todayStart.timeIntervalSince1970)
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return sqlite3_column_double(stmt, 0)
+    }
+
+    /// 某个时间点以来的累计费用（可选按提供商过滤）。用于本地代理无余额接口
+    /// 的按月计费提供商（如 z.ai）推导"本月已花费"。
+    func cost(since: Date, providerId: String? = nil) -> Double {
+        guard let db else { return 0 }
+        var sql = "SELECT COALESCE(SUM(cost), 0) FROM usage_log WHERE timestamp >= ?"
+        if providerId != nil { sql += " AND provider_id = ?" }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return 0 }
+        sqlite3_bind_double(stmt, 1, since.timeIntervalSince1970)
+        if let providerId {
+            sqlite3_bind_text(stmt, 2, providerId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        }
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
         return sqlite3_column_double(stmt, 0)

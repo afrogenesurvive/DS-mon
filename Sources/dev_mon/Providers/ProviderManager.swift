@@ -30,6 +30,7 @@ final class ProviderManager {
         register(KimiProvider())
         register(OpenAIProvider())
         register(AnthropicProvider())
+        register(ZAIProvider())
     }
 
     func register(_ provider: any Provider) {

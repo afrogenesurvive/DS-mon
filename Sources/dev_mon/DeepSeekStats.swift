@@ -35,6 +35,10 @@ final class DeepSeekStats {
     private(set) var providerIsFree: Bool = false
     private(set) var providerIsSpendBased: Bool = false
     private(set) var tokenUsage = ProviderTokenUsage.empty
+    /// 内部配额/套餐用量（Z.AI Coding Plan 等；非官方接口，失败为 nil）
+    private(set) var quota: ProviderQuotaUsage?
+    /// 内部钱包余额（Z.AI 等；非官方接口，失败为 nil）
+    private(set) var walletBalance: Double?
 
     // MARK: - 月度预算（按月计费提供商的"剩余额度"来源）
 
@@ -167,6 +171,8 @@ final class DeepSeekStats {
             hasTokenUsageAPI = provider.tokenUsageURL != nil
             providerIsSpendBased = provider.isSpendBased
             tokenUsage = .empty
+            quota = nil
+            walletBalance = nil
             providerIsFree = false
             currency = provider.currency
         } else {
@@ -205,7 +211,8 @@ final class DeepSeekStats {
 
     var balanceText: String {
         if providerIsFree { return "FREE" }
-        if !hasBalanceAPI { return "—" }
+        // 按月计费且无余额接口的提供商（z.ai 等）也显示本地代理核算的本月费用
+        if !hasBalanceAPI && !providerIsSpendBased { return "—" }
         return String(format: Strings.balanceText, balance)
     }
 
@@ -285,8 +292,17 @@ final class DeepSeekStats {
         Task {
             if hasBalanceAPI {
                 await fetchBalance(apiKey: apiKey)
+            } else if providerIsSpendBased {
+                // 按月计费但无官方余额接口（z.ai 等）：以本地代理记录的本月费用
+                // 作为"已花费"，用于推导剩余额度。
+                let monthStart = Calendar.current.date(
+                    from: Calendar.current.dateComponents([.year, .month], from: Date())) ?? Date()
+                balance = await UsageStore.shared.cost(since: monthStart, providerId: providerID)
+                grantedBalance = 0
+                toppedUpBalance = 0
+                isAvailable = true
             } else {
-                // 无余额 API 的提供商：跳过余额查询
+                // 无余额 API 的预付费提供商：跳过余额查询
                 if providerIsFree {
                     balance = maxBalanceAmount * 2
                     grantedBalance = 0
@@ -297,7 +313,6 @@ final class DeepSeekStats {
                     toppedUpBalance = 0
                 }
                 isAvailable = true
-                isAvailable = true
             }
             if hasTokenUsageAPI {
                 await fetchTokenUsage(apiKey: apiKey)
@@ -307,6 +322,14 @@ final class DeepSeekStats {
             } else {
                 monthlyBudget = 0
                 budgetSource = .none
+            }
+            // 内部配额/套餐用量（Z.AI Coding Plan 等；非官方接口，失败静默降级）
+            if ProviderManager.shared.activeProvider?.quotaURL != nil {
+                await fetchQuota(apiKey: apiKey)
+            }
+            // 内部钱包余额（Z.AI；非官方接口，失败静默降级）
+            if providerID == "zai" {
+                await fetchWalletBalance(apiKey: apiKey)
             }
             // 每次 refresh 都重新拉取模型列表
             if await fetchModels(apiKey: apiKey) {
@@ -496,6 +519,87 @@ final class DeepSeekStats {
             budgetSource = .spendLimit
         } catch {
             applyManualBudgetFallback()
+        }
+    }
+
+    /// 拉取内部配额/套餐用量（z.ai Coding Plan 等）。这些接口是非官方的
+    /// （供 z.ai UI 使用），可能变更或对某些账户不可用：任何失败都静默降级，
+    /// 不设置 errorMessage，不影响主流程。
+    private func fetchQuota(apiKey: String) async {
+        guard let provider = ProviderManager.shared.activeProvider,
+              let quotaURL = provider.quotaURL,
+              let url = URL(string: quotaURL) else { return }
+        func makeRequest(_ url: URL) -> URLRequest {
+            var req = URLRequest(url: url)
+            for (name, value) in provider.authHeaders(for: apiKey) {
+                req.setValue(value, forHTTPHeaderField: name)
+            }
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            req.timeoutInterval = AppConfig.balanceRequestTimeout
+            return req
+        }
+        do {
+            let (data, resp) = try await AppConfig.directURLSession.data(for: makeRequest(url))
+            guard let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                  let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  var parsed = provider.parseQuota(json) else { return }
+            // 补充套餐名 / 续费日期（可选接口）
+            if let planURL = provider.planURL, let planURL = URL(string: planURL),
+               let (pdata, presp) = try? await AppConfig.directURLSession.data(for: makeRequest(planURL)),
+               let ph = presp as? HTTPURLResponse, ph.statusCode == 200,
+               let pjson = try? JSONSerialization.jsonObject(with: pdata) as? [String: Any],
+               let plan = provider.parsePlan(pjson) {
+                parsed.planName = plan.name
+                parsed.renewalDate = plan.renewalDate
+            }
+            quota = parsed
+        } catch {
+            quota = nil
+        }
+    }
+
+    /// 拉取 Z.AI 内部钱包余额。这些接口是非官方的（供 z.ai UI 使用），可能变更或
+    /// 对某些账户不可用：任何失败都静默降级，不设置 errorMessage，不影响主流程。
+    private func fetchWalletBalance(apiKey: String) async {
+        guard providerID == "zai",
+              let provider = ProviderManager.shared.activeProvider as? ZAIProvider,
+              let infoURL = URL(string: provider.walletInfoURL),
+              let balanceURL = URL(string: provider.walletBalanceURL) else { return }
+        func makeRequest(_ url: URL, body: Data? = nil) -> URLRequest {
+            var req = URLRequest(url: url)
+            for (name, value) in provider.authHeaders(for: apiKey) {
+                req.setValue(value, forHTTPHeaderField: name)
+            }
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            req.timeoutInterval = AppConfig.balanceRequestTimeout
+            if let body = body {
+                req.httpMethod = "POST"
+                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                req.httpBody = body
+            }
+            return req
+        }
+        do {
+            // 1) 取账户号
+            let (infoData, infoResp) = try await AppConfig.directURLSession.data(for: makeRequest(infoURL))
+            guard let infoHTTP = infoResp as? HTTPURLResponse, infoHTTP.statusCode == 200,
+                  let infoJSON = try JSONSerialization.jsonObject(with: infoData) as? [String: Any],
+                  let customer = provider.parseCustomerNumber(infoJSON) else {
+                walletBalance = nil
+                return
+            }
+            // 2) 查钱包余额
+            let payload = try JSONSerialization.data(withJSONObject: ["customerId": customer])
+            let (balData, balResp) = try await AppConfig.directURLSession.data(for: makeRequest(balanceURL, body: payload))
+            guard let balHTTP = balResp as? HTTPURLResponse, balHTTP.statusCode == 200,
+                  let balJSON = try JSONSerialization.jsonObject(with: balData) as? [String: Any],
+                  let balance = provider.parseWalletBalance(balJSON) else {
+                walletBalance = nil
+                return
+            }
+            walletBalance = balance
+        } catch {
+            walletBalance = nil
         }
     }
 

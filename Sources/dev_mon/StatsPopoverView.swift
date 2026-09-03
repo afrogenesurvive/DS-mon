@@ -166,6 +166,24 @@ struct StatsPopoverView: View {
                     Spacer()
                 }
             }
+            if let wallet = stats.walletBalance {
+                HStack(spacing: 6) {
+                    Image(systemName: "wallet.pass.fill")
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                        .frame(width: 14)
+                    Text(Strings.walletLabel)
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text(String(format: "%@%.2f", Strings.currencySymbol, wallet))
+                        .font(.system(size: 9).monospacedDigit())
+                        .foregroundColor(.secondary)
+                }
+                Text(Strings.walletHint)
+                    .font(.system(size: 7))
+                    .foregroundColor(.secondary)
+            }
             if stats.hasTokenUsageAPI {
                 let tu = stats.tokenUsage
                 if tu.inputTokens + tu.outputTokens + tu.cachedInputTokens > 0 {
@@ -193,7 +211,7 @@ struct StatsPopoverView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "hourglass")
                         .font(.system(size: 9)).foregroundColor(.secondary).frame(width: 14)
-                    Text(Strings.balanceLabel)
+                    Text(Strings.remainingBudgetLabel)
                         .font(.system(size: 9)).foregroundColor(.secondary)
                     Spacer()
                     Text(String(format: "%@%.2f", Strings.currencySymbol, stats.remainingBudget))
@@ -204,9 +222,76 @@ struct StatsPopoverView: View {
                     .font(.system(size: 7))
                     .foregroundColor(.secondary)
             }
+
+            if let quota = stats.quota {
+                quotaBlock(quota)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
+    }
+
+    // MARK: - 套餐用量（Z.AI Coding Plan 等；内部接口数据）
+
+    @ViewBuilder
+    private func quotaBlock(_ quota: ProviderQuotaUsage) -> some View {
+        VStack(spacing: 3) {
+            if let plan = quota.planName {
+                quotaRow(icon: "sparkles.rectangle.stack", label: Strings.quotaPlanName, value: plan, valueColor: .secondary)
+            }
+            if let renew = quota.renewalDate {
+                quotaRow(
+                    icon: "calendar",
+                    label: Strings.quotaRenewDate,
+                    value: renew.formatted(date: .abbreviated, time: .omitted),
+                    valueColor: .secondary
+                )
+            }
+            ForEach(quota.windows, id: \.kind) { window in
+                quotaRow(
+                    icon: "gauge.with.dots.needle.67percent",
+                    label: quotaTitle(window.kind),
+                    value: "\(quotaFraction(window)) · \(Int(window.percent.rounded()))%",
+                    valueColor: window.percent >= 80 ? .orange : .secondary
+                )
+            }
+            Text(Strings.quotaUsageHint)
+                .font(.system(size: 7))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private func quotaRow(icon: String, label: String, value: String, valueColor: Color) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 8))
+                .foregroundColor(.secondary)
+                .frame(width: 14)
+            Text(label)
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+            Spacer()
+            Text(value)
+                .font(.system(size: 9).monospacedDigit())
+                .foregroundColor(valueColor)
+        }
+    }
+
+    private func quotaTitle(_ kind: ProviderQuotaWindowKind) -> String {
+        switch kind {
+        case .session5h:     return Strings.quotaSession5h
+        case .weekly7d:      return Strings.quotaWeekly7d
+        case .searchMonthly: return Strings.quotaSearchMonthly
+        }
+    }
+
+    private func quotaFraction(_ window: ProviderQuotaWindow) -> String {
+        switch window.kind {
+        case .searchMonthly:
+            return "\(Int(window.used)) / \(Int(window.limit))"
+        default:
+            return "\(Self.compactTokens(window.used)) / \(Self.compactTokens(window.limit))"
+        }
     }
 
     private var statusDotColor: Color {
@@ -1062,6 +1147,15 @@ struct StatsPopoverView: View {
                     Text(Strings.awsEc2CreditsLabel).font(.system(size: 9)).foregroundColor(.secondary)
                     Spacer()
                     Text(String(format: "+$%.2f", b.ec2CreditsApplied))
+                        .font(.system(size: 9).monospacedDigit()).foregroundColor(.green)
+                }
+            }
+            if b.lifetimeCreditsApplied > 0 {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.arrow.circlepath").font(.system(size: 8)).foregroundColor(.green).frame(width: 14)
+                    Text(Strings.awsLifetimeCreditsLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                    Text(String(format: "+$%.2f", b.lifetimeCreditsApplied))
                         .font(.system(size: 9).monospacedDigit()).foregroundColor(.green)
                 }
             }

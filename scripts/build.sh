@@ -39,6 +39,13 @@ cp Sources/dev_mon/dslogo1.png "$APP/Contents/Resources/"
 cp Sources/dev_mon/menu_icon.png "$APP/Contents/Resources/"
 cp -r Sources/dev_mon/Assets.xcassets "$APP/Contents/Resources/"
 
+# SPM 资源包（Bundle.module 访问 logo 等资源时需要）
+if [ -d ".build/release/dev_mon_dev_mon.bundle" ]; then
+    cp -R .build/release/dev_mon_dev_mon.bundle "$APP/Contents/Resources/"
+else
+    echo "    警告: 未找到 SPM 资源包 dev_mon_dev_mon.bundle"
+fi
+
 
 # Info.plist
 cat > "$APP/Contents/Info.plist" << PLIST

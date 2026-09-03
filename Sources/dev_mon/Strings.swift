@@ -71,6 +71,8 @@ enum Strings {
         static func lastModel(for providerId: String) -> String { "last_model_\(providerId)" }
         /// 按月计费提供商的手填月度预算（用于推导剩余额度）
         static func monthlyBudget(for providerId: String) -> String { "monthly_budget_\(providerId)" }
+        /// Z.AI 上游端点选择（coding = Coding Plan 专用 / standard = 标准按量付费）
+        static let zaiEndpoint = "zai_endpoint"
     }
 
     /// 判断当前是否为中文界面。直接读取 UserDefaults，无需缓存。
@@ -319,6 +321,34 @@ enum Strings {
     static var grantedText: String { isZH ? "赠送余额 \(currencySymbol)%.2f" : "Granted \(currencySymbol)%.2f" }
     static var toppedUpText: String { isZH ? "充值余额 \(currencySymbol)%.2f" : "Topped Up \(currencySymbol)%.2f" }
     static var monthSpend: String { isZH ? "本月费用" : "This month" }
+
+    // Z.AI 端点选择（Coding Plan 专用 / 标准按量付费）
+    static var endpointLabel: String { isZH ? "Z.AI 接口" : "Z.AI Endpoint" }
+    static var endpointCoding: String { isZH ? "Coding Plan" : "Coding Plan" }
+    static var endpointStandard: String { isZH ? "标准（按量付费）" : "Standard (pay-as-you-go)" }
+    static var endpointHint: String {
+        isZH ? "Z.AI for Copilot 走 Coding Plan 专用接口；标准接口按量计费。"
+             : "Z.AI for Copilot uses the dedicated Coding Plan endpoint; Standard is pay-as-you-go."
+    }
+
+    // 套餐/配额用量（z.ai 内部接口，仅供参考）
+    static var quotaPlanName: String { isZH ? "套餐" : "Plan" }
+    static var quotaRenewDate: String { isZH ? "续费" : "Renews" }
+    static var quotaSession5h: String { isZH ? "会话 (5h)" : "Session (5h)" }
+    static var quotaWeekly7d: String { isZH ? "周窗口 (7d)" : "Weekly (7d)" }
+    static var quotaSearchMonthly: String { isZH ? "联网搜索/阅读" : "Search/Read" }
+    static var quotaUsageHint: String {
+        isZH ? "来自 z.ai 内部接口，非官方，仅供参考"
+             : "From z.ai internal API — unofficial, for reference only"
+    }
+
+    // z.ai 内部钱包余额（非官方，仅供参考）
+    static var walletLabel: String { isZH ? "钱包余额" : "Wallet Balance" }
+    static var walletHint: String {
+        isZH ? "来自 z.ai 内部接口（余额），非官方，仅供参考"
+             : "Z.AI console balance — unofficial, for reference only"
+    }
+
     static var tokenInputText: String { isZH ? "输入 %@" : "In %@" }
     static var tokenOutputText: String { isZH ? "输出 %@" : "Out %@" }
     static var tokenCachedText: String { isZH ? "缓存 %@" : "Cache %@" }
@@ -419,6 +449,7 @@ enum Strings {
     static var awsForecastFormat: String { isZH ? "~%.1f 小时" : "~%.1f hrs" }
     static var awsOverageLabel: String { isZH ? "预估超额费用" : "Est. overage cost" }
     static var awsCreditsLabel: String { isZH ? "本月已用抵扣" : "Credits applied" }
+    static var awsLifetimeCreditsLabel: String { isZH ? "历史累计抵扣" : "Credits applied (all time)" }
     static var awsEc2CreditsLabel: String { isZH ? "EC2 抵扣" : "EC2 credits" }
     static var awsMaxCreditsLabel: String { isZH ? "抵扣总额（手动填写）" : "Max credits (manual)" }
     static var awsMaxCreditsHint: String { isZH ? "AWS 无公开 API 查询剩余抵扣，请到控制台 账单→抵扣 页查看总额后手动填写" : "AWS has no public API for remaining credits — enter your total from Billing → Credits" }

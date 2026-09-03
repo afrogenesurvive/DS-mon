@@ -47,10 +47,15 @@ struct AWSBillingSnapshot: Sendable, Equatable {
     /// Remaining credit balance = manual max minus credits applied this month.
     var remainingCredits: Double { max(0, maxCredits - creditsApplied) }
 
+    /// Cumulative Credit records summed over Cost Explorer history (positive $).
+    let lifetimeCreditsApplied: Double
+    let lifetimeEc2CreditsApplied: Double
+
     static let empty = AWSBillingSnapshot(
         monthToDateCost: 0, ec2Cost: 0,
         creditsApplied: 0, ec2CreditsApplied: 0,
-        forecastedCost: nil, maxCredits: 0
+        forecastedCost: nil, maxCredits: 0,
+        lifetimeCreditsApplied: 0, lifetimeEc2CreditsApplied: 0
     )
 }
 
@@ -291,14 +296,70 @@ final class AWSUsageTracker {
         // Month-end cost forecast
         let forecastedCost = await callCostForecast(ak: ak, sk: sk)
 
+        // Lifetime (cumulative) credits applied across Cost Explorer history.
+        let lifetime = await fetchLifetimeCredits(ak: ak, sk: sk)
+
         billing = AWSBillingSnapshot(
             monthToDateCost: monthToDateCost,
             ec2Cost: ec2Cost,
             creditsApplied: creditsApplied,
             ec2CreditsApplied: ec2CreditsApplied,
             forecastedCost: forecastedCost,
-            maxCredits: maxCredits
+            maxCredits: maxCredits,
+            lifetimeCreditsApplied: lifetime.total,
+            lifetimeEc2CreditsApplied: lifetime.ec2
         )
+    }
+
+    // MARK: - Lifetime Credits (Cost Explorer historical sum)
+
+    /// Sums Credit records across the account's Cost Explorer history, paged in
+    /// ~12-month windows (granularity MONTHLY). AWS only retains ~13 months via
+    /// this API, so the result is bounded by that window. Non-200 responses are
+    /// skipped (partial sums are kept) — never fatal.
+    private func fetchLifetimeCredits(ak: String, sk: String) async -> (total: Double, ec2: Double) {
+        let now = Date()
+        let cal = Calendar.current
+        let monthStart = cal.date(from: cal.dateComponents([.year, .month], from: now)) ?? now
+        let end = cal.date(byAdding: .month, value: 1, to: monthStart) ?? now
+        // Start from the earliest month Cost Explorer retains (~13 months back).
+        guard let earliest = cal.date(byAdding: .month, value: -12, to: monthStart) else {
+            return (0, 0)
+        }
+
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.timeZone = TimeZone(abbreviation: "UTC")
+        df.locale = Locale(identifier: "en_US_POSIX")
+
+        var total = 0.0
+        var ec2 = 0.0
+        var cursor = earliest
+        while cursor < end {
+            let windowEnd = min(end, cal.date(byAdding: .month, value: 12, to: cursor) ?? end)
+            let period = "\"Start\":\"\(df.string(from: cursor))\",\"End\":\"\(df.string(from: windowEnd))\""
+            let body = """
+            {\"TimePeriod\":{\(period)},\"Granularity\":\"MONTHLY\",
+             \"Metrics\":[\"UnblendedCost\"],
+             \"Filter\":{\"Dimensions\":{\"Key\":\"RECORD_TYPE\",\"Values\":[\"Credit\"]}},
+             \"GroupBy\":[{\"Type\":\"DIMENSION\",\"Key\":\"SERVICE\"}]}
+            """
+            if let json = await callCostExplorer(action: "GetCostAndUsage", body: body, ak: ak, sk: sk) {
+                for time in json["ResultsByTime"] as? [[String: Any]] ?? [] {
+                    for group in time["Groups"] as? [[String: Any]] ?? [] {
+                        let keys = group["Keys"] as? [String] ?? []
+                        let amountDict = (group["Metrics"] as? [String: Any])?["UnblendedCost"] as? [String: Any]
+                        let value = abs(Double(amountDict?["Amount"] as? String ?? "0") ?? 0)
+                        total += value
+                        if keys.first?.contains("Elastic Compute Cloud") == true {
+                            ec2 += value
+                        }
+                    }
+                }
+            }
+            cursor = windowEnd
+        }
+        return (total, ec2)
     }
 
     private func callCostExplorer(action: String, body: String, ak: String, sk: String) async -> [String: Any]? {

@@ -57,6 +57,7 @@ func providerTint(_ providerId: String) -> Color {
     case "kimi":      return .indigo
     case "openai":    return .teal
     case "anthropic": return .orange
+    case "zai":       return .purple
     default:          return .blue
     }
 }

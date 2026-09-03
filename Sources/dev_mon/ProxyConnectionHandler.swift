@@ -194,10 +194,17 @@ final class ProxyConnectionHandler: @unchecked Sendable {
             } else {
                 apiWithSlash = "/" + info.apiPath
             }
-            let pathWithoutApi = path.hasPrefix(apiWithSlash)
-                ? String(path.dropFirst(apiWithSlash.count))
-                : path
-            let fullPath = "\(apiWithSlash)\(pathWithoutApi.hasPrefix("/") ? pathWithoutApi : "/" + pathWithoutApi)"
+            // 归一化客户端路径：先剥离任意已知的 API 前缀（/v1、Z.AI 的
+            // /api/paas/v4 或 /api/coding/paas/v4 等），再统一拼接当前提供商的
+            // apiPath，避免双重前缀导致上游 404。
+            let knownPrefixes = ([apiWithSlash, "/v1", "/api/paas/v4", "/api/coding/paas/v4", "/api/anthropic"] as [String])
+                .filter { !$0.isEmpty }
+            var strippedPath = path
+            if let matched = knownPrefixes.first(where: { strippedPath == $0 || strippedPath.hasPrefix($0 + "/") }) {
+                strippedPath = String(strippedPath.dropFirst(matched.count))
+            }
+            let tail = strippedPath.hasPrefix("/") ? strippedPath : "/" + strippedPath
+            let fullPath = apiWithSlash + tail
             guard let url = URL(string: "\(baseWithoutSlash)\(fullPath)") else {
                 sendError(code: 502, body: "Bad upstream URL"); return
             }

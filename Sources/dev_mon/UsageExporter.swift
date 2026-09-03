@@ -149,6 +149,8 @@ struct AWSExport: Codable {
     let ec2Cost: Double
     let creditsApplied: Double
     let ec2CreditsApplied: Double
+    let lifetimeCreditsApplied: Double
+    let lifetimeEc2CreditsApplied: Double
     let maxCredits: Double
     let remainingCredits: Double
     let forecastedCost: Double?
@@ -173,6 +175,8 @@ struct AWSExport: Codable {
         ec2Cost = billing.ec2Cost
         creditsApplied = billing.creditsApplied
         ec2CreditsApplied = billing.ec2CreditsApplied
+        lifetimeCreditsApplied = billing.lifetimeCreditsApplied
+        lifetimeEc2CreditsApplied = billing.lifetimeEc2CreditsApplied
         maxCredits = billing.maxCredits
         remainingCredits = billing.remainingCredits
         forecastedCost = billing.forecastedCost

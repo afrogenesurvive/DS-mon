@@ -70,6 +70,37 @@ struct ProviderSettingsView: View {
                     Text(Strings.apiKeyHint(provider.name))
                         .font(.caption)
                         .foregroundColor(.secondary)
+
+                    if provider.isSpendBased {
+                        Divider()
+                        HStack(spacing: 8) {
+                            Text(Strings.monthlyBudgetLabel).font(.caption).foregroundColor(.secondary)
+                            TextField("0", value: Binding(
+                                get: { stats.manualBudget(for: provider.id) },
+                                set: { stats.setManualBudget($0, for: provider.id) }
+                            ), format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.caption, design: .monospaced))
+                        }
+                        Text(Strings.monthlyBudgetHint).font(.caption2).foregroundColor(.secondary)
+                    }
+
+                    if provider.id == "zai" {
+                        Divider()
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(Strings.endpointLabel).font(.caption).foregroundColor(.secondary)
+                            Picker("", selection: Binding(
+                                get: { ZAIEndpoint.current },
+                                set: { ZAIEndpoint.set($0); stats.refresh() }
+                            )) {
+                                Text(Strings.endpointCoding).tag(ZAIEndpoint.coding)
+                                Text(Strings.endpointStandard).tag(ZAIEndpoint.standard)
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                            Text(Strings.endpointHint).font(.caption2).foregroundColor(.secondary)
+                        }
+                    }
                 }
 
                 if provider.id != ProviderManager.shared.providers.last?.id {
