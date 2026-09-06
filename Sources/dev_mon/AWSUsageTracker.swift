@@ -67,6 +67,7 @@ struct AWSInstance: Sendable, Equatable, Identifiable {
     let state: String              // pending | running | shutting-down | terminating | stopping | stopped
     let launchTime: Date?
     let publicIp: String?
+    let publicDns: String?         // EC2 公网 DNS 名（实例运行后才有值）
     let privateIp: String?
     let name: String?              // from the "Name" tag
     let securityGroupIds: [String]
@@ -96,11 +97,62 @@ enum AWSIngressCheck: Sendable, Equatable {
     case closed    // needs a rule added
 }
 
-private struct AWSIngressRule: Sendable, Equatable {
-    let proto: String       // "tcp" | "udp" | "-1"
+struct AWSIngressRule: Sendable, Equatable, Identifiable {
+    enum Source: Sendable, Equatable {
+        case cidr(String)                            // IPv4 网段，如 0.0.0.0/0
+        case ipv6(String)                            // IPv6 网段，如 ::/0
+        case group(groupId: String, groupName: String?)  // 对端安全组
+    }
+
+    let proto: String       // "tcp" | "udp" | "icmp" | "-1"
     let fromPort: Int?
     let toPort: Int?
-    let cidrs: [String]
+    let source: Source
+    let description: String?
+
+    var id: String {
+        let src: String
+        switch source {
+        case .cidr(let c): src = "cidr:" + c
+        case .ipv6(let c): src = "ipv6:" + c
+        case .group(let gid, let name): src = "group:" + gid + ":" + (name ?? "")
+        }
+        return "\(proto)|\(fromPort ?? 0)|\(toPort ?? 0)|\(description ?? "")|\(src)"
+    }
+
+    var protocolDisplay: String {
+        switch proto {
+        case "-1": return Strings.awsAllTraffic
+        case "tcp": return "TCP"
+        case "udp": return "UDP"
+        case "icmp": return "ICMP"
+        default: return proto.uppercased()
+        }
+    }
+
+    var sourceDisplay: String {
+        switch source {
+        case .cidr(let c): return c
+        case .ipv6(let c): return c
+        case .group(let gid, let name): return name ?? gid
+        }
+    }
+
+    /// 该规则是否允许来自 `cidrs` 中任一段的 `port`（用于 RDP 快速检查）。
+    func allows(port: Int, from cidrs: [String]) -> Bool {
+        let protoOK = proto == "tcp" || proto == "6" || proto == "-1"
+        guard protoOK else { return false }
+        if proto != "-1" {
+            let lo = fromPort ?? 0
+            let hi = toPort ?? 65535
+            guard (lo...hi).contains(port) else { return false }
+        }
+        switch source {
+        case .cidr(let c): return cidrs.contains(c)
+        case .ipv6(let c): return cidrs.contains(c)
+        case .group: return false
+        }
+    }
 }
 
 private func dedupe(_ arr: [String]) -> [String] {
@@ -121,7 +173,7 @@ enum AWSError: LocalizedError {
         let isZH = Self.checkZH()
         switch self {
         case .invalidCredentials: return isZH ? "AWS 凭证无效" : "Invalid AWS credentials"
-        case .accessDenied: return isZH ? "权限不足（需要 ec2:DescribeInstances、ec2:DescribeSecurityGroups、ec2:Start/StopInstances、ec2:AuthorizeSecurityGroupIngress 和 ce:GetCostAndUsage）" : "Insufficient permissions (need ec2:DescribeInstances/DescribeSecurityGroups, ec2:Start/StopInstances, ec2:AuthorizeSecurityGroupIngress and ce:GetCostAndUsage)"
+        case .accessDenied: return isZH ? "权限不足（需要 ec2:DescribeInstances、ec2:DescribeSecurityGroups、ec2:Start/StopInstances、ec2:AuthorizeSecurityGroupIngress、ec2:RevokeSecurityGroupIngress 和 ce:GetCostAndUsage）" : "Insufficient permissions (need ec2:DescribeInstances/DescribeSecurityGroups, ec2:Start/StopInstances, ec2:AuthorizeSecurityGroupIngress, ec2:RevokeSecurityGroupIngress and ce:GetCostAndUsage)"
         case .networkError(let msg): return isZH ? "网络错误: \(msg)" : "Network error: \(msg)"
         case .parseFailed: return isZH ? "解析响应失败" : "Failed to parse response"
         case .regionRequired: return isZH ? "请选择区域" : "Please select a region"
@@ -158,6 +210,10 @@ final class AWSUsageTracker {
     private(set) var myPublicIPUpdatedAt: Date?
     /// groupId -> whether RDP (tcp:3389) is open to the caller's IP (filled lazily).
     private(set) var rdpIngress: [String: AWSIngressCheck] = [:]
+    /// groupId -> inbound rules of that security group (loaded on selection).
+    private(set) var sgRules: [String: [AWSIngressRule]] = [:]
+    /// groupId -> group name (from DescribeSecurityGroups).
+    private(set) var sgNames: [String: String] = [:]
 
     var isEnabled: Bool {
         !accessKey.isEmpty && !secretKey.isEmpty
@@ -545,6 +601,7 @@ final class AWSUsageTracker {
                 state: state,
                 launchTime: parseISODate(extractSingleTag(block, tag: "launchTime")),
                 publicIp: extractSingleTag(block, tag: "publicIp") ?? extractSingleTag(block, tag: "ipAddress"),
+                publicDns: extractSingleTag(block, tag: "dnsName") ?? extractSingleTag(block, tag: "publicDnsName"),
                 privateIp: extractSingleTag(block, tag: "privateIpAddress"),
                 name: extractTagValue(block, key: "Name"),
                 securityGroupIds: dedupe(extractAll(block, tag: "groupId")),
@@ -698,7 +755,7 @@ final class AWSUsageTracker {
 
     /// Resolves the caller's public IPv4 (used for "allow my IP" rules). Cached 1 hour.
     func fetchMyPublicIP(force: Bool = false) async {
-        if !force, let ip = myPublicIP, let t = myPublicIPUpdatedAt,
+        if !force, myPublicIP != nil, let t = myPublicIPUpdatedAt,
            Date().timeIntervalSince(t) < 3600 { return }
         guard let url = URL(string: "https://api.ipify.org") else { return }
         do {
@@ -714,35 +771,22 @@ final class AWSUsageTracker {
         } catch { /* keep the previous value */ }
     }
 
-    /// True when an ingress rule permits tcp `port` from any of `cidrs`.
-    private func ruleAllows(_ rule: AWSIngressRule, port: Int, from cidrs: [String]) -> Bool {
-        let protoOK = rule.proto == "tcp" || rule.proto == "6" || rule.proto == "-1"
-        guard protoOK else { return false }
-        if rule.proto != "-1" {
-            let lo = rule.fromPort ?? 0
-            let hi = rule.toPort ?? 65535
-            guard (lo...hi).contains(port) else { return false }
-        }
-        return !rule.cidrs.filter { cidrs.contains($0) }.isEmpty
-    }
-
     /// Reads an SG's ingress rules and reports whether RDP (tcp/3389) is already
     /// reachable from the caller's IP (0.0.0.0/0, ::/0, or myIP/32). Updates rdpIngress.
+    /// Uses the cached rule list (`sgRules`) when present, loading it on demand.
     @discardableResult
     func checkRDPIngress(groupId: String) async -> AWSIngressCheck {
         if myPublicIP == nil { await fetchMyPublicIP() }
-        let (xml, _) = await ec2Call(action: "DescribeSecurityGroups", params: [
-            "Filter.1.Name": "group-id",
-            "Filter.1.Value.1": groupId
-        ])
-        guard let xml = xml else {
+        if sgRules[groupId] == nil {
+            await loadSecurityGroup(groupId: groupId)
+        }
+        guard let rules = sgRules[groupId] else {
             rdpIngress[groupId] = .unknown
             return .unknown
         }
-        let rules = parseIngressRules(from: xml)
         var allowedCIDRs = ["0.0.0.0/0", "::/0"]
         if let ip = myPublicIP { allowedCIDRs.append("\(ip)/32") }
-        let check: AWSIngressCheck = rules.contains { ruleAllows($0, port: 3389, from: allowedCIDRs) }
+        let check: AWSIngressCheck = rules.contains { $0.allows(port: 3389, from: allowedCIDRs) }
             ? .open : .closed
         rdpIngress[groupId] = check
         return check
@@ -776,13 +820,15 @@ final class AWSUsageTracker {
         if let err = err {
             return (.closed, err)
         }
+        await loadSecurityGroup(groupId: groupId)   // 刷新规则缓存，供规则列表使用
         rdpIngress[groupId] = .open
         return (.open, Strings.awsRdpAdded)
     }
 
     /// Parses the ingress (ipPermissions) section of a DescribeSecurityGroups response.
-    /// Rule items are anchored on `<ipProtocol>` markers because ipRanges use nested
-    /// `<item>` elements that the naive scanner would mis-pair.
+    /// Permission items are anchored on `<ipProtocol>` markers because ipRanges use
+    /// nested `<item>` elements that the naive scanner would mis-pair. Each permission
+    /// is flattened into one rule per source (IPv4 / IPv6 / peer group), console-style.
     private func parseIngressRules(from xml: String) -> [AWSIngressRule] {
         guard let openRange = xml.range(of: "<ipPermissions>"),
               let closeRange = xml.range(of: "</ipPermissions>", range: openRange.upperBound..<xml.endIndex) else {
@@ -805,9 +851,121 @@ final class AWSUsageTracker {
             let proto = extractSingleTag(block, tag: "ipProtocol") ?? "-1"
             let fromPort = Int(extractSingleTag(block, tag: "fromPort") ?? "")
             let toPort = Int(extractSingleTag(block, tag: "toPort") ?? "")
-            rules.append(AWSIngressRule(proto: proto, fromPort: fromPort, toPort: toPort,
-                                        cidrs: extractAll(block, tag: "cidrIp")))
+
+            for item in sectionItems(block, section: "ipRanges") {
+                guard let c = extractSingleTag(item, tag: "cidrIp") else { continue }
+                rules.append(AWSIngressRule(proto: proto, fromPort: fromPort, toPort: toPort,
+                                            source: .cidr(c),
+                                            description: extractSingleTag(item, tag: "description")))
+            }
+            for item in sectionItems(block, section: "ipv6Ranges") {
+                guard let c = extractSingleTag(item, tag: "cidrIpv6") else { continue }
+                rules.append(AWSIngressRule(proto: proto, fromPort: fromPort, toPort: toPort,
+                                            source: .ipv6(c),
+                                            description: extractSingleTag(item, tag: "description")))
+            }
+            for item in sectionItems(block, section: "userIdGroupPairs") {
+                guard let gid = extractSingleTag(item, tag: "groupId") else { continue }
+                rules.append(AWSIngressRule(proto: proto, fromPort: fromPort, toPort: toPort,
+                                            source: .group(groupId: gid,
+                                                           groupName: extractSingleTag(item, tag: "groupName")),
+                                            description: extractSingleTag(item, tag: "description")))
+            }
         }
         return rules
+    }
+
+    /// Slices the `<item>` children of a single-occurrence section (e.g. `ipRanges`).
+    private func sectionItems(_ block: String, section: String) -> [String] {
+        guard let openRange = block.range(of: "<\(section)>"),
+              let closeRange = block.range(of: "</\(section)>", range: openRange.upperBound..<block.endIndex) else {
+            return []
+        }
+        let inner = String(block[openRange.upperBound..<closeRange.lowerBound])
+        let marker = "<item>"
+        var markers: [Range<String.Index>] = []
+        var searchRange = inner.startIndex..<inner.endIndex
+        while let r = inner.range(of: marker, range: searchRange) {
+            markers.append(r)
+            searchRange = r.upperBound..<inner.endIndex
+        }
+        var items: [String] = []
+        for (i, m) in markers.enumerated() {
+            let end = (i + 1 < markers.count) ? markers[i + 1].lowerBound : inner.endIndex
+            items.append(String(inner[m.upperBound..<end]))
+        }
+        return items
+    }
+
+    // MARK: - SG Inbound Rule Management (list / add / remove / edit)
+
+    /// Fetches and caches a security group's inbound rules (and its name).
+    @discardableResult
+    func loadSecurityGroup(groupId: String) async -> [AWSIngressRule] {
+        let (xml, _) = await ec2Call(action: "DescribeSecurityGroups", params: [
+            "Filter.1.Name": "group-id",
+            "Filter.1.Value.1": groupId
+        ])
+        guard let xml = xml else { return sgRules[groupId] ?? [] }
+        sgNames[groupId] = extractSingleTag(xml, tag: "groupName")
+        let rules = parseIngressRules(from: xml)
+        sgRules[groupId] = rules
+        return rules
+    }
+
+    /// Adds an inbound rule. Returns a localized error string, or nil on success.
+    @discardableResult
+    func addIngressRule(_ rule: AWSIngressRule, groupId: String) async -> String? {
+        let (_, err) = await ec2Call(action: "AuthorizeSecurityGroupIngress",
+                                     params: Self.ingressParams(groupId: groupId, rule: rule))
+        if err == nil { await loadSecurityGroup(groupId: groupId) }
+        return err
+    }
+
+    /// Removes an inbound rule (matched by protocol / ports / source).
+    /// Returns a localized error string, or nil on success.
+    @discardableResult
+    func removeIngressRule(_ rule: AWSIngressRule, groupId: String) async -> String? {
+        let (_, err) = await ec2Call(action: "RevokeSecurityGroupIngress",
+                                     params: Self.ingressParams(groupId: groupId, rule: rule))
+        if err == nil { await loadSecurityGroup(groupId: groupId) }
+        return err
+    }
+
+    /// "Edit" = revoke the old rule spec, then authorize the new one.
+    @discardableResult
+    func replaceIngressRule(_ old: AWSIngressRule, with new: AWSIngressRule,
+                            groupId: String) async -> String? {
+        if let err = await removeIngressRule(old, groupId: groupId) { return err }
+        return await addIngressRule(new, groupId: groupId)
+    }
+
+    /// Builds the `GroupId` + `IpPermissions.1.*` query params for an action call.
+    private static func ingressParams(groupId: String, rule: AWSIngressRule) -> [String: String] {
+        let p = "IpPermissions.1"
+        var params = [
+            "GroupId": groupId,
+            "\(p).IpProtocol": rule.proto
+        ]
+        if let f = rule.fromPort { params["\(p).FromPort"] = "\(f)" }
+        if let t = rule.toPort { params["\(p).ToPort"] = "\(t)" }
+        switch rule.source {
+        case .cidr(let c):
+            params["\(p).IpRanges.1.CidrIp"] = c
+            if let d = rule.description, !d.isEmpty {
+                params["\(p).IpRanges.1.Description"] = d
+            }
+        case .ipv6(let c):
+            params["\(p).Ipv6Ranges.1.CidrIpv6"] = c
+            if let d = rule.description, !d.isEmpty {
+                params["\(p).Ipv6Ranges.1.Description"] = d
+            }
+        case .group(let gid, _):
+            params["\(p).UserIdGroupPairs.1.GroupId"] = gid
+            if let d = rule.description, !d.isEmpty {
+                params["\(p).UserIdGroupPairs.1.Description"] = d
+            }
+        }
+        return params
     }
 }

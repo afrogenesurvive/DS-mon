@@ -512,5 +512,27 @@ enum Strings {
     static var awsRdpAlreadyOpen: String { isZH ? "RDP 已对你的 IP 开放" : "RDP already open to your IP" }
     static var awsRdpUnknownState: String { isZH ? "无法读取规则" : "Could not read rules" }
     static var awsIPResolveFailed: String { isZH ? "无法获取你的公网 IP" : "Could not resolve your public IP" }
-    static var awsPermHint: String { isZH ? "实例管理需在 IAM 策略中授予 ec2:DescribeSecurityGroups、ec2:StartInstances、ec2:StopInstances、ec2:AuthorizeSecurityGroupIngress" : "Instance controls need ec2:DescribeSecurityGroups, ec2:StartInstances, ec2:StopInstances, ec2:AuthorizeSecurityGroupIngress in your IAM policy" }
+
+    // —— SG 入站规则管理 / 公网 DNS ——
+    static var awsPublicDNSLabel: String { isZH ? "公网 DNS" : "Public DNS" }
+    static var awsRulesHeader: String { isZH ? "入站规则" : "Inbound rules" }
+    static var awsNoRules: String { isZH ? "无入站规则" : "No inbound rules" }
+    static var awsAddRuleAction: String { isZH ? "添加规则" : "Add rule" }
+    static var awsAddRuleTitle: String { isZH ? "添加入站规则" : "Add inbound rule" }
+    static var awsEditRuleTitle: String { isZH ? "编辑入站规则" : "Edit inbound rule" }
+    static var awsSaveRuleAction: String { isZH ? "保存" : "Save" }
+    static var awsRemoveRuleAction: String { isZH ? "删除规则" : "Remove rule" }
+    static var awsRemoveRuleConfirmMessage: String { isZH ? "从 %@ 的安全组删除该入站规则？" : "Remove this inbound rule from %@'s security group?" }
+    static var awsRuleAdded: String { isZH ? "已添加入站规则" : "Inbound rule added" }
+    static var awsRuleUpdated: String { isZH ? "入站规则已更新" : "Inbound rule updated" }
+    static var awsRuleRemoved: String { isZH ? "已删除入站规则" : "Inbound rule removed" }
+    static var awsPortFrom: String { isZH ? "起始端口" : "From" }
+    static var awsPortTo: String { isZH ? "结束端口" : "To" }
+    static var awsSourceLabel: String { isZH ? "来源（CIDR / sg-*）" : "Source (CIDR / sg-*)" }
+    static var awsMyIPShort: String { isZH ? "我的 IP" : "My IP" }
+    static var awsDescLabel: String { isZH ? "描述（可选）" : "Description (optional)" }
+    static var awsAllTraffic: String { isZH ? "全部" : "All" }
+    static var awsRulePortRequired: String { isZH ? "请输入起始和结束端口" : "Enter From and To ports" }
+    static var awsRuleSourceRequired: String { isZH ? "请输入来源（CIDR 或 sg-*）" : "Enter a source (CIDR or sg-*)" }
+    static var awsPermHint: String { isZH ? "实例管理需在 IAM 策略中授予 ec2:DescribeSecurityGroups、ec2:StartInstances、ec2:StopInstances、ec2:AuthorizeSecurityGroupIngress、ec2:RevokeSecurityGroupIngress" : "Instance controls need ec2:DescribeSecurityGroups, ec2:StartInstances, ec2:StopInstances, ec2:AuthorizeSecurityGroupIngress, ec2:RevokeSecurityGroupIngress in your IAM policy" }
 }

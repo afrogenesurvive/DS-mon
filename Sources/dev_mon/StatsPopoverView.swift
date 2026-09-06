@@ -5,7 +5,12 @@ import Charts
 // MARK: - AWS 实例操作确认（Start / Stop / 添加入站规则）
 
 private struct AWSConfirmRequest: Identifiable {
-    enum Kind { case start, stop, ingress }
+    enum Kind {
+        case start
+        case stop
+        case ingress
+        case removeRule(AWSIngressRule)
+    }
     let kind: Kind
     let instanceId: String
     let groupId: String?
@@ -34,6 +39,15 @@ struct StatsPopoverView: View {
     @State private var showAwsConfirm = false
     @State private var awsActionMessage: String?
     @State private var awsActionSuccess = true
+    // SG 入站规则编辑器（内嵌卡片；nil = 新增，非 nil = 编辑已有规则）
+    @State private var awsRuleEditorGroupId: String?
+    @State private var awsEditingRule: AWSIngressRule?
+    @State private var awsRuleProto = "tcp"
+    @State private var awsRuleFromPort = ""
+    @State private var awsRuleToPort = ""
+    @State private var awsRuleSource = "0.0.0.0/0"
+    @State private var awsRuleDesc = ""
+    @State private var awsRuleSaving = false
 
     // 折叠区段状态（DeepSeek 页）
     @State private var showAccountSection = true    // 余额/充值/提示行
@@ -1236,15 +1250,34 @@ struct StatsPopoverView: View {
                 Text(String(format: Strings.awsInstancesFormat, aw.instanceCount, aw.eligibleCount, aw.nonEligibleCount))
                     .font(.system(size: 9).monospacedDigit())
             }
-            if !aw.nonEligibleInstances.isEmpty {
-                ForEach(aw.nonEligibleInstances) { inst in
-                    HStack(spacing: 12) {
-                        Text(inst.instanceId).font(.system(size: 8)).frame(width: 80, alignment: .leading).lineLimit(1)
-                        Text(inst.instanceType).font(.system(size: 8)).frame(width: 60, alignment: .leading)
+            if !stats.aws.instances.isEmpty {
+                ForEach(stats.aws.instances.sorted(by: awsInstanceSort)) { inst in
+                    HStack(spacing: 6) {
+                        Circle().fill(awsStateColor(inst.state)).frame(width: 6, height: 6)
+                        Text(inst.instanceId)
+                            .font(.system(size: 8, design: .monospaced))
+                            .frame(width: 92, alignment: .leading)
+                            .lineLimit(1).truncationMode(.middle)
+                        Text(inst.instanceType).font(.system(size: 8)).frame(width: 52, alignment: .leading)
+                        Text(awsStateText(inst.state))
+                            .font(.system(size: 8))
+                            .foregroundColor(awsStateColor(inst.state))
+                            .frame(width: 52, alignment: .leading)
                         Spacer()
-                        Image(systemName: "xmark.circle.fill").font(.system(size: 7)).foregroundColor(.red)
-                        Text(String(format: Strings.awsNoLabel, 30.0))
-                            .font(.system(size: 7)).foregroundColor(.red)
+                        if inst.isRunning {
+                            if let h = inst.runningHours {
+                                Text(String(format: "%.1f h", h))
+                                    .font(.system(size: 8).monospacedDigit()).foregroundColor(.secondary)
+                            }
+                            if !inst.isEligibleFreeTier {
+                                Text(String(format: Strings.awsNoLabel, 30.0))
+                                    .font(.system(size: 7)).foregroundColor(.red)
+                            }
+                        } else {
+                            Text(inst.publicIp ?? "—")
+                                .font(.system(size: 8).monospacedDigit())
+                                .foregroundColor(.secondary).lineLimit(1)
+                        }
                     }
                 }
             }
@@ -1358,6 +1391,7 @@ struct StatsPopoverView: View {
         return Button {
             awsSelectedID = inst.instanceId
             awsActionMessage = nil
+            closeRuleEditor()
             refreshIngress(for: inst)
         } label: {
             VStack(alignment: .leading, spacing: 3) {
@@ -1421,13 +1455,20 @@ struct StatsPopoverView: View {
                 if let ip = inst.publicIp {
                     awsInfoRow(Strings.awsPublicIPLabel, value: ip, selectable: true)
                 }
+                if inst.isRunning, let dns = inst.publicDns, !dns.isEmpty {
+                    awsInfoRow(Strings.awsPublicDNSLabel, value: dns, selectable: true)
+                }
                 if let ip = inst.privateIp {
                     awsInfoRow(Strings.awsPrivateIPLabel, value: ip, selectable: true)
                 }
                 if let gid = inst.primarySecurityGroupId {
-                    let gname = inst.securityGroupNames.first ?? gid
+                    let gname = stats.aws.sgNames[gid] ?? inst.securityGroupNames.first ?? gid
                     awsInfoRow(Strings.awsSecurityGroupLabel, value: gname, selectable: true)
                     awsIngressRow(groupId: gid)
+                    awsRulesSection(groupId: gid, instanceId: inst.instanceId)
+                    if awsRuleEditorGroupId == gid {
+                        awsRuleEditorCard(groupId: gid)
+                    }
                 }
 
                 Divider()
@@ -1494,6 +1535,155 @@ struct StatsPopoverView: View {
         }
     }
 
+    // MARK: - SG 入站规则（查看 / 添加 / 编辑 / 删除）
+
+    private func awsRulesSection(groupId: String, instanceId: String) -> some View {
+        let rules = stats.aws.sgRules[groupId] ?? []
+        let isEditor = awsRuleEditorGroupId == groupId
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.down.circle")
+                    .font(.system(size: 8)).foregroundColor(.secondary).frame(width: 14)
+                Text(Strings.awsRulesHeader)
+                    .font(.system(size: 9)).foregroundColor(.secondary)
+                Spacer()
+                if isEditor {
+                    awsActionButton(Strings.cancel, icon: "xmark", color: .secondary,
+                                    disabled: false) { closeRuleEditor() }
+                } else {
+                    awsActionButton(Strings.awsAddRuleAction, icon: "plus", color: .blue,
+                                    disabled: false) {
+                        openRuleEditor(for: nil, groupId: groupId)
+                    }
+                }
+            }
+            if rules.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 8)).foregroundColor(.secondary).frame(width: 14)
+                    Text(Strings.awsNoRules)
+                        .font(.system(size: 8)).foregroundColor(.secondary)
+                }
+                .padding(.vertical, 2)
+            } else {
+                ForEach(Array(rules.enumerated()), id: \.offset) { _, rule in
+                    HStack(spacing: 4) {
+                        Image(systemName: awsRuleIcon(rule))
+                            .font(.system(size: 8)).foregroundColor(.secondary).frame(width: 12)
+                        Text(awsRuleSummary(rule))
+                            .font(.system(size: 8))
+                            .lineLimit(1)
+                            .textSelection(.enabled)
+                        Spacer(minLength: 2)
+                        Button {
+                            openRuleEditor(for: rule, groupId: groupId)
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 8)).foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        Button {
+                            beginAWSConfirm(.removeRule(rule), instanceId: instanceId, groupId: groupId)
+                        } label: {
+                            Image(systemName: "minus.circle")
+                                .font(.system(size: 8)).foregroundColor(.red)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    private func awsRuleEditorCard(groupId: String) -> some View {
+        let editing = awsEditingRule != nil
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(editing ? Strings.awsEditRuleTitle : Strings.awsAddRuleTitle)
+                .font(.system(size: 9, weight: .semibold))
+            Picker("", selection: $awsRuleProto) {
+                Text("TCP").tag("tcp")
+                Text("UDP").tag("udp")
+                Text("ICMP").tag("icmp")
+                Text(Strings.awsAllTraffic).tag("-1")
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .controlSize(.mini)
+            if awsRuleProto != "-1" {
+                HStack(spacing: 6) {
+                    TextField(Strings.awsPortFrom, text: $awsRuleFromPort)
+                        .textFieldStyle(.roundedBorder).font(.system(size: 10))
+                        .frame(width: 60)
+                    Text("–").foregroundColor(.secondary)
+                    TextField(Strings.awsPortTo, text: $awsRuleToPort)
+                        .textFieldStyle(.roundedBorder).font(.system(size: 10))
+                        .frame(width: 60)
+                }
+            }
+            HStack(spacing: 6) {
+                TextField(Strings.awsSourceLabel, text: $awsRuleSource)
+                    .textFieldStyle(.roundedBorder).font(.system(size: 10))
+                if let ip = stats.aws.myPublicIP {
+                    Button {
+                        awsRuleSource = "\(ip)/32"
+                    } label: {
+                        Text(Strings.awsMyIPShort).font(.system(size: 9))
+                    }
+                    .controlSize(.mini)
+                }
+                Button {
+                    awsRuleSource = "0.0.0.0/0"
+                } label: {
+                    Text("0.0.0.0/0").font(.system(size: 9))
+                }
+                .controlSize(.mini)
+            }
+            TextField(Strings.awsDescLabel, text: $awsRuleDesc)
+                .textFieldStyle(.roundedBorder).font(.system(size: 10))
+            HStack(spacing: 8) {
+                Spacer()
+                if awsRuleSaving {
+                    ProgressView().controlSize(.mini)
+                }
+                Button(Strings.cancel) { closeRuleEditor() }
+                    .controlSize(.small)
+                Button(editing ? Strings.awsSaveRuleAction : Strings.awsAddRuleAction) {
+                    saveRule(groupId: groupId)
+                }
+                .controlSize(.small)
+                .buttonStyle(.borderedProminent)
+                .disabled(awsRuleSaving)
+            }
+        }
+        .padding(8)
+        .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
+        .cornerRadius(8)
+    }
+
+    private func awsRuleIcon(_ rule: AWSIngressRule) -> String {
+        switch rule.source {
+        case .cidr, .ipv6: return "network"
+        case .group: return "rectangle.3.group"
+        }
+    }
+
+    private func awsRuleSummary(_ rule: AWSIngressRule) -> String {
+        var s: String
+        if rule.proto == "-1" {
+            s = rule.protocolDisplay
+        } else {
+            s = rule.protocolDisplay + " "
+            if let f = rule.fromPort, let t = rule.toPort {
+                s += f == t ? "\(f)" : "\(f)–\(t)"
+            } else {
+                s += "?"
+            }
+        }
+        s += " · " + rule.sourceDisplay
+        if let d = rule.description, !d.isEmpty { s += " · " + d }
+        return s
+    }
+
     private func awsStateBadge(_ state: String) -> some View {
         Text(awsStateText(state))
             .font(.system(size: 8))
@@ -1508,11 +1698,18 @@ struct StatsPopoverView: View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(label).font(.system(size: 9)).foregroundColor(.secondary)
             Spacer(minLength: 6)
-            Text(value)
-                .font(.system(size: 9))
-                .multilineTextAlignment(.trailing)
-                .lineLimit(1)
-                .textSelection(selectable ? .enabled : .disabled)
+            if selectable {
+                Text(value)
+                    .font(.system(size: 9))
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(1)
+                    .textSelection(.enabled)
+            } else {
+                Text(value)
+                    .font(.system(size: 9))
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(1)
+            }
         }
     }
 
@@ -1577,6 +1774,84 @@ struct StatsPopoverView: View {
     // MARK: - AWS Instances — selection & actions
 
     @MainActor
+    private func awsInstanceSort(_ a: AWSInstance, _ b: AWSInstance) -> Bool {
+        if a.isRunning != b.isRunning { return a.isRunning }
+        return a.instanceId < b.instanceId
+    }
+
+    // MARK: - SG 入站规则 — 编辑器（新增 / 编辑）
+
+    @MainActor
+    private func openRuleEditor(for rule: AWSIngressRule?, groupId: String) {
+        awsEditingRule = rule
+        awsRuleEditorGroupId = groupId
+        awsRuleProto = rule?.proto ?? "tcp"
+        awsRuleFromPort = rule?.fromPort.map(String.init) ?? ""
+        awsRuleToPort = rule?.toPort.map(String.init) ?? ""
+        awsRuleDesc = rule?.description ?? ""
+        switch rule?.source {
+        case .cidr(let c), .ipv6(let c): awsRuleSource = c
+        case .group(let gid, _): awsRuleSource = gid
+        case nil: awsRuleSource = "0.0.0.0/0"
+        }
+        awsRuleSaving = false
+    }
+
+    @MainActor
+    private func closeRuleEditor() {
+        awsRuleEditorGroupId = nil
+        awsEditingRule = nil
+        awsRuleSaving = false
+    }
+
+    @MainActor
+    private func saveRule(groupId: String) {
+        let proto = awsRuleProto
+        let fromText = awsRuleFromPort.trimmingCharacters(in: .whitespaces)
+        let toText = awsRuleToPort.trimmingCharacters(in: .whitespaces)
+        let src = awsRuleSource.trimmingCharacters(in: .whitespaces)
+        guard !src.isEmpty else {
+            awsActionSuccess = false
+            awsActionMessage = Strings.awsRuleSourceRequired
+            return
+        }
+        let from = Int(fromText)
+        let to = Int(toText)
+        if proto != "-1" && proto != "icmp" {
+            guard from != nil, to != nil else {
+                awsActionSuccess = false
+                awsActionMessage = Strings.awsRulePortRequired
+                return
+            }
+        }
+        let source: AWSIngressRule.Source
+        if src.lowercased().contains(":") {
+            source = .ipv6(src)
+        } else if src.hasPrefix("sg-") {
+            source = .group(groupId: src, groupName: nil)
+        } else {
+            source = .cidr(src)
+        }
+        let desc = awsRuleDesc.trimmingCharacters(in: .whitespaces)
+        let rule = AWSIngressRule(proto: proto, fromPort: from, toPort: to,
+                                  source: source, description: desc.isEmpty ? nil : desc)
+        let editing = awsEditingRule
+        awsRuleSaving = true
+        Task {
+            let err = editing == nil
+                ? await stats.aws.addIngressRule(rule, groupId: groupId)
+                : await stats.aws.replaceIngressRule(editing!, with: rule, groupId: groupId)
+            awsRuleSaving = false
+            closeRuleEditor()
+            awsActionSuccess = (err == nil)
+            awsActionMessage = err ?? (editing == nil ? Strings.awsRuleAdded : Strings.awsRuleUpdated)
+            if err == nil {
+                Task { await stats.aws.checkRDPIngress(groupId: groupId) }
+            }
+        }
+    }
+
+    @MainActor
     private func ensureAWSSelection() {
         if let id = awsSelectedID,
            let sel = stats.aws.instances.first(where: { $0.instanceId == id }) {
@@ -1596,6 +1871,8 @@ struct StatsPopoverView: View {
         guard let gid = inst.primarySecurityGroupId else { return }
         Task {
             await stats.aws.fetchMyPublicIP()
+            // 先取回完整规则列表（供下方规则列表使用），RDP 检查复用缓存避免重复请求。
+            await stats.aws.loadSecurityGroup(groupId: gid)
             await stats.aws.checkRDPIngress(groupId: gid)
         }
     }
@@ -1612,6 +1889,7 @@ struct StatsPopoverView: View {
         case .start: return Strings.awsStartAction
         case .stop: return Strings.awsStopAction
         case .ingress: return Strings.awsAddIngressAction
+        case .removeRule: return Strings.awsRemoveRuleAction
         }
     }
 
@@ -1620,6 +1898,7 @@ struct StatsPopoverView: View {
         case .start: return String(format: Strings.awsStartConfirmMessage, req.instanceId)
         case .stop: return String(format: Strings.awsStopConfirmMessage, req.instanceId)
         case .ingress: return String(format: Strings.awsIngressConfirmMessage, req.instanceId)
+        case .removeRule: return String(format: Strings.awsRemoveRuleConfirmMessage, req.instanceId)
         }
     }
 
@@ -1650,6 +1929,22 @@ struct StatsPopoverView: View {
                     Task { await stats.aws.checkRDPIngress(groupId: gid) }
                 }
             }
+        case .removeRule(let rule):
+            guard let gid = req.groupId else {
+                awsPending.remove(id)
+                awsActionSuccess = false
+                awsActionMessage = Strings.awsNoSecurityGroup
+                return
+            }
+            Task {
+                let err = await stats.aws.removeIngressRule(rule, groupId: gid)
+                awsPending.remove(id)
+                awsActionSuccess = (err == nil)
+                awsActionMessage = err ?? Strings.awsRuleRemoved
+                if err == nil {
+                    Task { await stats.aws.checkRDPIngress(groupId: gid) }
+                }
+            }
         }
     }
 
@@ -1663,17 +1958,27 @@ struct StatsPopoverView: View {
         } else {
             awsActionSuccess = true
             awsActionMessage = start ? Strings.awsStartSent : Strings.awsStopSent
-            delayedAWSRefresh()
+            delayedAWSRefresh(instanceId: id, forStart: start)
         }
     }
 
-    /// EC2 状态变更有延迟：稍后自动刷新一次让列表反映新状态。
+    /// EC2 状态变更有延迟：操作后轮询刷新，让列表/详情（状态、公网 IP/DNS、
+    /// 入站规则）自动反映新状态。Start 最多轮询 60 秒（每 5 秒一次）；Stop
+    /// 轮询 3 次（每 3 秒一次），遇到实例离开过渡态即提前结束。
     @MainActor
-    private func delayedAWSRefresh() {
+    private func delayedAWSRefresh(instanceId: String, forStart: Bool) {
+        let maxAttempts = forStart ? 12 : 3
+        let interval: UInt64 = forStart ? 5_000_000_000 : 3_000_000_000
         Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            guard !Task.isCancelled else { return }
-            stats.aws.refresh()
+            for attempt in 0..<maxAttempts {
+                try? await Task.sleep(nanoseconds: interval)
+                guard !Task.isCancelled else { return }
+                stats.aws.refresh()
+                if let inst = stats.aws.instances.first(where: { $0.instanceId == instanceId }),
+                   !inst.isTransitional {
+                    return
+                }
+            }
         }
     }
 
