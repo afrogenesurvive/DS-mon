@@ -265,6 +265,11 @@ private struct AWSSettingsView: View {
                     }
                 Text(Strings.awsMaxCreditsHint).font(.caption2).foregroundColor(.secondary)
             }
+
+            Text(Strings.awsPermHint)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(20)
     }

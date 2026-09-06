@@ -164,6 +164,17 @@ enum Strings {
     static var settingsTabGeneral: String { isZH ? "通用" : "General" }
     static var settingsTabServices: String { isZH ? "服务" : "Services" }
     static var settingsTabAbout: String { isZH ? "关于" : "About" }
+    static var settingsTabGuide: String { isZH ? "指南" : "Guide" }
+
+    // Guide (docs/*.md) — 设置窗口里的文档查看页
+    static var guideOpenExternal: String { isZH ? "在外部打开" : "Open Externally" }
+    static var guideReveal: String { isZH ? "在 Finder 中显示" : "Reveal in Finder" }
+    static var guideNoDocsTitle: String { isZH ? "未找到可用文档" : "No documentation found" }
+    static var guideNoDocsHint: String {
+        isZH ? "未在应用资源或仓库 docs/ 目录下找到可展示的 .md 文档（CHANGELOG.md 除外）。" :
+               "No .md files (other than CHANGELOG.md) were found in the app resources or the repo docs/ folder."
+    }
+    static var guideLoadFailed: String { isZH ? "无法读取文档内容" : "Unable to load document" }
     static var balanceAlert: String { isZH ? "余额预警" : "Balance Alert" }
     static var alertHint: String { isZH ? "余额低于此值时菜单栏红色闪烁" : "Menu bar flashes red when balance drops below" }
     static var maxBalanceHint: String { isZH ? "菜单栏环形百分比以此为基准，默认 \(currencySymbol)100" : "Ring percentage is relative to this amount, default \(currencySymbol)100" }
@@ -264,7 +275,7 @@ enum Strings {
     static func licenseNoFilteredSeats(_ label: String) -> String {
         isZH ? "暂无\(label)席位" : "No \(label) seats"
     }
-    static var usageTabTitle: String { isZH ? "用量" : "Usage" }
+    static var usageTabTitle: String { isZH ? "AI 用量" : "AI Usage" }
     static var exportUsageTitle: String { isZH ? "导出用量数据" : "Export Usage Data" }
     static var exportUsageSave: String { isZH ? "导出" : "Export" }
     static var exportUsageHelp: String { isZH ? "导出全部用量数据（JSON）" : "Export all usage data (JSON)" }
@@ -384,7 +395,7 @@ enum Strings {
     static var providerTabTooltipSpend: String {
         isZH ? "%@ — 查看本月费用与剩余额度" : "%@ — month-to-date spend & remaining"
     }
-    static var usageTabTooltip: String { isZH ? "用量统计与请求历史" : "Usage stats & request history" }
+    static var usageTabTooltip: String { isZH ? "AI 用量统计与请求历史" : "AI Usage stats & request history" }
     static var licenseTabTooltip: String { isZH ? "许可证席位与有效期" : "License seats & expiry" }
     static var githubTabTooltip: String { isZH ? "GitHub Actions 免费额度用量" : "GitHub Actions free-tier usage" }
     static var awsTabTooltip: String { isZH ? "AWS 免费套餐与费用" : "AWS free tier & costs" }
@@ -463,4 +474,43 @@ enum Strings {
     static var awsEligibleLabel: String { isZH ? "免费资格" : "Free Tier" }
     static var awsYesLabel: String { isZH ? "✅ 免费" : "✅ Free" }
     static var awsNoLabel: String { isZH ? "❌ ~$%.0f/月" : "❌ ~$%.0f/mo" }
+
+    // —— AWS Instances 子页（Overview / Instances）——
+    static var awsSubTabOverview: String { isZH ? "概览" : "Overview" }
+    static var awsSubTabInstances: String { isZH ? "实例" : "Instances" }
+    static var awsInstancesEmpty: String { isZH ? "该区域暂无 EC2 实例" : "No EC2 instances in this region" }
+    static var awsNoSelectionHint: String { isZH ? "从左侧选择一个实例" : "Select an instance on the left" }
+    static var awsInstTypeLabel: String { isZH ? "类型" : "Type" }
+    static var awsStateLabel: String { isZH ? "状态" : "State" }
+    static var awsStateRunning: String { isZH ? "运行中" : "Running" }
+    static var awsStateStopped: String { isZH ? "已停止" : "Stopped" }
+    static var awsStateStopping: String { isZH ? "停止中" : "Stopping" }
+    static var awsStatePending: String { isZH ? "启动中" : "Pending" }
+    static var awsStateShuttingDown: String { isZH ? "关机中" : "Shutting-down" }
+    static var awsStateTerminated: String { isZH ? "已终止" : "Terminated" }
+    static var awsLaunchLabel: String { isZH ? "启动时间" : "Launched" }
+    static var awsUptimeLabel: String { isZH ? "运行时长" : "Uptime" }
+    static var awsPublicIPLabel: String { isZH ? "公网 IP" : "Public IP" }
+    static var awsPrivateIPLabel: String { isZH ? "内网 IP" : "Private IP" }
+    static var awsSecurityGroupLabel: String { isZH ? "安全组" : "Security group" }
+    static var awsRDPIngressLabel: String { isZH ? "我的 IP RDP 3389" : "RDP 3389 from my IP" }
+    static var awsMyIPLabel: String { isZH ? "我的公网 IP" : "My public IP" }
+    static var awsIngressOpen: String { isZH ? "已开放" : "Open" }
+    static var awsIngressClosed: String { isZH ? "未开放" : "Closed" }
+    static var awsIngressUnknown: String { isZH ? "未知" : "Unknown" }
+    static var awsStartAction: String { isZH ? "启动" : "Start" }
+    static var awsStopAction: String { isZH ? "停止" : "Stop" }
+    static var awsAddIngressAction: String { isZH ? "开放 RDP 3389 给我的 IP" : "Open RDP 3389 to my IP" }
+    static var awsStartSent: String { isZH ? "已发送启动请求" : "Start requested" }
+    static var awsStopSent: String { isZH ? "已发送停止请求" : "Stop requested" }
+    static var awsConfirmTitle: String { isZH ? "确认 AWS 操作" : "Confirm AWS action" }
+    static var awsStartConfirmMessage: String { isZH ? "启动实例 %@？" : "Start instance %@?" }
+    static var awsStopConfirmMessage: String { isZH ? "停止实例 %@？" : "Stop instance %@?" }
+    static var awsIngressConfirmMessage: String { isZH ? "向 %@ 的安全组添加 RDP 入站规则（你的公网 IP）？" : "Add RDP ingress rule (your public IP) to %@'s security group?" }
+    static var awsNoSecurityGroup: String { isZH ? "该实例没有安全组" : "This instance has no security group" }
+    static var awsRdpAdded: String { isZH ? "已添加 RDP 入站规则" : "Added RDP inbound rule" }
+    static var awsRdpAlreadyOpen: String { isZH ? "RDP 已对你的 IP 开放" : "RDP already open to your IP" }
+    static var awsRdpUnknownState: String { isZH ? "无法读取规则" : "Could not read rules" }
+    static var awsIPResolveFailed: String { isZH ? "无法获取你的公网 IP" : "Could not resolve your public IP" }
+    static var awsPermHint: String { isZH ? "实例管理需在 IAM 策略中授予 ec2:DescribeSecurityGroups、ec2:StartInstances、ec2:StopInstances、ec2:AuthorizeSecurityGroupIngress" : "Instance controls need ec2:DescribeSecurityGroups, ec2:StartInstances, ec2:StopInstances, ec2:AuthorizeSecurityGroupIngress in your IAM policy" }
 }

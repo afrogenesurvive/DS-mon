@@ -59,6 +59,55 @@ struct AWSBillingSnapshot: Sendable, Equatable {
     )
 }
 
+// MARK: - AWS EC2 Instance (for the Instances management pane)
+
+struct AWSInstance: Sendable, Equatable, Identifiable {
+    let instanceId: String
+    let instanceType: String
+    let state: String              // pending | running | shutting-down | terminating | stopping | stopped
+    let launchTime: Date?
+    let publicIp: String?
+    let privateIp: String?
+    let name: String?              // from the "Name" tag
+    let securityGroupIds: [String]
+    let securityGroupNames: [String]
+
+    var id: String { instanceId }
+    var isRunning: Bool { state == "running" }
+    var isStopped: Bool { state == "stopped" }
+    var isTransitional: Bool { ["pending", "stopping", "shutting-down", "terminating"].contains(state) }
+    var isEligibleFreeTier: Bool { Self.eligibleTypes.contains(instanceType) }
+    var primarySecurityGroupId: String? { securityGroupIds.first }
+
+    /// Uptime in hours since last launch (only meaningful while running).
+    var runningHours: Double? {
+        guard isRunning, let launchTime else { return nil }
+        return max(0, Date().timeIntervalSince(launchTime)) / 3600
+    }
+
+    static let eligibleTypes = ["t2.micro", "t3.micro", "t4g.micro"]
+}
+
+// MARK: - AWS Ingress Helpers
+
+enum AWSIngressCheck: Sendable, Equatable {
+    case unknown   // couldn't resolve IP or read the SG
+    case open      // RDP (tcp/3389) already reachable from myIP/32, 0.0.0.0/0, or ::/0
+    case closed    // needs a rule added
+}
+
+private struct AWSIngressRule: Sendable, Equatable {
+    let proto: String       // "tcp" | "udp" | "-1"
+    let fromPort: Int?
+    let toPort: Int?
+    let cidrs: [String]
+}
+
+private func dedupe(_ arr: [String]) -> [String] {
+    var seen = Set<String>()
+    return arr.filter { seen.insert($0).inserted }
+}
+
 // MARK: - AWS Error
 
 enum AWSError: LocalizedError {
@@ -72,7 +121,7 @@ enum AWSError: LocalizedError {
         let isZH = Self.checkZH()
         switch self {
         case .invalidCredentials: return isZH ? "AWS 凭证无效" : "Invalid AWS credentials"
-        case .accessDenied: return isZH ? "权限不足（需要 ec2:DescribeInstances 和 ce:GetCostAndUsage）" : "Insufficient permissions (need ec2:DescribeInstances and ce:GetCostAndUsage)"
+        case .accessDenied: return isZH ? "权限不足（需要 ec2:DescribeInstances、ec2:DescribeSecurityGroups、ec2:Start/StopInstances、ec2:AuthorizeSecurityGroupIngress 和 ce:GetCostAndUsage）" : "Insufficient permissions (need ec2:DescribeInstances/DescribeSecurityGroups, ec2:Start/StopInstances, ec2:AuthorizeSecurityGroupIngress and ce:GetCostAndUsage)"
         case .networkError(let msg): return isZH ? "网络错误: \(msg)" : "Network error: \(msg)"
         case .parseFailed: return isZH ? "解析响应失败" : "Failed to parse response"
         case .regionRequired: return isZH ? "请选择区域" : "Please select a region"
@@ -104,6 +153,11 @@ final class AWSUsageTracker {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
     private(set) var lastUpdate = "-"
+    private(set) var instances: [AWSInstance] = []
+    private(set) var myPublicIP: String?
+    private(set) var myPublicIPUpdatedAt: Date?
+    /// groupId -> whether RDP (tcp:3389) is open to the caller's IP (filled lazily).
+    private(set) var rdpIngress: [String: AWSIngressCheck] = [:]
 
     var isEnabled: Bool {
         !accessKey.isEmpty && !secretKey.isEmpty
@@ -420,79 +474,103 @@ final class AWSUsageTracker {
             return
         }
 
-        // Parse the XML response to extract instance information
-        // We use a simple XML tag scanner approach to avoid Foundation XML dependency issues
-        let instanceTags = extractTags(xml, tag: "item")
+        instances = parseInstances(from: xml).sorted { $0.instanceId < $1.instanceId }
 
-        var totalRunningHours: Double = 0
-        var totalInstances = 0
-        var eligibleInstances = 0
-        var nonEligibleInstances: [NonEligibleInstance] = []
-
-        let eligibleTypes = ["t2.micro", "t3.micro", "t4g.micro"]
         let now = Date()
+        let monthStart = Calendar.current.date(
+            from: Calendar.current.dateComponents([.year, .month], from: now)) ?? now
 
-        for instanceXML in instanceTags where instanceXML.contains("<instanceType>") {
-            totalInstances += 1
-
-            guard let instanceType = extractSingleTag(instanceXML, tag: "instanceType"),
-                  let stateName = extractSingleTag(instanceXML, tag: "name")?.lowercased() else {
-                continue
-            }
-
-            let isEligible = eligibleTypes.contains(instanceType)
-
-            // Only running instances count toward free-tier hours. Hours are measured
-            // since the instance was last launched, clamped to the start of the current
-            // calendar month (the free tier is 750 hrs per calendar month).
-            if stateName == "running" {
-                if let launchTimeStr = extractSingleTag(instanceXML, tag: "launchTime") {
-                    let df = ISO8601DateFormatter()
-                    df.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                    if let launchTime = df.date(from: launchTimeStr) ?? {
-                        df.formatOptions = [.withInternetDateTime]
-                        return df.date(from: launchTimeStr)
-                    }() {
-                        let monthStart = Calendar.current.date(
-                            from: Calendar.current.dateComponents([.year, .month], from: now)) ?? now
-                        let effective = max(launchTime, monthStart)
-                        let hours = max(0, now.timeIntervalSince(effective)) / 3600
-                        totalRunningHours += hours
-                    }
-                }
-            }
-
-            let instanceId = extractSingleTag(instanceXML, tag: "instanceId") ?? "unknown"
-
-            if isEligible {
-                eligibleInstances += 1
-            } else {
-                nonEligibleInstances.append(NonEligibleInstance(instanceId: instanceId, instanceType: instanceType))
+        // Only running instances count toward free-tier hours. Hours are measured
+        // since the instance was last launched, clamped to the start of the current
+        // calendar month (the free tier is 750 hrs per calendar month).
+        var totalRunningHours: Double = 0
+        for inst in instances where inst.isRunning {
+            if let launch = inst.launchTime {
+                let effective = max(launch, monthStart)
+                totalRunningHours += max(0, now.timeIntervalSince(effective)) / 3600
             }
         }
+
+        let eligibleCount = instances.filter { $0.isEligibleFreeTier }.count
+        let nonEligible = instances
+            .filter { !$0.isEligibleFreeTier }
+            .map { NonEligibleInstance(instanceId: $0.instanceId, instanceType: $0.instanceType) }
 
         // Calculate forecast: project to end of month
         let calendar = Calendar.current
         let daysInMonth = calendar.range(of: .day, in: .month, for: now)?.count ?? 30
-        let dayOfMonth = calendar.component(.day, from: now) // note: 'now' is already declared above
-        let daysRemaining = max(1, (daysInMonth as Int) - dayOfMonth + 1)
-        let dailyAverage = max(1, dayOfMonth) > 0 ? totalRunningHours / Double(max(1, dayOfMonth)) : 0
+        let dayOfMonth = calendar.component(.day, from: now)
+        let daysRemaining = max(1, daysInMonth - dayOfMonth + 1)
+        let dailyAverage = dayOfMonth > 0 ? totalRunningHours / Double(max(1, dayOfMonth)) : 0
         let forecasted = totalRunningHours + (dailyAverage * Double(daysRemaining))
 
         // Estimate cost for non-eligible instances (rough: ~$30/mo for t3.medium)
-        let overageCost = Double(nonEligibleInstances.count) * 30.0 * (Double(dayOfMonth) / Double(daysInMonth))
+        let overageCost = Double(nonEligible.count) * 30.0 * (Double(dayOfMonth) / Double(daysInMonth))
 
         status = AWSFreeTierStatus(
             ec2RunningHours: totalRunningHours,
             freeTierLimitHours: 750,
-            instanceCount: totalInstances,
-            eligibleCount: eligibleInstances,
-            nonEligibleCount: nonEligibleInstances.count,
-            nonEligibleInstances: nonEligibleInstances.sorted(by: { $0.instanceId < $1.instanceId }),
+            instanceCount: instances.count,
+            eligibleCount: eligibleCount,
+            nonEligibleCount: nonEligible.count,
+            nonEligibleInstances: nonEligible.sorted(by: { $0.instanceId < $1.instanceId }),
             forecastedHours: forecasted,
             estimatedOverageCost: overageCost
         )
         errorMessage = nil
+    }
+
+    /// Parses each EC2 instance block. Blocks are anchored on `<instanceId>` markers
+    /// because security groups use nested `<item>` elements that the naive tag scanner
+    /// (which pairs the next `</item>`) would mis-handle.
+    private func parseInstances(from xml: String) -> [AWSInstance] {
+        let marker = "<instanceId>"
+        var markers: [Range<String.Index>] = []
+        var searchRange = xml.startIndex..<xml.endIndex
+        while let r = xml.range(of: marker, range: searchRange) {
+            markers.append(r)
+            searchRange = r.upperBound..<xml.endIndex
+        }
+
+        var result: [AWSInstance] = []
+        for (i, m) in markers.enumerated() {
+            let blockEnd = (i + 1 < markers.count) ? markers[i + 1].lowerBound : xml.endIndex
+            let block = String(xml[m.lowerBound..<blockEnd])
+            guard let instanceId = extractSingleTag(block, tag: "instanceId"),
+                  let instanceType = extractSingleTag(block, tag: "instanceType") else { continue }
+            let state = extractSingleTag(block, tag: "name")?.lowercased() ?? "unknown"
+            result.append(AWSInstance(
+                instanceId: instanceId,
+                instanceType: instanceType,
+                state: state,
+                launchTime: parseISODate(extractSingleTag(block, tag: "launchTime")),
+                publicIp: extractSingleTag(block, tag: "publicIp") ?? extractSingleTag(block, tag: "ipAddress"),
+                privateIp: extractSingleTag(block, tag: "privateIpAddress"),
+                name: extractTagValue(block, key: "Name"),
+                securityGroupIds: dedupe(extractAll(block, tag: "groupId")),
+                securityGroupNames: dedupe(extractAll(block, tag: "groupName"))
+            ))
+        }
+        return result
+    }
+
+    private func parseISODate(_ str: String?) -> Date? {
+        guard let str = str, !str.isEmpty else { return nil }
+        let df = ISO8601DateFormatter()
+        df.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return df.date(from: str) ?? {
+            df.formatOptions = [.withInternetDateTime]
+            return df.date(from: str)
+        }()
+    }
+
+    /// Reads the value of a resource tag with the given key (e.g. `Name`).
+    private func extractTagValue(_ xml: String, key: String) -> String? {
+        let keyTag = "<key>\(key)</key>"
+        guard let keyRange = xml.range(of: keyTag),
+              let vStart = xml.range(of: "<value>", range: keyRange.upperBound..<xml.endIndex),
+              let vEnd = xml.range(of: "</value>", range: vStart.upperBound..<xml.endIndex) else { return nil }
+        return String(xml[vStart.upperBound..<vEnd.lowerBound])
     }
 
     // MARK: - Simple XML Parser Helpers
@@ -523,5 +601,213 @@ final class AWSUsageTracker {
             searchRange = endRange.upperBound..<xml.endIndex
         }
         return results
+    }
+
+    private func extractAll(_ xml: String, tag: String) -> [String] {
+        let open = "<\(tag)>"
+        let close = "</\(tag)>"
+        var results: [String] = []
+        var searchRange = xml.startIndex..<xml.endIndex
+        while let s = xml.range(of: open, range: searchRange),
+              let e = xml.range(of: close, range: s.upperBound..<xml.endIndex) {
+            results.append(String(xml[s.upperBound..<e.lowerBound]))
+            searchRange = e.upperBound..<xml.endIndex
+        }
+        return results
+    }
+
+    // MARK: - Instance Actions (Start / Stop / My-IP Ingress)
+
+    /// Runs an EC2 Query API call and returns (responseXML, localizedError).
+    private func ec2Call(action: String, params: [String: String]) async -> (xml: String?, error: String?) {
+        let ak = accessKey
+        let sk = secretKey
+        let r = region
+        guard !ak.isEmpty, !sk.isEmpty else {
+            return (nil, AWSError.invalidCredentials.localizedDescription)
+        }
+
+        var query: [String: String] = ["Action": action, "Version": "2016-11-15"]
+        for (k, v) in params { query[k] = v }
+        let payload = query.keys.sorted()
+            .map { "\($0)=\(Self.formEncode(query[$0] ?? ""))" }
+            .joined(separator: "&")
+
+        guard let url = URL(string: "https://ec2.\(r).amazonaws.com/") else {
+            return (nil, AWSError.networkError("Invalid URL").localizedDescription)
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        req.httpBody = Data(payload.utf8)
+        let signer = SigV4Signer(region: r, service: "ec2", accessKey: ak, secretKey: sk)
+        signer.sign(request: &req, payload: req.httpBody)
+
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard let http = resp as? HTTPURLResponse else {
+                return (nil, AWSError.networkError("Invalid response").localizedDescription)
+            }
+            if (200..<300).contains(http.statusCode) {
+                return (String(data: data, encoding: .utf8), nil)
+            }
+            let body = String(data: data, encoding: .utf8) ?? ""
+            if let code = extractSingleTag(body, tag: "Code"),
+               let message = extractSingleTag(body, tag: "Message") {
+                return (nil, "\(code): \(message)")
+            }
+            if http.statusCode == 401 || http.statusCode == 403 {
+                if body.contains("AuthFailure") || body.contains("InvalidClientTokenId") {
+                    return (nil, AWSError.invalidCredentials.localizedDescription)
+                }
+                return (nil, AWSError.accessDenied.localizedDescription)
+            }
+            return (nil, AWSError.networkError("HTTP \(http.statusCode)").localizedDescription)
+        } catch let error as URLError {
+            switch error.code {
+            case .timedOut:
+                return (nil, AWSError.networkError("Timeout").localizedDescription)
+            case .notConnectedToInternet, .networkConnectionLost:
+                return (nil, AWSError.networkError("No network").localizedDescription)
+            default:
+                return (nil, AWSError.networkError(error.localizedDescription).localizedDescription)
+            }
+        } catch {
+            return (nil, AWSError.networkError(error.localizedDescription).localizedDescription)
+        }
+    }
+
+    private static func formEncode(_ s: String) -> String {
+        let allowed = CharacterSet(charactersIn:
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
+    }
+
+    /// Starts a stopped instance. Returns a localized error string, or nil on success.
+    func startInstance(_ id: String) async -> String? {
+        let (_, err) = await ec2Call(action: "StartInstances", params: ["InstanceId.1": id])
+        return err
+    }
+
+    /// Stops a running instance. Returns a localized error string, or nil on success.
+    func stopInstance(_ id: String) async -> String? {
+        let (_, err) = await ec2Call(action: "StopInstances", params: ["InstanceId.1": id])
+        return err
+    }
+
+    /// Resolves the caller's public IPv4 (used for "allow my IP" rules). Cached 1 hour.
+    func fetchMyPublicIP(force: Bool = false) async {
+        if !force, let ip = myPublicIP, let t = myPublicIPUpdatedAt,
+           Date().timeIntervalSince(t) < 3600 { return }
+        guard let url = URL(string: "https://api.ipify.org") else { return }
+        do {
+            let (data, resp) = try await URLSession.shared.data(from: url)
+            if let http = resp as? HTTPURLResponse, http.statusCode == 200 {
+                let ip = String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !ip.isEmpty {
+                    myPublicIP = ip
+                    myPublicIPUpdatedAt = Date()
+                }
+            }
+        } catch { /* keep the previous value */ }
+    }
+
+    /// True when an ingress rule permits tcp `port` from any of `cidrs`.
+    private func ruleAllows(_ rule: AWSIngressRule, port: Int, from cidrs: [String]) -> Bool {
+        let protoOK = rule.proto == "tcp" || rule.proto == "6" || rule.proto == "-1"
+        guard protoOK else { return false }
+        if rule.proto != "-1" {
+            let lo = rule.fromPort ?? 0
+            let hi = rule.toPort ?? 65535
+            guard (lo...hi).contains(port) else { return false }
+        }
+        return !rule.cidrs.filter { cidrs.contains($0) }.isEmpty
+    }
+
+    /// Reads an SG's ingress rules and reports whether RDP (tcp/3389) is already
+    /// reachable from the caller's IP (0.0.0.0/0, ::/0, or myIP/32). Updates rdpIngress.
+    @discardableResult
+    func checkRDPIngress(groupId: String) async -> AWSIngressCheck {
+        if myPublicIP == nil { await fetchMyPublicIP() }
+        let (xml, _) = await ec2Call(action: "DescribeSecurityGroups", params: [
+            "Filter.1.Name": "group-id",
+            "Filter.1.Value.1": groupId
+        ])
+        guard let xml = xml else {
+            rdpIngress[groupId] = .unknown
+            return .unknown
+        }
+        let rules = parseIngressRules(from: xml)
+        var allowedCIDRs = ["0.0.0.0/0", "::/0"]
+        if let ip = myPublicIP { allowedCIDRs.append("\(ip)/32") }
+        let check: AWSIngressCheck = rules.contains { ruleAllows($0, port: 3389, from: allowedCIDRs) }
+            ? .open : .closed
+        rdpIngress[groupId] = check
+        return check
+    }
+
+    /// Adds an inbound RDP (tcp/3389) rule from the caller's IP to the given SG —
+    /// only if one doesn't already exist. Returns (check, localizedMessage).
+    @discardableResult
+    func addMyIPRDPRule(groupId: String) async -> (check: AWSIngressCheck, message: String) {
+        await fetchMyPublicIP(force: true)
+        guard let ip = myPublicIP else {
+            rdpIngress[groupId] = .unknown
+            return (.unknown, Strings.awsIPResolveFailed)
+        }
+        let check = await checkRDPIngress(groupId: groupId)
+        guard check == .closed else {
+            return (check, check == .open ? Strings.awsRdpAlreadyOpen : Strings.awsRdpUnknownState)
+        }
+        let dateStr = {
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+            return f.string(from: Date())
+        }()
+        let (_, err) = await ec2Call(action: "AuthorizeSecurityGroupIngress", params: [
+            "GroupId": groupId,
+            "IpPermissions.1.IpProtocol": "tcp",
+            "IpPermissions.1.FromPort": "3389",
+            "IpPermissions.1.ToPort": "3389",
+            "IpPermissions.1.IpRanges.1.CidrIp": "\(ip)/32",
+            "IpPermissions.1.IpRanges.1.Description": "dev_mon RDP \(dateStr)"
+        ])
+        if let err = err {
+            return (.closed, err)
+        }
+        rdpIngress[groupId] = .open
+        return (.open, Strings.awsRdpAdded)
+    }
+
+    /// Parses the ingress (ipPermissions) section of a DescribeSecurityGroups response.
+    /// Rule items are anchored on `<ipProtocol>` markers because ipRanges use nested
+    /// `<item>` elements that the naive scanner would mis-pair.
+    private func parseIngressRules(from xml: String) -> [AWSIngressRule] {
+        guard let openRange = xml.range(of: "<ipPermissions>"),
+              let closeRange = xml.range(of: "</ipPermissions>", range: openRange.upperBound..<xml.endIndex) else {
+            return []
+        }
+        let ingress = String(xml[openRange.upperBound..<closeRange.lowerBound])
+
+        let marker = "<ipProtocol>"
+        var markers: [Range<String.Index>] = []
+        var searchRange = ingress.startIndex..<ingress.endIndex
+        while let r = ingress.range(of: marker, range: searchRange) {
+            markers.append(r)
+            searchRange = r.upperBound..<ingress.endIndex
+        }
+
+        var rules: [AWSIngressRule] = []
+        for (i, m) in markers.enumerated() {
+            let blockEnd = (i + 1 < markers.count) ? markers[i + 1].lowerBound : ingress.endIndex
+            let block = String(ingress[m.lowerBound..<blockEnd])
+            let proto = extractSingleTag(block, tag: "ipProtocol") ?? "-1"
+            let fromPort = Int(extractSingleTag(block, tag: "fromPort") ?? "")
+            let toPort = Int(extractSingleTag(block, tag: "toPort") ?? "")
+            rules.append(AWSIngressRule(proto: proto, fromPort: fromPort, toPort: toPort,
+                                        cidrs: extractAll(block, tag: "cidrIp")))
+        }
+        return rules
     }
 }

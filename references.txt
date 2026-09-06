@@ -1,0 +1,75 @@
+# Scholarly References — Extracted
+
+Source documents combed for references:
+- `motivation_learning_science_for_devs.md`
+- `non_human_self_talk_and_valence_tagging_for_all_life.md`
+
+Compiled: 2026-09-06.
+
+> NOTE: Entries are reproduced as they appear in the source material. Several are informal,
+> incomplete, or lack a clear bibliographic source (marked `[informal]` / `[verify]` below),
+> and some journal/volume details look inconsistent. Treat these as leads and verify the
+> original paper before citing.
+
+---
+
+## A. motivation_learning_science_for_devs.md
+
+### Reinforcement schedules
+- Mazur, J., & Odum, A. (2023). "Reinforcement Schedules." In *Experimental Analyses and Applications*. Taylor & Francis. — FR/VR/FI/VI cumulative records and post-reinforcement pause.
+- Chen, X., & Reed, P. (2020). "Factors controlling the micro-structure of human free-operant behaviour." *Behavioural Processes*, 175, 104106. — bout structure under schedules.
+- Chen, X., & Reed, P. (2023). "Effect of instructions on the microstructure of human schedule performance." *Journal of Experimental Psychology: Animal Learning and Cognition*, 50(1), 56-68. — human VI/VR microstructure. `[verify]`
+- Buskist, W. F., et al. (1981). "Effects of instructional constraints on human fixed-interval performance." *Journal of the Experimental Analysis of Behavior*, 35(2), 217-234.
+- Human operant study across all four schedules (2025). *Japanese Journal of Behavior Analysis*, 40(1), 2-17. `[verify — unnamed author(s)]`
+
+### Neuroscience of learning / motivation
+- Panksepp, J. (1998). *Affective Neuroscience*. Oxford University Press. — SEEKING system, affective systems and psychiatric disorders (addiction, OCD).
+
+### Attention restoration & fire
+- Kaplan, R., & Kaplan, S. (1989). *The Experience of Nature: A Psychological Perspective*. Cambridge University Press. — original Attention Restoration Theory formulation.
+- Bonfire-video restoration study (2026). *Journal of Environmental Psychology*, 14(1), 1-9. `[verify — volume/author omitted]`
+- Fessler, D. M. T. (2006). "Ethnographic research on fire in Southwestern Sumatra." — children's fire mastery; the waning of fascination. `[verify — no journal listed]`
+- Lynn, C., et al. (2015). "Blood pressure effects of watching fire." University of Alabama. `[verify — no journal listed]`
+
+### Observational / cognitive learning
+- Bandura, A. (1977). *Social Learning Theory*. Englewood Cliffs, NJ: Prentice-Hall.
+
+### Applied / industry (not peer-reviewed)
+- *Gamification of Learning and Instruction* (book; Table 3.2: "Provide appropriate rewards, points, and badges on a variable basis to maintain learners' interest."). `[informal — author/year not stated]`
+- Game Developer (2017). "Reward Schedules and When to Use Them." Industry guide (WoW, League of Legends, Tetris examples). `[informal]`
+- Consumer Behavior textbook (n.d.) — vicarious learning in marketing. `[informal]`
+- NPTEL course materials — cognitive learning theory. `[informal]`
+
+---
+
+## B. non_human_self_talk_and_valence_tagging_for_all_life.md
+
+### Dolphin "self-talk"
+- Filatova, O. A., et al. (2024). "Dolphin self-talk: unusual acoustic behaviour of a solitary bottlenose dolphin." *Bioacoustics*. — solitary dolphin "Delle"; ~10,000 vocalizations; three signature whistles while isolated.
+
+### Contrafreeloading & play
+- Nature Portfolio (2024). "Overview of food contrafreeloading studies." *Nature*. — cross-species CFL table (bears, kea, crows, chimpanzees, giraffes, Siamese fighting fish, pigs; not cats/rats in reviewed studies).
+- (2024). "Animal play and evolution: Seven timely research issues about enigmatic phenomena." *Neuroscience & Biobehavioral Reviews*. `[verify — author(s) omitted]`
+
+### Dopamine systems across taxa
+- Winding, M., et al. (2023) & Dorkenwald, S., et al. (2024). Striking parallels between fly and mammalian dopaminergic systems (Drosophila mushroom body ↔ vertebrate striatum; >90% of fly dopamine neurons target mushroom body). Grouped as one entry in the source. `[verify]`
+- Benito-Gutierrez, E., et al. (2021) & Tolstenkov, O., et al. (2023). "The dopamine system from an evolutionary perspective." — dopamine in protovertebrates; mushroom body/basal ganglia parallels. Grouped as one entry in the source. `[verify]`
+
+### Plant sociality & kin recognition
+- (2024). "Leaves of three aromatic damaged plants show more sensitive kin recognition than their roots through volatile organic compounds." *ScienceDirect*. `[verify — journal/author omitted]`
+- Hussain, A., Rodriguez-Ramos, J. C., & Erbilgin, N. (2019). "Spatial characteristics of volatile communication in lodgepole pine trees: Evidence of kin recognition and intra-species support." (Elsevier.) `[verify — journal not named]`
+
+### Valence tagging & bacterial behavior/memory
+- Park, H., Pontius, W., Guet, C. C., Marko, J., Emonet, T., & Cluzel, P. (2010). "Interdependence of behavioural variability and response to small stimuli in bacteria." *Nature*, 468, 819-823. — chemotaxis decision-making; also cited for clonal E. coli behavioral variation ("personalities").
+- (2025). "Epigenetic cellular memory in Pseudomonas aeruginosa generates phenotypic variation in response to host environments." *PNAS*. — heritable `glpD` ON/OFF expression states. `[verify]`
+
+### Transgenerational learned avoidance (C. elegans)
+- Kaletsky, R., et al. (2020). "C. elegans interprets bacterial non-coding RNAs to learn pathogenic avoidance." *Nature*, 586, 445.
+- (2025). "A natural bacterial pathogen of C. elegans uses a small RNA to induce transgenerational inheritance of learned avoidance." (OUCI.) `[verify]`
+- (2025). "Molecular requirements for C. elegans transgenerational epigenetic inheritance of pathogen avoidance." *eLife*. `[verify]`
+
+---
+
+### Other studies mentioned in the text (no citation supplied)
+- Stentor roeselii protist "temperaments" study (2023) — consistent individual avoidance responses. *No citation given in source.*
+- 2015 Anchorage, Alaska study — childhood fire experience ↔ adult enjoyment of fire. *No citation given in source.*

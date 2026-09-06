@@ -11,6 +11,7 @@ struct ThresholdView: View {
         case license  = "许可"
         case services = "服务"
         case about    = "关于"
+        case guide    = "指南"
 
         var icon: String {
             switch self {
@@ -19,6 +20,7 @@ struct ThresholdView: View {
             case .license:  return "checkmark.shield.fill"
             case .services: return "network"
             case .about:    return "info.circle"
+            case .guide:    return "book"
             }
         }
 
@@ -29,6 +31,7 @@ struct ThresholdView: View {
             case .license:  return Strings.settingsTabLicense
             case .services: return Strings.settingsTabServices
             case .about:    return Strings.settingsTabAbout
+            case .guide:    return Strings.settingsTabGuide
             }
         }
     }
@@ -63,16 +66,22 @@ struct ThresholdView: View {
 
             Divider().padding(.horizontal, 12)
 
-            ScrollView {
-                switch selectedTab {
-                case .general:  GeneralSettingsView()
-                case .provider: ProviderSettingsView(stats: stats)
-                case .license:  LicenseSettingsView()
-                case .services: ServicesSettingsView(stats: stats)
-                case .about:    AboutSettingsView()
+            if selectedTab == .guide {
+                // 指南页自含滚动区：放在外层 ScrollView 之外，保证文档滚动时页签栏固定
+                GuideSettingsView()
+            } else {
+                ScrollView {
+                    switch selectedTab {
+                    case .general:  GeneralSettingsView()
+                    case .provider: ProviderSettingsView(stats: stats)
+                    case .license:  LicenseSettingsView()
+                    case .services: ServicesSettingsView(stats: stats)
+                    case .about:    AboutSettingsView()
+                    case .guide:    EmptyView()
+                    }
                 }
+                .scrollIndicators(.hidden)
             }
-            .scrollIndicators(.hidden)
         }
         .frame(width: 520, height: 480)
     }

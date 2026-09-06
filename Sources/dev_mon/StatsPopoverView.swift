@@ -2,6 +2,16 @@ import SwiftUI
 import AppKit
 import Charts
 
+// MARK: - AWS 实例操作确认（Start / Stop / 添加入站规则）
+
+private struct AWSConfirmRequest: Identifiable {
+    enum Kind { case start, stop, ingress }
+    let kind: Kind
+    let instanceId: String
+    let groupId: String?
+    var id: String { instanceId }
+}
+
 // MARK: - SwiftUI 弹出内容
 
 struct StatsPopoverView: View {
@@ -16,6 +26,15 @@ struct StatsPopoverView: View {
     @State private var licenseSeats: [SeatRecord] = []
     @State private var licenseFilter: LicenseSeatFilter = .valid
 
+    // AWS 页子页签（Overview / Instances）与实例操作状态
+    @State private var awsSubTab = 0
+    @State private var awsSelectedID: String?
+    @State private var awsPending: Set<String> = []
+    @State private var awsConfirmRequest: AWSConfirmRequest?
+    @State private var showAwsConfirm = false
+    @State private var awsActionMessage: String?
+    @State private var awsActionSuccess = true
+
     // 折叠区段状态（DeepSeek 页）
     @State private var showAccountSection = true    // 余额/充值/提示行
     @State private var showUsageStatsSection = true // 用量统计
@@ -25,19 +44,26 @@ struct StatsPopoverView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             appTitleRow
-            providerTabRow
             Divider().padding(.horizontal, 14)
             tabBar
             Divider().padding(.horizontal, 14)
             if selectedTab == 0 {
+                // AI 模型图标页签：仅在 AI Usage（用量）页显示，位于主 tab 栏下方
+                providerTabRow
+                Divider().padding(.horizontal, 14)
+            }
+            if selectedTab == 0 {
                 ScrollView {
                     deepSeekTabContent
                 }
+            } else if selectedTab == 3 {
+                // AWS 页自行管理滚动/布局：Instances 面板需要固定高度窗口内的
+                // 双栏 + 独立滚动侧栏。
+                awsTabContent
             } else {
                 ScrollView {
                     if selectedTab == 1 { licenseTabContent }
-                    else if selectedTab == 2 { gitHubTabContent }
-                    else { awsTabContent }
+                    else { gitHubTabContent }
                 }
             }
             Divider().padding(.horizontal, 14)
@@ -52,6 +78,14 @@ struct StatsPopoverView: View {
             loadUsage(); loadSourceUsage(); loadSourceOptions()
         }
         .onChange(of: stats.providerID) { _, _ in loadUsage(); loadSourceUsage(); loadSourceOptions() }
+        .alert(Strings.awsConfirmTitle, isPresented: $showAwsConfirm, presenting: awsConfirmRequest) { req in
+            Button(Strings.cancel, role: .cancel) {}
+            Button(awsConfirmButtonLabel) {
+                performAWS(req)
+            }
+        } message: { req in
+            Text(awsConfirmMessage(req))
+        }
     }
 
     private var appTitleRow: some View {
@@ -70,7 +104,7 @@ struct StatsPopoverView: View {
 
     // 提供商标签行：样式与 Usage/License 等 tab 一致
     private var providerTabRow: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 8) {
             ForEach(ProviderManager.shared.providers, id: \.id) { provider in
                 providerTabButton(provider)
             }
@@ -79,7 +113,7 @@ struct StatsPopoverView: View {
                        action: openConsole)
         }
         .padding(.horizontal, 14)
-        .padding(.bottom, 8)
+        .padding(.vertical, 8)
     }
 
     private func providerTabButton(_ provider: any Provider) -> some View {
@@ -1109,11 +1143,20 @@ struct StatsPopoverView: View {
                 .padding(.horizontal, 14)
                 Spacer(minLength: 40)
             } else {
-                awsDataView
+                awsSubTabBar
+                Divider().padding(.horizontal, 14)
+                if awsSubTab == 0 {
+                    ScrollView {
+                        awsDataView
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                    }
+                } else {
+                    awsInstancesView
+                }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var awsDataView: some View {
@@ -1222,6 +1265,416 @@ struct StatsPopoverView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    // MARK: - AWS Sub-tabs (Overview / Instances)
+
+    private var awsSubTabBar: some View {
+        HStack(spacing: 4) {
+            awsSubTabButton(Strings.awsSubTabOverview, tag: 0)
+            awsSubTabButton(Strings.awsSubTabInstances, tag: 1)
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 4)
+    }
+
+    private func awsSubTabButton(_ title: String, tag: Int) -> some View {
+        let active = awsSubTab == tag
+        return Button(action: { awsSubTab = tag }) {
+            Text(title)
+                .font(.system(size: 10, weight: active ? .semibold : .regular))
+                .foregroundColor(active ? .white : .secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(active ? Color.blue : Color.clear)
+                .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .modifier(HoverTooltip(text: title, position: .below))
+    }
+
+    // MARK: - AWS Instances (two-pane)
+
+    private var awsInstancesView: some View {
+        VStack(spacing: 0) {
+            if stats.aws.instances.isEmpty {
+                Spacer()
+                VStack(spacing: 6) {
+                    Image(systemName: "server.rack").font(.title2).foregroundColor(.secondary)
+                    Text(Strings.awsInstancesEmpty)
+                        .font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                }
+                Spacer()
+            } else {
+                awsInstancesPane
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { ensureAWSSelection() }
+        .onChange(of: stats.aws.instances) { _, _ in ensureAWSSelection() }
+    }
+
+    private var awsInstancesPane: some View {
+        HStack(alignment: .top, spacing: 0) {
+            // 左：垂直滚动实例侧栏（ID 截断 + 状态圆点 + 类型/时长）
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(stats.aws.instances) { inst in
+                        awsInstanceRow(inst)
+                    }
+                }
+                .padding(.vertical, 6)
+            }
+            .frame(width: 150)
+            .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
+
+            Divider()
+
+            // 右：选中实例详情 + 操作
+            Group {
+                if let sel = stats.aws.instances.first(where: { $0.instanceId == awsSelectedID }) {
+                    awsInstanceDetail(sel)
+                } else {
+                    VStack(spacing: 6) {
+                        Spacer()
+                        Image(systemName: "info.circle").font(.title3).foregroundColor(.secondary)
+                        Text(Strings.awsNoSelectionHint)
+                            .font(.caption).foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 8)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func awsInstanceRow(_ inst: AWSInstance) -> some View {
+        let selected = awsSelectedID == inst.instanceId
+        return Button {
+            awsSelectedID = inst.instanceId
+            awsActionMessage = nil
+            refreshIngress(for: inst)
+        } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 4) {
+                    Circle().fill(awsStateColor(inst.state)).frame(width: 7, height: 7)
+                    Text(inst.instanceId)
+                        .font(.system(size: 9, design: .monospaced))
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer(minLength: 2)
+                    if awsPending.contains(inst.instanceId) {
+                        ProgressView().controlSize(.mini)
+                            .scaleEffect(0.7).frame(width: 10, height: 10)
+                    }
+                }
+                HStack(spacing: 4) {
+                    Text(inst.instanceType).font(.system(size: 8)).foregroundColor(.secondary)
+                    if let h = inst.runningHours {
+                        Text(String(format: "%.1fh", h))
+                            .font(.system(size: 8).monospacedDigit()).foregroundColor(.secondary)
+                    }
+                    Spacer(minLength: 2)
+                    if let name = inst.name, !name.isEmpty {
+                        Text(name).font(.system(size: 8)).foregroundColor(.secondary).lineLimit(1)
+                    }
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(selected ? Color.accentColor.opacity(0.18) : Color.clear)
+            .cornerRadius(6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func awsInstanceDetail(_ inst: AWSInstance) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Circle().fill(awsStateColor(inst.state)).frame(width: 8, height: 8)
+                    Text(inst.instanceId)
+                        .font(.system(size: 11, design: .monospaced).weight(.semibold))
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Spacer()
+                    awsStateBadge(inst.state)
+                }
+                if let name = inst.name, !name.isEmpty {
+                    Text(name).font(.caption).foregroundColor(.secondary)
+                }
+                awsInfoRow(Strings.awsInstTypeLabel, value: inst.instanceType)
+                awsInfoRow(Strings.awsStateLabel, value: awsStateText(inst.state))
+                if let launch = inst.launchTime {
+                    awsInfoRow(Strings.awsLaunchLabel, value: Self.awsDateText(launch))
+                }
+                if let h = inst.runningHours {
+                    awsInfoRow(Strings.awsUptimeLabel, value: String(format: "%.1f h", h))
+                }
+                if let ip = inst.publicIp {
+                    awsInfoRow(Strings.awsPublicIPLabel, value: ip, selectable: true)
+                }
+                if let ip = inst.privateIp {
+                    awsInfoRow(Strings.awsPrivateIPLabel, value: ip, selectable: true)
+                }
+                if let gid = inst.primarySecurityGroupId {
+                    let gname = inst.securityGroupNames.first ?? gid
+                    awsInfoRow(Strings.awsSecurityGroupLabel, value: gname, selectable: true)
+                    awsIngressRow(groupId: gid)
+                }
+
+                Divider()
+
+                HStack(spacing: 8) {
+                    if inst.isStopped {
+                        awsActionButton(Strings.awsStartAction, icon: "play.fill", color: .green,
+                                        disabled: awsPending.contains(inst.instanceId)) {
+                            beginAWSConfirm(.start, instanceId: inst.instanceId)
+                        }
+                    } else if inst.isRunning {
+                        awsActionButton(Strings.awsStopAction, icon: "stop.fill", color: .orange,
+                                        disabled: awsPending.contains(inst.instanceId)) {
+                            beginAWSConfirm(.stop, instanceId: inst.instanceId)
+                        }
+                    }
+                    if let gid = inst.primarySecurityGroupId,
+                       (stats.aws.rdpIngress[gid] ?? .unknown) != .open {
+                        awsActionButton(Strings.awsAddIngressAction, icon: "lock.open.fill", color: .blue,
+                                        disabled: awsPending.contains(inst.instanceId)) {
+                            beginAWSConfirm(.ingress, instanceId: inst.instanceId, groupId: gid)
+                        }
+                    }
+                    Spacer()
+                    if awsPending.contains(inst.instanceId) {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+
+                if let msg = awsActionMessage {
+                    Text(msg)
+                        .font(.system(size: 8))
+                        .foregroundColor(awsActionSuccess ? .green : .red)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func awsIngressRow(groupId: String) -> some View {
+        let check = stats.aws.rdpIngress[groupId] ?? .unknown
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Image(systemName: "network.badge.shield.half.filled")
+                    .font(.system(size: 8)).foregroundColor(awsIngressColor(check)).frame(width: 14)
+                Text(Strings.awsRDPIngressLabel)
+                    .font(.system(size: 9)).foregroundColor(.secondary)
+                Spacer()
+                Text(awsIngressText(check))
+                    .font(.system(size: 9)).foregroundColor(awsIngressColor(check))
+            }
+            if let ip = stats.aws.myPublicIP {
+                HStack(spacing: 6) {
+                    Image(systemName: "globe").font(.system(size: 8)).foregroundColor(.secondary).frame(width: 14)
+                    Text(Strings.awsMyIPLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                    Text(ip).font(.system(size: 9).monospacedDigit())
+                }
+            }
+        }
+    }
+
+    private func awsStateBadge(_ state: String) -> some View {
+        Text(awsStateText(state))
+            .font(.system(size: 8))
+            .foregroundColor(awsStateColor(state))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(awsStateColor(state).opacity(0.12))
+            .cornerRadius(6)
+    }
+
+    private func awsInfoRow(_ label: String, value: String, selectable: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(label).font(.system(size: 9)).foregroundColor(.secondary)
+            Spacer(minLength: 6)
+            Text(value)
+                .font(.system(size: 9))
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+                .textSelection(selectable ? .enabled : .disabled)
+        }
+    }
+
+    private func awsActionButton(_ title: String, icon: String, color: Color, disabled: Bool,
+                                 action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 9, weight: .semibold))
+                Text(title).font(.system(size: 9, weight: .semibold))
+            }
+            .foregroundColor(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(color.opacity(disabled ? 0.06 : 0.16))
+            .cornerRadius(6)
+            .opacity(disabled ? 0.5 : 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+    }
+
+    private func awsStateColor(_ state: String) -> Color {
+        switch state {
+        case "running": return .green
+        case "stopped", "terminated": return .gray
+        default: return .orange
+        }
+    }
+
+    private func awsStateText(_ state: String) -> String {
+        switch state {
+        case "running": return Strings.awsStateRunning
+        case "stopped": return Strings.awsStateStopped
+        case "stopping": return Strings.awsStateStopping
+        case "pending": return Strings.awsStatePending
+        case "shutting-down": return Strings.awsStateShuttingDown
+        case "terminated": return Strings.awsStateTerminated
+        default: return state.capitalized
+        }
+    }
+
+    private func awsIngressText(_ c: AWSIngressCheck) -> String {
+        switch c {
+        case .open: return Strings.awsIngressOpen
+        case .closed: return Strings.awsIngressClosed
+        case .unknown: return Strings.awsIngressUnknown
+        }
+    }
+
+    private func awsIngressColor(_ c: AWSIngressCheck) -> Color {
+        switch c {
+        case .open: return .green
+        case .closed: return .red
+        case .unknown: return .secondary
+        }
+    }
+
+    private static func awsDateText(_ d: Date) -> String {
+        d.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    // MARK: - AWS Instances — selection & actions
+
+    @MainActor
+    private func ensureAWSSelection() {
+        if let id = awsSelectedID,
+           let sel = stats.aws.instances.first(where: { $0.instanceId == id }) {
+            refreshIngress(for: sel)
+            return
+        }
+        guard let first = stats.aws.instances.first else {
+            awsSelectedID = nil
+            return
+        }
+        awsSelectedID = first.instanceId
+        refreshIngress(for: first)
+    }
+
+    @MainActor
+    private func refreshIngress(for inst: AWSInstance) {
+        guard let gid = inst.primarySecurityGroupId else { return }
+        Task {
+            await stats.aws.fetchMyPublicIP()
+            await stats.aws.checkRDPIngress(groupId: gid)
+        }
+    }
+
+    @MainActor
+    private func beginAWSConfirm(_ kind: AWSConfirmRequest.Kind, instanceId: String, groupId: String? = nil) {
+        awsConfirmRequest = AWSConfirmRequest(kind: kind, instanceId: instanceId, groupId: groupId)
+        showAwsConfirm = true
+    }
+
+    private var awsConfirmButtonLabel: String {
+        guard let req = awsConfirmRequest else { return Strings.cancel }
+        switch req.kind {
+        case .start: return Strings.awsStartAction
+        case .stop: return Strings.awsStopAction
+        case .ingress: return Strings.awsAddIngressAction
+        }
+    }
+
+    private func awsConfirmMessage(_ req: AWSConfirmRequest) -> String {
+        switch req.kind {
+        case .start: return String(format: Strings.awsStartConfirmMessage, req.instanceId)
+        case .stop: return String(format: Strings.awsStopConfirmMessage, req.instanceId)
+        case .ingress: return String(format: Strings.awsIngressConfirmMessage, req.instanceId)
+        }
+    }
+
+    @MainActor
+    private func performAWS(_ req: AWSConfirmRequest) {
+        let id = req.instanceId
+        guard !awsPending.contains(id) else { return }
+        awsPending.insert(id)
+        awsActionMessage = nil
+        switch req.kind {
+        case .start:
+            Task { await runStartStop(true, id: id) }
+        case .stop:
+            Task { await runStartStop(false, id: id) }
+        case .ingress:
+            guard let gid = req.groupId else {
+                awsPending.remove(id)
+                awsActionSuccess = false
+                awsActionMessage = Strings.awsNoSecurityGroup
+                return
+            }
+            Task {
+                let (check, msg) = await stats.aws.addMyIPRDPRule(groupId: gid)
+                awsPending.remove(id)
+                awsActionSuccess = check == .open
+                awsActionMessage = msg
+                if check == .open {
+                    Task { await stats.aws.checkRDPIngress(groupId: gid) }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func runStartStop(_ start: Bool, id: String) async {
+        let err = start ? await stats.aws.startInstance(id) : await stats.aws.stopInstance(id)
+        awsPending.remove(id)
+        if let err = err {
+            awsActionSuccess = false
+            awsActionMessage = err
+        } else {
+            awsActionSuccess = true
+            awsActionMessage = start ? Strings.awsStartSent : Strings.awsStopSent
+            delayedAWSRefresh()
+        }
+    }
+
+    /// EC2 状态变更有延迟：稍后自动刷新一次让列表反映新状态。
+    @MainActor
+    private func delayedAWSRefresh() {
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            stats.aws.refresh()
+        }
     }
 
     private func pillTab(_ label: String, tag: Int, selection: Binding<Int>, hPad: CGFloat = 10) -> some View {

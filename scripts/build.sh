@@ -39,6 +39,11 @@ cp Sources/dev_mon/dslogo1.png "$APP/Contents/Resources/"
 cp Sources/dev_mon/menu_icon.png "$APP/Contents/Resources/"
 cp -r Sources/dev_mon/Assets.xcassets "$APP/Contents/Resources/"
 
+# 文档（设置 -> 指南 页展示；位于 repo 根目录 docs/）
+if [ -d "$ROOT/docs" ]; then
+    cp -R "$ROOT/docs" "$APP/Contents/Resources/docs"
+fi
+
 # SPM 资源包（Bundle.module 访问 logo 等资源时需要）
 if [ -d ".build/release/dev_mon_dev_mon.bundle" ]; then
     cp -R .build/release/dev_mon_dev_mon.bundle "$APP/Contents/Resources/"
