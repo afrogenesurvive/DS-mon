@@ -493,7 +493,7 @@ enum Strings {
     static var awsSubTabOverview: String { isZH ? "概览" : "Overview" }
     static var awsSubTabInstances: String { isZH ? "实例" : "Instances" }
     static var awsInstancesEmpty: String { isZH ? "该区域暂无 EC2 实例" : "No EC2 instances in this region" }
-    static var awsNoSelectionHint: String { isZH ? "从左侧选择一个实例" : "Select an instance on the left" }
+    static var awsNoSelectionHint: String { isZH ? "选择一个实例" : "Select an instance" }
     static var awsInstTypeLabel: String { isZH ? "类型" : "Type" }
     static var awsStateLabel: String { isZH ? "状态" : "State" }
     static var awsStateRunning: String { isZH ? "运行中" : "Running" }
@@ -518,6 +518,8 @@ enum Strings {
     static var awsCopyAction: String { isZH ? "复制" : "Copy" }
     static var awsCopiedMessage: String { isZH ? "已复制到剪贴板" : "Copied to clipboard" }
     static var awsRDPConnectMessage: String { isZH ? "地址已复制，正在打开远程桌面…" : "Address copied — opening Remote Desktop…" }
+    static var awsRDPNoAddress: String { isZH ? "实例没有可连接的公网 IP/DNS" : "Instance has no public IP/DNS to connect to" }
+    static var awsRDPOpenFailed: String { isZH ? "无法打开远程桌面（未安装 Windows App？）" : "Could not open Remote Desktop (is Windows App installed?)" }
     static var awsAddIngressAction: String { isZH ? "开放 RDP 3389 给我的 IP" : "Open RDP 3389 to my IP" }
     static var awsStartSent: String { isZH ? "已发送启动请求" : "Start requested" }
     static var awsStopSent: String { isZH ? "已发送停止请求" : "Stop requested" }

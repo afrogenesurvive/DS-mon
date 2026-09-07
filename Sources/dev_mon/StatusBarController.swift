@@ -2,6 +2,13 @@ import SwiftUI
 import AppKit
 import Charts
 
+/// 无边框弹出窗口。默认的无边框 NSWindow 无法成为 key window（没有标题栏），
+/// 这会导致其中的 SwiftUI TextField 永远拿不到焦点/键盘输入。这里显式允许成为 key。
+private final class PopoverWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
 // MARK: - AppKit 状态栏
 
 @MainActor
@@ -40,11 +47,11 @@ class StatusBarController: NSObject, NSWindowDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(popoverResizeRequested(_:)), name: .popoverResizeRequested, object: nil)
 
         let scale = AppConfig.savedPopoverScale()
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0,
-                                                  width: AppConfig.popoverWidth * scale,
-                                                  height: AppConfig.popoverHeight * scale),
-                              styleMask: [.borderless, .fullSizeContentView],
-                              backing: .buffered, defer: false)
+        let window = PopoverWindow(contentRect: NSRect(x: 0, y: 0,
+                                                       width: AppConfig.popoverWidth * scale,
+                                                       height: AppConfig.popoverHeight * scale),
+                                   styleMask: [.borderless, .fullSizeContentView],
+                                   backing: .buffered, defer: false)
         window.backgroundColor = .clear
         window.isOpaque = false
         window.contentView = buildPopoverContentView(stats: s)

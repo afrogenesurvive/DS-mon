@@ -93,17 +93,15 @@ struct StatsPopoverView: View {
     @State private var showSourceUsageSection = true // 来源用量（图表/列表）
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            popoverContent
-                .scaleEffect(uiScale, anchor: .topLeading)
-                .frame(width: AppConfig.popoverWidth * uiScale,
-                       height: AppConfig.popoverHeight * uiScale,
-                       alignment: .topLeading)
-            resizeGrip
-        }
-        .frame(width: AppConfig.popoverWidth * uiScale,
-               height: AppConfig.popoverHeight * uiScale)
-        .clipped()
+        popoverContent
+            .scaleEffect(uiScale, anchor: .topLeading)
+            .frame(width: AppConfig.popoverWidth * uiScale,
+                   height: AppConfig.popoverHeight * uiScale,
+                   alignment: .topLeading)
+            .overlay(alignment: .bottomTrailing) { resizeGrip }
+            .frame(width: AppConfig.popoverWidth * uiScale,
+                   height: AppConfig.popoverHeight * uiScale)
+            .clipped()
     }
 
     /// 右下角拖拽把手：按宽度变化等比缩放整个弹窗（UI/字体/图标一起放大）。
@@ -111,10 +109,10 @@ struct StatsPopoverView: View {
         Image(systemName: "arrow.up.left.and.arrow.down.right")
             .font(.system(size: 9, weight: .semibold))
             .foregroundColor(.secondary)
-            .frame(width: 16, height: 16)
+            .frame(width: 18, height: 18)
             .background(Circle().fill(Color(nsColor: .windowBackgroundColor)))
             .overlay(Circle().stroke(Color.secondary.opacity(0.35), lineWidth: 1))
-            .padding(4)
+            .frame(width: 44, height: 44)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -1422,7 +1420,7 @@ struct StatsPopoverView: View {
         .modifier(HoverTooltip(text: title, position: .below))
     }
 
-    // MARK: - AWS Instances (two-pane)
+    // MARK: - AWS Instances (dropdown + full-width detail)
 
     private var awsInstancesView: some View {
         VStack(spacing: 0) {
@@ -1436,32 +1434,25 @@ struct StatsPopoverView: View {
                 }
                 Spacer()
             } else {
-                awsInstancesPane
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { ensureAWSSelection() }
-        .onChange(of: stats.aws.instances) { _, _ in ensureAWSSelection() }
-    }
-
-    private var awsInstancesPane: some View {
-        HStack(alignment: .top, spacing: 0) {
-            // 左：垂直滚动实例侧栏（ID 截断 + 状态圆点 + 类型/时长）
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(stats.aws.instances) { inst in
-                        awsInstanceRow(inst)
+                Picker(Strings.awsSubTabInstances, selection: $awsSelectedID) {
+                    ForEach(stats.aws.instances.sorted(by: awsInstanceSort)) { inst in
+                        Text(awsInstanceMenuLabel(inst)).tag(Optional(inst.instanceId))
                     }
                 }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 14)
                 .padding(.vertical, 6)
-            }
-            .frame(width: 150)
-            .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
+                .onChange(of: awsSelectedID) { _, newValue in
+                    guard let id = newValue,
+                          let inst = stats.aws.instances.first(where: { $0.instanceId == id })
+                    else { return }
+                    awsActionMessage = nil
+                    closeRuleEditor()
+                    refreshIngress(for: inst)
+                }
 
-            Divider()
-
-            // 右：选中实例详情 + 操作
-            Group {
                 if let sel = stats.aws.instances.first(where: { $0.instanceId == awsSelectedID }) {
                     awsInstanceDetail(sel)
                 } else {
@@ -1474,53 +1465,20 @@ struct StatsPopoverView: View {
                             .padding(.horizontal, 8)
                         Spacer()
                     }
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { ensureAWSSelection() }
+        .onChange(of: stats.aws.instances) { _, _ in ensureAWSSelection() }
     }
 
-    private func awsInstanceRow(_ inst: AWSInstance) -> some View {
-        let selected = awsSelectedID == inst.instanceId
-        return Button {
-            awsSelectedID = inst.instanceId
-            awsActionMessage = nil
-            closeRuleEditor()
-            refreshIngress(for: inst)
-        } label: {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 4) {
-                    Circle().fill(awsStateColor(inst.state)).frame(width: 7, height: 7)
-                    Text(inst.instanceId)
-                        .font(.system(size: 9, design: .monospaced))
-                        .lineLimit(1).truncationMode(.middle)
-                    Spacer(minLength: 2)
-                    if awsPending.contains(inst.instanceId) {
-                        ProgressView().controlSize(.mini)
-                            .scaleEffect(0.7).frame(width: 10, height: 10)
-                    }
-                }
-                HStack(spacing: 4) {
-                    Text(inst.instanceType).font(.system(size: 8)).foregroundColor(.secondary)
-                    if let h = inst.runningHours {
-                        Text(String(format: "%.1fh", h))
-                            .font(.system(size: 8).monospacedDigit()).foregroundColor(.secondary)
-                    }
-                    Spacer(minLength: 2)
-                    if let name = inst.name, !name.isEmpty {
-                        Text(name).font(.system(size: 8)).foregroundColor(.secondary).lineLimit(1)
-                    }
-                }
-            }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(selected ? Color.accentColor.opacity(0.18) : Color.clear)
-            .cornerRadius(6)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+    private func awsInstanceMenuLabel(_ inst: AWSInstance) -> String {
+        var label = inst.instanceId
+        if let name = inst.name, !name.isEmpty { label += " · \(name)" }
+        label += " · \(inst.instanceType)"
+        return label
     }
 
     private func awsInstanceDetail(_ inst: AWSInstance) -> some View {
@@ -1715,11 +1673,9 @@ struct StatsPopoverView: View {
                 HStack(spacing: 6) {
                     TextField(Strings.awsPortFrom, text: $awsRuleFromPort)
                         .textFieldStyle(.roundedBorder).font(.system(size: 10))
-                        .frame(width: 60)
                     Text("–").foregroundColor(.secondary)
                     TextField(Strings.awsPortTo, text: $awsRuleToPort)
                         .textFieldStyle(.roundedBorder).font(.system(size: 10))
-                        .frame(width: 60)
                 }
             }
             HStack(spacing: 6) {
@@ -1899,6 +1855,7 @@ struct StatsPopoverView: View {
 
     @MainActor
     private func openRuleEditor(for rule: AWSIngressRule?, groupId: String) {
+        awsActionMessage = nil
         awsEditingRule = rule
         awsRuleEditorGroupId = groupId
         awsRuleProto = rule?.proto ?? "tcp"
@@ -1918,6 +1875,7 @@ struct StatsPopoverView: View {
         awsRuleEditorGroupId = nil
         awsEditingRule = nil
         awsRuleSaving = false
+        awsActionMessage = nil
     }
 
     @MainActor
@@ -1993,7 +1951,8 @@ struct StatsPopoverView: View {
         }
     }
 
-    /// 「打开 RDP」：把实例的公网 DNS/IP 复制到剪贴板，并尝试用 rdp:// 拉起远程桌面客户端。
+    /// 「打开 RDP」：把实例的公网 DNS/IP 复制到剪贴板，并尝试用 rdp:// 拉起远程桌面客户端
+    /// （优先使用已安装的 Microsoft “Windows App”）。
     @MainActor
     private func openRDPConnection(for inst: AWSInstance) {
         let target: String?
@@ -2004,14 +1963,38 @@ struct StatsPopoverView: View {
         } else {
             target = nil
         }
-        guard let target else { return }
+        guard let target else {
+            awsActionSuccess = false
+            awsActionMessage = Strings.awsRDPNoAddress
+            return
+        }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(target, forType: .string)
-        if let url = URL(string: "rdp://full%20address=s:\(target):3389") {
-            NSWorkspace.shared.open(url)
+
+        guard let url = URL(string: "rdp://full%20address=s:\(target):3389") else {
+            awsActionSuccess = false
+            awsActionMessage = Strings.awsRDPOpenFailed
+            return
         }
-        awsActionSuccess = true
-        awsActionMessage = Strings.awsRDPConnectMessage
+        let opened = launchRDPClient(url: url)
+        awsActionSuccess = opened
+        awsActionMessage = opened ? Strings.awsRDPConnectMessage : Strings.awsRDPOpenFailed
+    }
+
+    /// 优先用 Microsoft “Windows App”（com.microsoft.windowsapp）打开 rdp:// 地址；
+    /// 找不到时回退到系统已注册的 rdp:// 处理器。返回是否成功发起打开。
+    @MainActor
+    private func launchRDPClient(url: URL) -> Bool {
+        if let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.microsoft.windowsapp") {
+            NSWorkspace.shared.open([url], withApplicationAt: app,
+                                    configuration: NSWorkspace.OpenConfiguration())
+            return true
+        }
+        if NSWorkspace.shared.urlForApplication(toOpen: url) != nil {
+            NSWorkspace.shared.open(url)
+            return true
+        }
+        return false
     }
 
     @MainActor
