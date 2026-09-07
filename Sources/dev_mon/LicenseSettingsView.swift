@@ -13,7 +13,7 @@ struct LicenseSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 6) {
-                Image(systemName: "checkmark.shield.fill")
+                Image(systemName: "key.fill")
                     .foregroundColor(.green)
                 Text(Strings.licenseSection)
                     .font(.body).bold()

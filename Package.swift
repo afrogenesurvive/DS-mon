@@ -14,6 +14,9 @@ let package = Package(
                 .process("dslogo.png"),
                 .process("dslogo1.png"),
                 .process("menu_icon.png"),
+                .process("aws.png"),
+                .process("github.png"),
+                .process("cloudflare.png"),
             ]
         )
     ]

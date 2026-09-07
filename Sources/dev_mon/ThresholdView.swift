@@ -17,7 +17,7 @@ struct ThresholdView: View {
             switch self {
             case .general:  return "switch.2"
             case .provider: return "cube.fill"
-            case .license:  return "checkmark.shield.fill"
+            case .license:  return "key.fill"
             case .services: return "network"
             case .about:    return "info.circle"
             case .guide:    return "book"

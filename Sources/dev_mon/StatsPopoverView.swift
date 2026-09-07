@@ -1004,7 +1004,7 @@ struct StatsPopoverView: View {
     private var tabBar: some View {
         HStack(spacing: 4) {
             tabButton(symbol: "brain.head.profile", tag: 0, tooltip: Strings.usageTabTooltip)
-            tabButton(symbol: "checkmark.shield.fill", tag: 1, tooltip: Strings.licenseTabTooltip)
+            tabButton(symbol: "key.fill", tag: 1, tooltip: Strings.licenseTabTooltip)
             tabButton(assetName: "github", symbol: "chevron.left.forwardslash.chevron.right", tag: 2, tooltip: Strings.githubTabTooltip)
             tabButton(assetName: "aws", symbol: "cloud.fill", tag: 3, tooltip: Strings.awsTabTooltip)
             tabButton(assetName: "cloudflare", symbol: "cloud.bolt.fill", tag: 4, tooltip: Strings.cloudflareTabTooltip)
@@ -2555,7 +2555,6 @@ struct StatsPopoverView: View {
 
     private var actionBar: some View {
         HStack(spacing: 6) {
-            Spacer()
             iconButton(icon: "arrow.clockwise", label: Strings.refresh, color: .blue) {
                 stats.refresh()
                 stats.gitHub.refresh()

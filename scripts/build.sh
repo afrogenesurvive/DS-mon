@@ -37,6 +37,9 @@ cp .build/release/dev_mon "$APP/Contents/MacOS/"
 cp Sources/dev_mon/dslogo.png "$APP/Contents/Resources/"
 cp Sources/dev_mon/dslogo1.png "$APP/Contents/Resources/"
 cp Sources/dev_mon/menu_icon.png "$APP/Contents/Resources/"
+cp Sources/dev_mon/aws.png "$APP/Contents/Resources/"
+cp Sources/dev_mon/github.png "$APP/Contents/Resources/"
+cp Sources/dev_mon/cloudflare.png "$APP/Contents/Resources/"
 cp -r Sources/dev_mon/Assets.xcassets "$APP/Contents/Resources/"
 
 # 文档（设置 -> 指南 页展示；位于 repo 根目录 docs/）
