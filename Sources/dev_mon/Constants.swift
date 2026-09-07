@@ -25,6 +25,21 @@ enum AppConfig {
     static let popoverHeight: CGFloat = 550
     /// 弹窗内容可用宽度（减去左右各 14pt 的 padding）
     static var contentWidth: CGFloat { popoverWidth - 28 }
+    /// 弹窗缩放（拖右下角把手，UI/字体/图标按比例整体放大）
+    static let popoverScaleKey = "popover_ui_scale"
+    static let popoverScaleMin: CGFloat = 1.0
+    static let popoverScaleMax: CGFloat = 2.2
+    static func clampedPopoverScale(_ s: CGFloat) -> CGFloat {
+        let v = s.isFinite ? s : 1.0
+        return min(max(v, popoverScaleMin), popoverScaleMax)
+    }
+    static func savedPopoverScale() -> CGFloat {
+        let v = UserDefaults.standard.double(forKey: popoverScaleKey)
+        return v > 0 ? clampedPopoverScale(CGFloat(v)) : 1.0
+    }
+    static func setSavedPopoverScale(_ s: CGFloat) {
+        UserDefaults.standard.set(clampedPopoverScale(s), forKey: popoverScaleKey)
+    }
     static let settingsWidth: CGFloat = 520
     static let settingsHeight: CGFloat = 480
 

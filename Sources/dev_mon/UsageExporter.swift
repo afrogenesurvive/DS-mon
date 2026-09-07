@@ -416,6 +416,7 @@ enum ConfigExporter {
     @MainActor private static var settingsKeys: [String] {
         var keys = [
             Strings.Keys.appLanguage,
+            Strings.Keys.appTheme,
             Strings.Keys.balanceThreshold,
             Strings.Keys.maxBalanceAmount,
             Strings.Keys.proxyPort,
@@ -442,6 +443,16 @@ enum ConfigExporter {
             Strings.Keys.awsMaxCredits,
             Strings.Keys.showPeakDot,
             Strings.Keys.peakNotificationEnabled,
+            // Cloudflare 隧道配置
+            Strings.Keys.cloudflareEnabled,
+            Strings.Keys.cloudflareAccountId,
+            Strings.Keys.cloudflareAccountName,
+            Strings.Keys.cloudflareZoneId,
+            Strings.Keys.cloudflareZoneName,
+            Strings.Keys.cloudflareTunnelId,
+            Strings.Keys.cloudflareTunnelName,
+            // Z.AI 端点选择（Coding Plan / Standard）
+            Strings.Keys.zaiEndpoint,
         ]
         // 每个提供商最近使用的模型 + 手填月度预算
         for p in ProviderManager.shared.providers {
@@ -458,6 +469,7 @@ enum ConfigExporter {
             Strings.Keys.awsAccessKey,
             Strings.Keys.awsSecretKey,
             Strings.Keys.syncPushToken,
+            Strings.Keys.cloudflareApiToken,
         ]
     }
 
@@ -598,6 +610,10 @@ enum ConfigExporter {
         NotificationCenter.default.post(name: .menuBarTextDisplayDidChange, object: nil)
         NotificationCenter.default.post(name: .menuBarColorDidChange, object: nil)
         NotificationCenter.default.post(name: .peakSettingsDidChange, object: nil)
+
+        // 应用导入的外观主题（System / Light / Dark）
+        Theme.apply()
+        NotificationCenter.default.post(name: .appearanceDidChange, object: nil)
     }
 
     @MainActor private static func presentMessage(_ text: String, style: NSAlert.Style) {

@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.9-1] — 2026-09-07
+
+### Added
+
+- **Cloudflare 隧道页**：弹窗新增 Cloudflare 页签（Overview / Public Hostnames / Private IP 三个子页）：
+  - Overview 显示本机 cloudflared 服务状态（运行 / 停止 / 未安装）与 **Start / Stop / Restart**（需管理员密码，经 osascript 提权执行 `launchctl`）；并显示所选隧道名称、健康状态、连接数与更新时间。
+  - **Public Hostnames**：增删公开主机名 —— 读写隧道 ingress 配置，并自动同步 Zone 内指向 `<隧道ID>.cfargotunnel.com` 的 CNAME 记录。
+  - **Private IP**：增删私有网络路由（WARP/Zero Trust 客户端经隧道访问内网用）。
+  - 服务进程在跑但隧道未连（0 连接）时，Overview 显示橙色提示，指引检查隧道 token / cloudflared 日志。
+  - 出错状态（如「Failed to parse response」）页面内直接提供 **Verify & Discover**，无需回设置即可重试验证。
+- **设置 → 服务 → Cloudflare**：启用开关、API Token（钥匙串）、「验证并发现」→ 账户 / Zone / 隧道选择、本机守护进程状态点。
+- **实例信息一键复制**：AWS 实例详情中的公网 IP / 公网 DNS / 内网 IP 行新增复制按钮——EC2 停止再启动会更换公网 DNS，复制后即可直接粘贴使用。
+- **打开 RDP 连接**：运行中的实例新增「打开 RDP」按钮：复制其公网 DNS/IP 并尝试以 `rdp://` 拉起远程桌面客户端（地址始终已复制，即使没有客户端响应 URL 也不影响）。
+- **弹窗可拖拽缩放**：右下角新增拖拽把手，拖动可整体放大/缩小弹窗（文字、图标、间距按比例缩放，1.0×–2.2×），并记住上次大小。
+- **顶部页签改为纯图标**：AI Usage / License / GitHub / AWS / Cloudflare 页签改为图标显示（悬停显示名称），并修复 GitHub / Cloudflare 页签此前图标不可见、页签不可点的问题；优先使用打包的品牌图标资源，缺省回退到 SF Symbol。
+- **外观主题**：设置 → 通用新增「外观」—— 跟随系统 / 浅色 / 深色，即时作用于弹窗与设置窗口，随配置导入导出。
+
+### Changed
+
+- **Cloudflare 启动只弹一次管理员密码**：改为 `launchctl kickstart` 后轮询等待进程真正起来（launchd 异步 spawn），仅当数秒后仍未运行才补一次 `bootstrap`，不再连环弹出多次密码框；启动/重启成功后自动刷新 API 健康状态。
+- **Cloudflare 私有路由显示修复**：隧道没有公开主机名时不再提前返回，私有 IP 路由照常拉取并加大分页——此前会导致仪表盘已有路由、dev_mon 却显示为空。
+- **Cloudflare 故障排查**：文档明确区分 dev_mon 使用的 **API Token** 与 cloudflared 实际读取的**隧道 token**（本机 token 文件缺失会令 cloudflared 反复重启、隧道长期 Down）。
+- **配置导入导出补齐**：导出范围新增 Cloudflare 全部设置键（启用 / 账户 / Zone / 隧道 ID 与名称）、Z.AI 端点选择与外观主题；Cloudflare API Token 纳入密钥导出；导入后自动应用主题。
+- **弹窗主体布局重构**：为支持整体等比缩放，弹窗内容包一层缩放容器，右下角把手与页签、操作栏保持正常可用。
+
 ## [0.2.8-1] — 2026-09-06
 
 ### Added

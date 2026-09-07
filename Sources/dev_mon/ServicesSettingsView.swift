@@ -21,6 +21,8 @@ struct ServicesSettingsView: View {
             Divider().padding(.horizontal, 16)
             AWSSettingsView(stats: stats)
             Divider().padding(.horizontal, 16)
+            CloudflareSettingsView(stats: stats)
+            Divider().padding(.horizontal, 16)
             SyncSettingsView(stats: stats)
             Spacer()
         }
@@ -97,8 +99,8 @@ private struct GitHubSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
-                Image(systemName: "logo.github")
-                    .foregroundColor(.black)
+                BrandTabIcon(assetName: "github", symbol: "chevron.left.forwardslash.chevron.right", size: 18)
+                    .foregroundColor(.primary)
                 Text(Strings.githubSection)
                     .font(.body).bold()
                 Spacer()
@@ -272,6 +274,173 @@ private struct AWSSettingsView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(20)
+    }
+}
+
+// MARK: - ☁️ Cloudflare Settings
+
+private struct CloudflareSettingsView: View {
+    let stats: DeepSeekStats
+
+    @State private var cfEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.cloudflareEnabled)
+    @State private var cfToken: String = SecureStore.retrieve(key: Strings.Keys.cloudflareApiToken) ?? ""
+    @State private var showCfToken = false
+    @State private var isVerifying = false
+
+    private var cf: CloudflareTunnelManager { stats.cloudflare }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "cloud.bolt.fill")
+                    .foregroundColor(.orange)
+                Text(Strings.cloudflareSection)
+                    .font(.body).bold()
+                Spacer()
+                HStack(spacing: 4) {
+                    Circle().fill(cf.daemonRunning ? Color.green : Color.red).frame(width: 6, height: 6)
+                    Text(daemonStatusText).font(.caption).foregroundColor(cf.daemonRunning ? .green : .red)
+                }
+            }
+
+            Toggle(isOn: $cfEnabled) {
+                Text(Strings.cloudflareToggle).font(.callout)
+            }
+            .toggleStyle(.switch)
+            .onChange(of: cfEnabled) { _, newVal in
+                cf.enabled = newVal
+                if newVal { cf.startAutoRefresh(); cf.refresh() }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(Strings.cloudflareTokenLabel).font(.caption).foregroundColor(.secondary)
+                    Group {
+                        if showCfToken {
+                            TextField("", text: $cfToken)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.caption, design: .monospaced))
+                        } else {
+                            SecureField("", text: $cfToken)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.caption, design: .monospaced))
+                        }
+                    }
+                    .onChange(of: cfToken) { _, newVal in
+                        SecureStore.save(key: Strings.Keys.cloudflareApiToken, value: newVal)
+                        if cfEnabled { cf.refresh() }
+                    }
+                    Button {
+                        showCfToken.toggle()
+                    } label: {
+                        Image(systemName: showCfToken ? "eye.slash" : "eye")
+                    }
+                    .buttonStyle(.bordered)
+                    .help(Strings.revealHint)
+                }
+                Text(Strings.cloudflareTokenHint).font(.caption2).foregroundColor(.secondary)
+
+                Button {
+                    isVerifying = true
+                    Task {
+                        await cf.verifyAndDiscover()
+                        isVerifying = false
+                    }
+                } label: {
+                    Text(isVerifying ? Strings.cloudflareVerifyBusy : Strings.cloudflareVerifyAction)
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                .disabled(isVerifying || cfToken.isEmpty)
+
+                if let err = cf.errorMessage {
+                    Text(err).font(.caption2).foregroundColor(.red)
+                }
+            }
+
+            if !cf.accounts.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(Strings.cloudflareAccountLabel).font(.caption).foregroundColor(.secondary)
+                        Picker("", selection: accountBinding) {
+                            ForEach(cf.accounts) { a in
+                                Text(a.name).tag(a.id)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: 220, alignment: .leading)
+                    }
+                    if !cf.zones.isEmpty {
+                        HStack(spacing: 8) {
+                            Text(Strings.cloudflareZoneLabel).font(.caption).foregroundColor(.secondary)
+                            Picker("", selection: zoneBinding) {
+                                ForEach(cf.zones) { z in
+                                    Text(z.name).tag(z.id)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .frame(maxWidth: 220, alignment: .leading)
+                        }
+                    }
+                    if !cf.tunnels.isEmpty {
+                        HStack(spacing: 8) {
+                            Text(Strings.cloudflareTunnelLabel).font(.caption).foregroundColor(.secondary)
+                            Picker("", selection: tunnelBinding) {
+                                ForEach(cf.tunnels) { t in
+                                    Text(t.name.isEmpty ? t.id : t.name).tag(t.id)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .frame(maxWidth: 220, alignment: .leading)
+                        }
+                    }
+                }
+            }
+
+            Text(Strings.cloudflareDaemonNote)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(20)
+        .onAppear {
+            Task { await cf.probeDaemon() }
+        }
+    }
+
+    private var daemonStatusText: String {
+        switch cf.daemonState {
+        case .running: return Strings.cloudflareDaemonRunning
+        case .installed: return Strings.cloudflareDaemonInstalled
+        case .notInstalled: return Strings.cloudflareDaemonNotInstalled
+        }
+    }
+
+    private var accountBinding: Binding<String> {
+        Binding(get: { cf.accountID ?? "" },
+                set: { id in
+                    guard !id.isEmpty else { return }
+                    Task { await cf.changeAccount(id) }
+                })
+    }
+
+    private var zoneBinding: Binding<String> {
+        Binding(get: { cf.zoneID ?? "" },
+                set: { id in
+                    guard !id.isEmpty else { return }
+                    cf.changeZone(id)
+                })
+    }
+
+    private var tunnelBinding: Binding<String> {
+        Binding(get: { cf.tunnelID ?? "" },
+                set: { id in
+                    guard !id.isEmpty else { return }
+                    Task { await cf.changeTunnel(id) }
+                })
     }
 }
 

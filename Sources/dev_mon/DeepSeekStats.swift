@@ -26,6 +26,7 @@ final class DeepSeekStats {
     // ☁️ Cloud tracking
     private(set) var gitHub = GitHubUsageTracker()
     private(set) var aws = AWSUsageTracker()
+    private(set) var cloudflare = CloudflareTunnelManager()
 
     // 活跃提供商信息
     private(set) var providerName: String = "DeepSeek"

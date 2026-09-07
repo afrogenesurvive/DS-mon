@@ -1,10 +1,62 @@
 import SwiftUI
+import AppKit
+
+/// 应用外观主题：System / Light / Dark。通过设置 NSApp.appearance 生效，
+/// System 时置 nil（完全跟随 macOS 系统外观）。
+enum Theme: String, CaseIterable, Identifiable {
+    case system = "system"
+    case light = "light"
+    case dark = "dark"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .system: return uiIsZH ? "跟随系统" : "System"
+        case .light: return uiIsZH ? "浅色" : "Light"
+        case .dark: return uiIsZH ? "深色" : "Dark"
+        }
+    }
+
+    private var uiIsZH: Bool {
+        let saved = UserDefaults.standard.string(forKey: Strings.Keys.appLanguage) ?? "auto"
+        if saved == "auto" {
+            let locale = Locale.preferredLanguages.first ?? "en"
+            return locale.hasPrefix("zh-Hans") || locale == "zh-CN" || locale == "zh"
+        }
+        return saved == "zh-Hans"
+    }
+
+    static var current: Theme {
+        Theme(rawValue: UserDefaults.standard.string(forKey: Strings.Keys.appTheme) ?? "") ?? .system
+    }
+
+    /// 读取已保存主题并应用到整个 app（nil = 跟随系统）。
+    @MainActor
+    static func apply() {
+        let theme = current
+        switch theme {
+        case .system: NSApp.appearance = nil
+        case .light: NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
+        UserDefaults.standard.set(theme.rawValue, forKey: Strings.Keys.appTheme)
+    }
+
+    @MainActor
+    static func set(_ theme: Theme) {
+        UserDefaults.standard.set(theme.rawValue, forKey: Strings.Keys.appTheme)
+        apply()
+        NotificationCenter.default.post(name: .appearanceDidChange, object: nil)
+    }
+}
 
 struct GeneralSettingsView: View {
     @AppStorage(Strings.Keys.showMenuIcon) var showMenuIcon: Bool = false
     @AppStorage(Strings.Keys.showIndicator) var showIndicator: Bool = false
     @AppStorage(Strings.Keys.menuBarTextDisplay) var menuBarTextDisplay: String = "balance"
     @AppStorage(Strings.Keys.appLanguage) var appLanguage: String = "auto"
+    @AppStorage(Strings.Keys.appTheme) var appTheme: String = Theme.system.rawValue
     @AppStorage(Strings.Keys.currencySymbol) var currencySymbol: String = "¥"
     @AppStorage(Strings.Keys.showPeakDot) var showPeakDot: Bool = false
     @AppStorage(Strings.Keys.peakNotificationEnabled) var peakNotificationEnabled: Bool = false
@@ -225,11 +277,27 @@ struct GeneralSettingsView: View {
                 Strings.notifyLanguageChanged()
             }
 
+            Divider()
+
+            Label(Strings.themeLabel, systemImage: "circle.lefthalf.filled")
+                .font(.body).bold()
+
+            Picker(Strings.themeLabel, selection: $appTheme) {
+                ForEach(Theme.allCases) { theme in
+                    Text(theme.displayName).tag(theme.rawValue)
+                }
+            }
+            .pickerStyle(.radioGroup)
+            .onChange(of: appTheme) { _, newVal in
+                Theme.set(Theme(rawValue: newVal) ?? .system)
+            }
+
             Spacer()
         }
         .padding(.horizontal, 24)
         .onAppear {
             menuBarColor = loadSavedColor()
+            Theme.apply()
         }
     }
 }

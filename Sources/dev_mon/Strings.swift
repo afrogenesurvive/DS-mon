@@ -11,6 +11,8 @@ extension Notification.Name {
     static let providerChanged = Notification.Name("providerChanged")
     static let seatRegistryChanged = Notification.Name("seatRegistryChanged")
     static let peakSettingsDidChange = Notification.Name("peakSettingsDidChange")
+    static let popoverResizeRequested = Notification.Name("popoverResizeRequested")
+    static let appearanceDidChange = Notification.Name("appearanceDidChange")
 }
 
 enum Language: String, CaseIterable, Identifiable {
@@ -38,6 +40,7 @@ enum Strings {
     /// UserDefaults keys — 集中管理，避免散落各处的字符串字面量
     enum Keys {
         static let appLanguage      = "app_language"
+        static let appTheme         = "app_theme"
         static let balanceThreshold = "balance_threshold"
         static let maxBalanceAmount = "max_balance_amount"
         static let proxyPort        = "proxy_port"
@@ -66,6 +69,14 @@ enum Strings {
         static let awsRegion = "aws_region"
         static let awsEnabled = "aws_enabled"
         static let awsMaxCredits = "aws_max_credits"
+        static let cloudflareEnabled = "cloudflare_enabled"
+        static let cloudflareApiToken = "cloudflare_api_token"
+        static let cloudflareAccountId = "cloudflare_account_id"
+        static let cloudflareAccountName = "cloudflare_account_name"
+        static let cloudflareZoneId = "cloudflare_zone_id"
+        static let cloudflareZoneName = "cloudflare_zone_name"
+        static let cloudflareTunnelId = "cloudflare_tunnel_id"
+        static let cloudflareTunnelName = "cloudflare_tunnel_name"
         static let showPeakDot = "show_peak_dot"
         static let peakNotificationEnabled = "peak_notification_enabled"
         static func lastModel(for providerId: String) -> String { "last_model_\(providerId)" }
@@ -91,6 +102,7 @@ enum Strings {
 
     // Language picker
     static var languageLabel: String { isZH ? "语言" : "Language" }
+    static var themeLabel: String { isZH ? "外观" : "Appearance" }
     static var languageSystem: String {
         let locale = Locale.preferredLanguages.first ?? "en"
         let isSysZH = locale.hasPrefix("zh-Hans") || locale == "zh-CN" || locale == "zh"
@@ -106,6 +118,7 @@ enum Strings {
 
     // Popover header
     static var popoverTitle: String { "dev_mon" }
+    static var resizePopoverHint: String { isZH ? "拖动以缩放" : "Drag to resize" }
     static var badgeLoading: String { isZH ? "查询中..." : "Loading..." }
     static var badgeNormal: String { isZH ? "正常" : "NORM" }
     static var badgeError: String { isZH ? "预警" : "WARN" }
@@ -399,6 +412,7 @@ enum Strings {
     static var licenseTabTooltip: String { isZH ? "许可证席位与有效期" : "License seats & expiry" }
     static var githubTabTooltip: String { isZH ? "GitHub Actions 免费额度用量" : "GitHub Actions free-tier usage" }
     static var awsTabTooltip: String { isZH ? "AWS 免费套餐与费用" : "AWS free tier & costs" }
+    static var cloudflareTabTooltip: String { isZH ? "Cloudflare 隧道状态与路由" : "Cloudflare tunnel status & routes" }
     static var showChartTooltip: String { isZH ? "切换为图表视图" : "Switch to chart view" }
     static var showListTooltip: String { isZH ? "切换为列表视图" : "Switch to list view" }
 
@@ -500,6 +514,10 @@ enum Strings {
     static var awsIngressUnknown: String { isZH ? "未知" : "Unknown" }
     static var awsStartAction: String { isZH ? "启动" : "Start" }
     static var awsStopAction: String { isZH ? "停止" : "Stop" }
+    static var awsOpenRDPAction: String { isZH ? "打开 RDP" : "Open RDP" }
+    static var awsCopyAction: String { isZH ? "复制" : "Copy" }
+    static var awsCopiedMessage: String { isZH ? "已复制到剪贴板" : "Copied to clipboard" }
+    static var awsRDPConnectMessage: String { isZH ? "地址已复制，正在打开远程桌面…" : "Address copied — opening Remote Desktop…" }
     static var awsAddIngressAction: String { isZH ? "开放 RDP 3389 给我的 IP" : "Open RDP 3389 to my IP" }
     static var awsStartSent: String { isZH ? "已发送启动请求" : "Start requested" }
     static var awsStopSent: String { isZH ? "已发送停止请求" : "Stop requested" }
@@ -535,4 +553,61 @@ enum Strings {
     static var awsRulePortRequired: String { isZH ? "请输入起始和结束端口" : "Enter From and To ports" }
     static var awsRuleSourceRequired: String { isZH ? "请输入来源（CIDR 或 sg-*）" : "Enter a source (CIDR or sg-*)" }
     static var awsPermHint: String { isZH ? "实例管理需在 IAM 策略中授予 ec2:DescribeSecurityGroups、ec2:StartInstances、ec2:StopInstances、ec2:AuthorizeSecurityGroupIngress、ec2:RevokeSecurityGroupIngress" : "Instance controls need ec2:DescribeSecurityGroups, ec2:StartInstances, ec2:StopInstances, ec2:AuthorizeSecurityGroupIngress, ec2:RevokeSecurityGroupIngress in your IAM policy" }
+
+    // MARK: - ☁️ Cloudflare
+    static var cloudflareTabTitle: String { isZH ? "Cloudflare" : "Cloudflare" }
+    static var cloudflareSection: String { isZH ? "Cloudflare 隧道" : "Cloudflare Tunnel" }
+    static var cloudflareToggle: String { isZH ? "启用 Cloudflare 隧道管理" : "Enable Cloudflare Tunnel" }
+    static var cloudflareTokenLabel: String { isZH ? "API Token" : "API Token" }
+    static var cloudflareTokenHint: String { isZH ? "需要作用域：Zone:Read + Zone:DNS:Edit、Account:Read + Account:Cloudflare Tunnel:Edit（在 dash.cloudflare.com → My Profile → API Tokens 创建）" : "Needs scopes: Zone:Read + Zone:DNS:Edit, Account:Read + Account:Cloudflare Tunnel:Edit (create at dash.cloudflare.com → My Profile → API Tokens)" }
+    static var cloudflareVerifyAction: String { isZH ? "验证并发现" : "Verify & Discover" }
+    static var cloudflareVerifyBusy: String { isZH ? "验证中…" : "Verifying…" }
+    static var cloudflareAccountLabel: String { isZH ? "账户" : "Account" }
+    static var cloudflareZoneLabel: String { isZH ? "Zone" : "Zone" }
+    static var cloudflareTunnelLabel: String { isZH ? "隧道" : "Tunnel" }
+    static var cloudflareNoSelection: String { isZH ? "—" : "—" }
+    static var cloudflareDaemonRow: String { isZH ? "本机服务" : "Local service" }
+    static var cloudflareDaemonRunning: String { isZH ? "运行中" : "Running" }
+    static var cloudflareDaemonInstalled: String { isZH ? "已停止" : "Stopped" }
+    static var cloudflareDaemonNotInstalled: String { isZH ? "未安装" : "Not installed" }
+    static var cloudflareTunnelHealth: String { isZH ? "隧道健康" : "Tunnel health" }
+    static var cloudflareTunnelHealthy: String { isZH ? "健康" : "Healthy" }
+    static var cloudflareTunnelDegraded: String { isZH ? "降级" : "Degraded" }
+    static var cloudflareTunnelDown: String { isZH ? "离线" : "Down" }
+    static var cloudflareTunnelInactive: String { isZH ? "未激活" : "Inactive" }
+    static var cloudflareConnectors: String { isZH ? "连接数" : "Connectors" }
+    static var cloudflareConnectorsFormat: String { isZH ? "%d 个连接" : "%d connector(s)" }
+    static var cloudflareLastUpdate: String { isZH ? "更新于" : "Updated" }
+    static var cloudflareStartAction: String { isZH ? "启动" : "Start" }
+    static var cloudflareStopAction: String { isZH ? "停止" : "Stop" }
+    static var cloudflareRestartAction: String { isZH ? "重启" : "Restart" }
+    static var cloudflareDaemonNote: String { isZH ? "系统服务（LaunchDaemon），启停需要管理员密码。若想免密控制可在终端运行 cloudflared service uninstall && cloudflared service install（改为登录自启）。" : "Runs as a system LaunchDaemon; start/stop prompts for your admin password. For passwordless control run `cloudflared service uninstall && cloudflared service install` (login agent)." }
+    static var cloudflareConfirmTitle: String { isZH ? "确认 Cloudflare 操作" : "Confirm Cloudflare action" }
+    static var cloudflareStartConfirm: String { isZH ? "启动 cloudflared 隧道服务？" : "Start the cloudflared tunnel service?" }
+    static var cloudflareStopConfirm: String { isZH ? "停止 cloudflared 隧道服务？" : "Stop the cloudflared tunnel service?" }
+    static var cloudflareRestartConfirm: String { isZH ? "重启 cloudflared 隧道服务？" : "Restart the cloudflared tunnel service?" }
+    static var cloudflareDaemonOk: String { isZH ? "已执行" : "Done" }
+    static var cloudflareDaemonNotRunning: String { isZH ? "服务仍未运行——请检查 API token 与 LaunchDaemon（sudo launchctl print system/com.cloudflare.cloudflared）" : "Service still not running — check the API token and LaunchDaemon (sudo launchctl print system/com.cloudflare.cloudflared)" }
+    static var cloudflareDaemonStillRunning: String { isZH ? "服务仍在运行（可能被 launchd 自动重启）" : "Service is still running (launchd may auto-restart it)" }
+    static var cloudflareRunningNotConnected: String { isZH ? "服务已运行但未连接到 Cloudflare——请检查隧道 token / cloudflared 日志" : "Service is running but not connected to Cloudflare — check the tunnel token / cloudflared logs" }
+    static var cloudflareRouteChanged: String { isZH ? "路由已更新" : "Route updated" }
+    static var cloudflareSubTabOverview: String { isZH ? "概览" : "Overview" }
+    static var cloudflareSubTabHostnames: String { isZH ? "公开主机名" : "Public Hostnames" }
+    static var cloudflareSubTabRoutes: String { isZH ? "私有 IP 路由" : "Private IP Routes" }
+    static var cloudflareHostnamesEmpty: String { isZH ? "暂无公开主机名" : "No public hostnames" }
+    static var cloudflareRoutesEmpty: String { isZH ? "暂无私有 IP 路由" : "No private IP routes" }
+    static var cloudflareAddHostnameTitle: String { isZH ? "添加公开主机名" : "Add public hostname" }
+    static var cloudflareAddRouteTitle: String { isZH ? "添加私有 IP 路由" : "Add private IP route" }
+    static var cloudflareHostnameField: String { isZH ? "主机名 (e.g. app.example.com)" : "Hostname (e.g. app.example.com)" }
+    static var cloudflareServiceField: String { isZH ? "本地服务 (e.g. http://localhost:8080)" : "Local service (e.g. http://localhost:8080)" }
+    static var cloudflareNetworkField: String { isZH ? "网络/CIDR (e.g. 10.0.0.0/24)" : "Network/CIDR (e.g. 10.0.0.0/24)" }
+    static var cloudflareCommentField: String { isZH ? "备注（可选）" : "Comment (optional)" }
+    static var cloudflareAddAction: String { isZH ? "添加" : "Add" }
+    static var cloudflareRemoveAction: String { isZH ? "删除" : "Remove" }
+    static var cloudflareRemoveHostnameConfirm: String { isZH ? "删除公开主机名 %@ 及其 DNS 记录？" : "Remove public hostname %@ and its DNS record?" }
+    static var cloudflareRemoveRouteConfirm: String { isZH ? "删除私有 IP 路由 %@？" : "Remove private IP route %@?" }
+    static var cloudflareHostnameRequired: String { isZH ? "请输入主机名" : "Enter a hostname" }
+    static var cloudflareServiceRequired: String { isZH ? "请输入本地服务地址" : "Enter a local service URL" }
+    static var cloudflareNetworkRequired: String { isZH ? "请输入网络/CIDR" : "Enter a network/CIDR" }
+    static var cloudflareConfigHint: String { isZH ? "Settings → Services → Cloudflare 配置" : "Settings → Services → Cloudflare to configure" }
 }

@@ -37,8 +37,12 @@ class StatusBarController: NSObject, NSWindowDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(menuBarColorChanged), name: .menuBarColorDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(currencyChanged), name: .currencyDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(peakSettingsChanged), name: .peakSettingsDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(popoverResizeRequested(_:)), name: .popoverResizeRequested, object: nil)
 
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: AppConfig.popoverWidth, height: AppConfig.popoverHeight),
+        let scale = AppConfig.savedPopoverScale()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0,
+                                                  width: AppConfig.popoverWidth * scale,
+                                                  height: AppConfig.popoverHeight * scale),
                               styleMask: [.borderless, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.backgroundColor = .clear
@@ -114,6 +118,38 @@ class StatusBarController: NSObject, NSWindowDelegate {
             NSEvent.removeMonitor(monitor)
             eventMonitor = nil
         }
+    }
+
+    @objc private func popoverResizeRequested(_ note: Notification) {
+        guard let scaleNum = note.object as? NSNumber else { return }
+        resizePopover(to: CGFloat(scaleNum.doubleValue))
+    }
+
+    /// 按缩放倍数调整弹窗窗口大小（保持顶部中心点不变、不超出屏幕）。
+    private func resizePopover(to rawScale: CGFloat) {
+        guard let window = popoverWindow else { return }
+        let screen = statusView?.window?.screen ?? window.screen ?? NSScreen.main
+        let maxH = (screen?.visibleFrame.height ?? 1200) - 24
+        let maxAllowed = min(AppConfig.popoverScaleMax, maxH / AppConfig.popoverHeight)
+        let scale = AppConfig.clampedPopoverScale(min(rawScale, maxAllowed))
+        AppConfig.setSavedPopoverScale(scale)
+
+        let newSize = NSSize(width: AppConfig.popoverWidth * scale,
+                             height: AppConfig.popoverHeight * scale)
+        let oldFrame = window.frame
+        let centerX = oldFrame.midX
+        var newFrame = NSRect(origin: oldFrame.origin, size: newSize)
+        // 保持顶部（上边缘）不动：Cocoa 坐标原点在左下，故用 maxY 固定顶部。
+        newFrame.origin.y = oldFrame.maxY - newSize.height
+        // 保持水平居中。
+        newFrame.origin.x = centerX - newSize.width / 2
+        // 夹到屏幕可见区域内。
+        if let sf = screen?.visibleFrame {
+            if newFrame.minX < sf.minX { newFrame.origin.x = sf.minX }
+            if newFrame.maxX > sf.maxX { newFrame.origin.x = sf.maxX - newFrame.width }
+            if newFrame.minY < sf.minY { newFrame.origin.y = sf.minY }
+        }
+        window.setFrame(newFrame, display: true, animate: false)
     }
 
     private func startEventMonitor() {
@@ -214,9 +250,12 @@ class StatusBarController: NSObject, NSWindowDelegate {
 
     /// 构建弹出面板内容视图（带系统效果视图，自动跟随明暗模式）
     private func buildPopoverContentView(stats: DeepSeekStats) -> NSView {
+        let scale = AppConfig.savedPopoverScale()
+        let size = NSSize(width: AppConfig.popoverWidth * scale, height: AppConfig.popoverHeight * scale)
         let host = NSHostingView(rootView: StatsPopoverView(stats: stats))
-        host.frame = NSRect(x: 0, y: 0, width: AppConfig.popoverWidth, height: AppConfig.popoverHeight)
-        let container = NSView(frame: host.frame)
+        host.frame = NSRect(origin: .zero, size: size)
+        host.autoresizingMask = [.width, .height]
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
         container.wantsLayer = true
         container.layer?.cornerRadius = 10
         container.layer?.masksToBounds = true

@@ -17,6 +17,28 @@ private struct AWSConfirmRequest: Identifiable {
     var id: String { instanceId }
 }
 
+// MARK: - Cloudflare 操作确认（Start / Stop / 删除路由）
+
+private struct CFConfirmRequest: Identifiable {
+    enum Kind {
+        case start
+        case stop
+        case restart
+        case removeHostname(String)
+        case removeRoute(String)
+    }
+    let kind: Kind
+    var id: String {
+        switch kind {
+        case .start: return "cf-start"
+        case .stop: return "cf-stop"
+        case .restart: return "cf-restart"
+        case .removeHostname(let h): return "cf-h-" + h
+        case .removeRoute(let n): return "cf-r-" + n
+        }
+    }
+}
+
 // MARK: - SwiftUI 弹出内容
 
 struct StatsPopoverView: View {
@@ -28,6 +50,10 @@ struct StatsPopoverView: View {
     }
 
     @State private var selectedTab: Int = 0
+    /// 弹窗缩放倍数（拖拽右下角把手调整；持久化保存）
+    @State private var uiScale: CGFloat = AppConfig.savedPopoverScale()
+    /// 拖拽把手起始倍数（nil = 未在拖拽中）
+    @State private var scaleDragStart: CGFloat?
     @State private var licenseSeats: [SeatRecord] = []
     @State private var licenseFilter: LicenseSeatFilter = .valid
 
@@ -49,6 +75,17 @@ struct StatsPopoverView: View {
     @State private var awsRuleDesc = ""
     @State private var awsRuleSaving = false
 
+    // Cloudflare 页状态
+    @State private var cloudflareSubTab = 0       // 0 = Overview, 1 = Public Hostnames, 2 = Private IP
+    @State private var cfConfirmRequest: CFConfirmRequest?
+    @State private var showCFConfirm = false
+    @State private var showAddHostname = false
+    @State private var cfHostname = ""
+    @State private var cfService = "http://localhost:8080"
+    @State private var showAddRoute = false
+    @State private var cfNetwork = ""
+    @State private var cfComment = ""
+
     // 折叠区段状态（DeepSeek 页）
     @State private var showAccountSection = true    // 余额/充值/提示行
     @State private var showUsageStatsSection = true // 用量统计
@@ -56,6 +93,58 @@ struct StatsPopoverView: View {
     @State private var showSourceUsageSection = true // 来源用量（图表/列表）
 
     var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            popoverContent
+                .scaleEffect(uiScale, anchor: .topLeading)
+                .frame(width: AppConfig.popoverWidth * uiScale,
+                       height: AppConfig.popoverHeight * uiScale,
+                       alignment: .topLeading)
+            resizeGrip
+        }
+        .frame(width: AppConfig.popoverWidth * uiScale,
+               height: AppConfig.popoverHeight * uiScale)
+        .clipped()
+    }
+
+    /// 右下角拖拽把手：按宽度变化等比缩放整个弹窗（UI/字体/图标一起放大）。
+    private var resizeGrip: some View {
+        Image(systemName: "arrow.up.left.and.arrow.down.right")
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundColor(.secondary)
+            .frame(width: 16, height: 16)
+            .background(Circle().fill(Color(nsColor: .windowBackgroundColor)))
+            .overlay(Circle().stroke(Color.secondary.opacity(0.35), lineWidth: 1))
+            .padding(4)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let start = scaleDragStart ?? uiScale
+                        scaleDragStart = start
+                        let next = AppConfig.clampedPopoverScale(
+                            start + value.translation.width / AppConfig.popoverWidth
+                        )
+                        if abs(next - uiScale) > 0.001 {
+                            uiScale = next
+                            AppConfig.setSavedPopoverScale(next)
+                            postPopoverResize()
+                        }
+                    }
+                    .onEnded { _ in
+                        scaleDragStart = nil
+                    }
+            )
+            .modifier(HoverTooltip(text: Strings.resizePopoverHint, position: .above))
+    }
+
+    /// 通知 StatusBarController 把窗口调整到当前 uiScale 对应的大小。
+    private func postPopoverResize() {
+        NotificationCenter.default.post(name: .popoverResizeRequested,
+                                        object: NSNumber(value: Double(uiScale)))
+    }
+
+    /// 弹窗主体：固定 334×550 布局，由外层按 uiScale 整体缩放。
+    private var popoverContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             appTitleRow
             Divider().padding(.horizontal, 14)
@@ -74,6 +163,14 @@ struct StatsPopoverView: View {
                 // AWS 页自行管理滚动/布局：Instances 面板需要固定高度窗口内的
                 // 双栏 + 独立滚动侧栏。
                 awsTabContent
+            } else if selectedTab == 4 {
+                cloudflareTabContent
+                    .alert(Strings.cloudflareConfirmTitle, isPresented: $showCFConfirm, presenting: cfConfirmRequest) { req in
+                        Button(Strings.cancel, role: .cancel) {}
+                        Button(cfConfirmButtonLabel(req)) { performCF(req) }
+                    } message: { req in
+                        Text(cfConfirmMessage(req))
+                    }
             } else {
                 ScrollView {
                     if selectedTab == 1 { licenseTabContent }
@@ -87,7 +184,7 @@ struct StatsPopoverView: View {
         .frame(width: AppConfig.popoverWidth)
         .frame(maxHeight: 550)
         .scrollIndicators(.hidden)
-        .onAppear { loadUsage(); loadSourceUsage(); loadSourceOptions() }
+        .onAppear { loadUsage(); loadSourceUsage(); loadSourceOptions(); postPopoverResize() }
         .onReceive(NotificationCenter.default.publisher(for: .usageRecorded)) { _ in
             loadUsage(); loadSourceUsage(); loadSourceOptions()
         }
@@ -906,28 +1003,26 @@ struct StatsPopoverView: View {
 
     private var tabBar: some View {
         HStack(spacing: 4) {
-            tabButton(title: Strings.usageTabTitle, icon: "brain.head.profile", tag: 0, tooltip: Strings.usageTabTooltip)
-            tabButton(title: Strings.licenseTabTitle, icon: "checkmark.shield.fill", tag: 1, tooltip: Strings.licenseTabTooltip)
-            tabButton(title: "GitHub", icon: "logo.github", tag: 2, tooltip: Strings.githubTabTooltip)
-            tabButton(title: "AWS", icon: "cloud.fill", tag: 3, tooltip: Strings.awsTabTooltip)
+            tabButton(symbol: "brain.head.profile", tag: 0, tooltip: Strings.usageTabTooltip)
+            tabButton(symbol: "checkmark.shield.fill", tag: 1, tooltip: Strings.licenseTabTooltip)
+            tabButton(assetName: "github", symbol: "chevron.left.forwardslash.chevron.right", tag: 2, tooltip: Strings.githubTabTooltip)
+            tabButton(assetName: "aws", symbol: "cloud.fill", tag: 3, tooltip: Strings.awsTabTooltip)
+            tabButton(assetName: "cloudflare", symbol: "cloud.bolt.fill", tag: 4, tooltip: Strings.cloudflareTabTooltip)
             Spacer()
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 4)
     }
 
-    private func tabButton(title: String, icon: String, tag: Int, tooltip: String) -> some View {
+    private func tabButton(assetName: String? = nil, symbol: String, tag: Int, tooltip: String) -> some View {
         let active = selectedTab == tag
         return Button(action: { selectedTab = tag }) {
-            HStack(spacing: 4) {
-                Image(systemName: icon).font(.system(size: 9))
-                Text(title).font(.system(size: 10, weight: active ? .semibold : .regular))
-            }
-            .foregroundColor(active ? .white : .secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(active ? Color.blue : Color.clear)
-            .cornerRadius(6)
+            BrandTabIcon(assetName: assetName, symbol: symbol, size: 13)
+                .foregroundColor(active ? .white : .secondary)
+                .frame(width: 30, height: 24)
+                .background(active ? Color.blue : Color.clear)
+                .cornerRadius(6)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .modifier(HoverTooltip(text: tooltip, position: .below))
@@ -1453,13 +1548,13 @@ struct StatsPopoverView: View {
                     awsInfoRow(Strings.awsUptimeLabel, value: String(format: "%.1f h", h))
                 }
                 if let ip = inst.publicIp {
-                    awsInfoRow(Strings.awsPublicIPLabel, value: ip, selectable: true)
+                    awsInfoRow(Strings.awsPublicIPLabel, value: ip, selectable: true, copy: ip)
                 }
                 if inst.isRunning, let dns = inst.publicDns, !dns.isEmpty {
-                    awsInfoRow(Strings.awsPublicDNSLabel, value: dns, selectable: true)
+                    awsInfoRow(Strings.awsPublicDNSLabel, value: dns, selectable: true, copy: dns)
                 }
                 if let ip = inst.privateIp {
-                    awsInfoRow(Strings.awsPrivateIPLabel, value: ip, selectable: true)
+                    awsInfoRow(Strings.awsPrivateIPLabel, value: ip, selectable: true, copy: ip)
                 }
                 if let gid = inst.primarySecurityGroupId {
                     let gname = stats.aws.sgNames[gid] ?? inst.securityGroupNames.first ?? gid
@@ -1473,6 +1568,7 @@ struct StatsPopoverView: View {
 
                 Divider()
 
+                // 主操作行：Start/Stop + 运行中可用「打开 RDP」发起连接
                 HStack(spacing: 8) {
                     if inst.isStopped {
                         awsActionButton(Strings.awsStartAction, icon: "play.fill", color: .green,
@@ -1484,17 +1580,23 @@ struct StatsPopoverView: View {
                                         disabled: awsPending.contains(inst.instanceId)) {
                             beginAWSConfirm(.stop, instanceId: inst.instanceId)
                         }
-                    }
-                    if let gid = inst.primarySecurityGroupId,
-                       (stats.aws.rdpIngress[gid] ?? .unknown) != .open {
-                        awsActionButton(Strings.awsAddIngressAction, icon: "lock.open.fill", color: .blue,
+                        awsActionButton(Strings.awsOpenRDPAction, icon: "display", color: .blue,
                                         disabled: awsPending.contains(inst.instanceId)) {
-                            beginAWSConfirm(.ingress, instanceId: inst.instanceId, groupId: gid)
+                            openRDPConnection(for: inst)
                         }
                     }
                     Spacer()
                     if awsPending.contains(inst.instanceId) {
                         ProgressView().controlSize(.small)
+                    }
+                }
+
+                // 防火墙行：仅在 RDP 尚未对你的 IP 开放时显示
+                if let gid = inst.primarySecurityGroupId,
+                   (stats.aws.rdpIngress[gid] ?? .unknown) != .open {
+                    awsActionButton(Strings.awsAddIngressAction, icon: "lock.open.fill", color: .blue,
+                                    disabled: awsPending.contains(inst.instanceId)) {
+                        beginAWSConfirm(.ingress, instanceId: inst.instanceId, groupId: gid)
                     }
                 }
 
@@ -1694,7 +1796,7 @@ struct StatsPopoverView: View {
             .cornerRadius(6)
     }
 
-    private func awsInfoRow(_ label: String, value: String, selectable: Bool = false) -> some View {
+    private func awsInfoRow(_ label: String, value: String, selectable: Bool = false, copy: String? = nil) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(label).font(.system(size: 9)).foregroundColor(.secondary)
             Spacer(minLength: 6)
@@ -1709,6 +1811,20 @@ struct StatsPopoverView: View {
                     .font(.system(size: 9))
                     .multilineTextAlignment(.trailing)
                     .lineLimit(1)
+            }
+            if let c = copy {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(c, forType: .string)
+                    awsActionSuccess = true
+                    awsActionMessage = Strings.awsCopiedMessage
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .modifier(HoverTooltip(text: Strings.awsCopyAction, position: .below))
             }
         }
     }
@@ -1877,6 +1993,27 @@ struct StatsPopoverView: View {
         }
     }
 
+    /// 「打开 RDP」：把实例的公网 DNS/IP 复制到剪贴板，并尝试用 rdp:// 拉起远程桌面客户端。
+    @MainActor
+    private func openRDPConnection(for inst: AWSInstance) {
+        let target: String?
+        if let dns = inst.publicDns, !dns.isEmpty {
+            target = dns
+        } else if let ip = inst.publicIp, !ip.isEmpty {
+            target = ip
+        } else {
+            target = nil
+        }
+        guard let target else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(target, forType: .string)
+        if let url = URL(string: "rdp://full%20address=s:\(target):3389") {
+            NSWorkspace.shared.open(url)
+        }
+        awsActionSuccess = true
+        awsActionMessage = Strings.awsRDPConnectMessage
+    }
+
     @MainActor
     private func beginAWSConfirm(_ kind: AWSConfirmRequest.Kind, instanceId: String, groupId: String? = nil) {
         awsConfirmRequest = AWSConfirmRequest(kind: kind, instanceId: instanceId, groupId: groupId)
@@ -1970,7 +2107,7 @@ struct StatsPopoverView: View {
         let maxAttempts = forStart ? 12 : 3
         let interval: UInt64 = forStart ? 5_000_000_000 : 3_000_000_000
         Task {
-            for attempt in 0..<maxAttempts {
+            for _ in 0..<maxAttempts {
                 try? await Task.sleep(nanoseconds: interval)
                 guard !Task.isCancelled else { return }
                 stats.aws.refresh()
@@ -1993,6 +2130,429 @@ struct StatsPopoverView: View {
             .onTapGesture { selection.wrappedValue = tag }
     }
 
+    // MARK: - Cloudflare Tab
+
+    private var cloudflareSubTabBar: some View {
+        HStack(spacing: 4) {
+            cfSubTabButton(Strings.cloudflareSubTabOverview, tag: 0)
+            cfSubTabButton(Strings.cloudflareSubTabHostnames, tag: 1)
+            cfSubTabButton(Strings.cloudflareSubTabRoutes, tag: 2)
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 4)
+    }
+
+    private func cfSubTabButton(_ title: String, tag: Int) -> some View {
+        let active = cloudflareSubTab == tag
+        return Button(action: { cloudflareSubTab = tag }) {
+            Text(title)
+                .font(.system(size: 10, weight: active ? .semibold : .regular))
+                .foregroundColor(active ? .white : .secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(active ? Color.blue : Color.clear)
+                .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .modifier(HoverTooltip(text: title, position: .below))
+    }
+
+    private var cloudflareTabContent: some View {
+        VStack(spacing: 0) {
+            if stats.cloudflare.isLoading {
+                Spacer(minLength: 40)
+                HStack { Spacer(); ProgressView().scaleEffect(1.2); Spacer() }
+                Spacer(minLength: 40)
+            } else if !stats.cloudflare.isEnabled {
+                cloudflareUnconfiguredState
+            } else if let err = stats.cloudflare.errorMessage {
+                Spacer(minLength: 40)
+                VStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill").font(.title2).foregroundColor(.orange)
+                    Text(err).font(.caption).foregroundColor(.orange).multilineTextAlignment(.center)
+                    Text(Strings.cloudflareConfigHint)
+                        .font(.caption2).foregroundColor(.secondary)
+                    // 出错时也能直接从 popover 重试验证（无需回 Settings）。
+                    cfActionButton(Strings.cloudflareVerifyAction, "checkmark.seal.fill", color: .blue,
+                                   disabled: false) {
+                        Task { await stats.cloudflare.verifyAndDiscover() }
+                    }
+                    .padding(.top, 2)
+                }
+                .padding(.horizontal, 14)
+                Spacer(minLength: 40)
+            } else {
+                cloudflareSubTabBar
+                Divider().padding(.horizontal, 14)
+                if cloudflareSubTab == 0 {
+                    ScrollView { cloudflareOverviewView.padding(14) }
+                } else if cloudflareSubTab == 1 {
+                    ScrollView { cloudflareHostnamesView.padding(14) }
+                } else {
+                    ScrollView { cloudflareRoutesView.padding(14) }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var cloudflareUnconfiguredState: some View {
+        VStack {
+            Spacer()
+            VStack(spacing: 8) {
+                Image(systemName: "cloud.bolt.fill").font(.title2).foregroundColor(.secondary)
+                Text(Strings.cloudflareConfigHint)
+                    .font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            Spacer()
+        }
+    }
+
+    private var cloudflareOverviewView: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            let cf = stats.cloudflare
+            // 本机服务状态
+            HStack(spacing: 6) {
+                Image(systemName: "gearshape.2.fill")
+                    .font(.system(size: 8))
+                    .foregroundColor(cf.daemonRunning ? .green : .red)
+                    .frame(width: 14)
+                Text(Strings.cloudflareDaemonRow).font(.system(size: 9)).foregroundColor(.secondary)
+                Spacer()
+                Text(cfDaemonStatusText)
+                    .font(.system(size: 9))
+                    .foregroundColor(cf.daemonRunning ? .green : .red)
+            }
+
+            // Start / Stop / Restart
+            HStack(spacing: 6) {
+                cfActionButton(Strings.cloudflareStartAction, "play.fill", color: .green,
+                               disabled: cf.daemonRunning) {
+                    cfConfirmRequest = CFConfirmRequest(kind: .start)
+                    showCFConfirm = true
+                }
+                cfActionButton(Strings.cloudflareStopAction, "stop.fill", color: .red,
+                               disabled: !cf.daemonRunning) {
+                    cfConfirmRequest = CFConfirmRequest(kind: .stop)
+                    showCFConfirm = true
+                }
+                cfActionButton(Strings.cloudflareRestartAction, "arrow.clockwise", color: .orange,
+                               disabled: !cf.daemonRunning) {
+                    cfConfirmRequest = CFConfirmRequest(kind: .restart)
+                    showCFConfirm = true
+                }
+                Spacer()
+            }
+
+            if let t = cf.selectedTunnel {
+                Divider().padding(.vertical, 2)
+                HStack(spacing: 6) {
+                    Image(systemName: "shield.lefthalf.filled")
+                        .font(.system(size: 8)).foregroundColor(.blue).frame(width: 14)
+                    Text(t.name.isEmpty ? t.id : t.name)
+                        .font(.system(size: 9, weight: .medium)).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Text(cfHealthText(t))
+                        .font(.system(size: 9))
+                        .foregroundColor(cfHealthColor(t))
+                }
+                HStack(spacing: 6) {
+                    Image(systemName: "point.3.connected.trianglepath.dotted")
+                        .font(.system(size: 8)).foregroundColor(.secondary).frame(width: 14)
+                    Text(Strings.cloudflareConnectors).font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                    Text(String(format: Strings.cloudflareConnectorsFormat, t.connectorCount))
+                        .font(.system(size: 9).monospacedDigit())
+                }
+                // 服务进程已运行但隧道未连上（token 失效/缺失、网络等）——给出可操作的提示。
+                if cf.daemonRunning && !t.isHealthy {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 8)).foregroundColor(.orange).frame(width: 14)
+                        Text(Strings.cloudflareRunningNotConnected)
+                            .font(.system(size: 8)).foregroundColor(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                    }
+                }
+                HStack(spacing: 6) {
+                    Image(systemName: "clock").font(.system(size: 8)).foregroundColor(.secondary).frame(width: 14)
+                    Text(Strings.cloudflareLastUpdate).font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                    Text(cf.lastUpdate)
+                        .font(.system(size: 9).monospacedDigit()).foregroundColor(.secondary)
+                }
+            } else if cf.tunnels.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "info.circle").font(.system(size: 8)).foregroundColor(.secondary).frame(width: 14)
+                    Text(Strings.cloudflareNoSelection).font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                }
+            }
+
+            if let msg = cf.actionMessage {
+                HStack(spacing: 6) {
+                    Image(systemName: cf.actionSuccess ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .font(.system(size: 8))
+                        .foregroundColor(cf.actionSuccess ? .green : .red)
+                        .frame(width: 14)
+                    Text(msg).font(.system(size: 8)).foregroundColor(cf.actionSuccess ? .secondary : .red)
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    private var cloudflareHostnamesView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(Strings.cloudflareSubTabHostnames)
+                    .font(.system(size: 10, weight: .semibold))
+                Spacer()
+                Button {
+                    showAddHostname.toggle()
+                    if !showAddHostname { cfHostname = "" }
+                } label: {
+                    Image(systemName: showAddHostname ? "xmark" : "plus")
+                        .font(.system(size: 9)).foregroundColor(.blue)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if showAddHostname {
+                VStack(alignment: .leading, spacing: 6) {
+                    TextField(Strings.cloudflareHostnameField, text: $cfHostname)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 9))
+                    TextField(Strings.cloudflareServiceField, text: $cfService)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 9))
+                    HStack {
+                        Spacer()
+                        Button(action: addCFHostname) {
+                            Text(Strings.cloudflareAddAction)
+                                .font(.system(size: 9, weight: .medium))
+                                .padding(.horizontal, 10).padding(.vertical, 3)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(cfHostname.trimmingCharacters(in: .whitespaces).isEmpty
+                                  || cfService.trimmingCharacters(in: .whitespaces).isEmpty
+                                  || stats.cloudflare.isWorking)
+                    }
+                }
+            }
+
+            if stats.cloudflare.ingress.isEmpty {
+                HStack {
+                    Spacer()
+                    Text(Strings.cloudflareHostnamesEmpty)
+                        .font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                }
+            } else {
+                ForEach(stats.cloudflare.ingress) { rule in
+                    HStack(spacing: 6) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(rule.hostname)
+                                .font(.system(size: 9, design: .monospaced))
+                                .lineLimit(1).truncationMode(.middle)
+                            Text(rule.service)
+                                .font(.system(size: 8))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1).truncationMode(.middle)
+                        }
+                        Spacer()
+                        Button {
+                            cfConfirmRequest = CFConfirmRequest(kind: .removeHostname(rule.hostname))
+                            showCFConfirm = true
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 9)).foregroundColor(.red)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(stats.cloudflare.isWorking)
+                    }
+                    if rule.hostname != stats.cloudflare.ingress.last?.hostname {
+                        Divider().padding(.leading, 8)
+                    }
+                }
+            }
+        }
+    }
+
+    private var cloudflareRoutesView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(Strings.cloudflareSubTabRoutes)
+                    .font(.system(size: 10, weight: .semibold))
+                Spacer()
+                Button {
+                    showAddRoute.toggle()
+                    if !showAddRoute { cfNetwork = "" }
+                } label: {
+                    Image(systemName: showAddRoute ? "xmark" : "plus")
+                        .font(.system(size: 9)).foregroundColor(.blue)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if showAddRoute {
+                VStack(alignment: .leading, spacing: 6) {
+                    TextField(Strings.cloudflareNetworkField, text: $cfNetwork)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 9))
+                    TextField(Strings.cloudflareCommentField, text: $cfComment)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 9))
+                    HStack {
+                        Spacer()
+                        Button(action: addCFRoute) {
+                            Text(Strings.cloudflareAddAction)
+                                .font(.system(size: 9, weight: .medium))
+                                .padding(.horizontal, 10).padding(.vertical, 3)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(cfNetwork.trimmingCharacters(in: .whitespaces).isEmpty
+                                  || stats.cloudflare.isWorking)
+                    }
+                }
+            }
+
+            if stats.cloudflare.ipRoutes.isEmpty {
+                HStack {
+                    Spacer()
+                    Text(Strings.cloudflareRoutesEmpty)
+                        .font(.system(size: 9)).foregroundColor(.secondary)
+                    Spacer()
+                }
+            } else {
+                ForEach(stats.cloudflare.ipRoutes) { route in
+                    HStack(spacing: 6) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(route.network)
+                                .font(.system(size: 9, design: .monospaced))
+                            if let c = route.comment, !c.isEmpty {
+                                Text(c)
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1).truncationMode(.middle)
+                            }
+                        }
+                        Spacer()
+                        Button {
+                            cfConfirmRequest = CFConfirmRequest(kind: .removeRoute(route.network))
+                            showCFConfirm = true
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 9)).foregroundColor(.red)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(stats.cloudflare.isWorking)
+                    }
+                    if route.network != stats.cloudflare.ipRoutes.last?.network {
+                        Divider().padding(.leading, 8)
+                    }
+                }
+            }
+        }
+    }
+
+    private func cfActionButton(_ title: String, _ icon: String, color: Color,
+                                disabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 8))
+                Text(title).font(.system(size: 10, weight: .medium))
+            }
+            .foregroundColor(disabled ? Color.secondary : color)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(disabled ? Color.gray.opacity(0.12) : color.opacity(0.15))
+            .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled || stats.cloudflare.isWorking)
+    }
+
+    private var cfDaemonStatusText: String {
+        switch stats.cloudflare.daemonState {
+        case .running: return Strings.cloudflareDaemonRunning
+        case .installed: return Strings.cloudflareDaemonInstalled
+        case .notInstalled: return Strings.cloudflareDaemonNotInstalled
+        }
+    }
+
+    private func cfHealthText(_ t: CloudflareTunnel) -> String {
+        switch t.status {
+        case "healthy": return Strings.cloudflareTunnelHealthy
+        case "degraded": return Strings.cloudflareTunnelDegraded
+        case "down": return Strings.cloudflareTunnelDown
+        default: return Strings.cloudflareTunnelInactive
+        }
+    }
+
+    private func cfHealthColor(_ t: CloudflareTunnel) -> Color {
+        switch t.status {
+        case "healthy": return .green
+        case "degraded": return .orange
+        case "down": return .red
+        default: return .secondary
+        }
+    }
+
+    private func cfConfirmButtonLabel(_ req: CFConfirmRequest) -> String {
+        switch req.kind {
+        case .start: return Strings.cloudflareStartAction
+        case .stop: return Strings.cloudflareStopAction
+        case .restart: return Strings.cloudflareRestartAction
+        case .removeHostname, .removeRoute: return Strings.cloudflareRemoveAction
+        }
+    }
+
+    private func cfConfirmMessage(_ req: CFConfirmRequest) -> String {
+        switch req.kind {
+        case .start: return Strings.cloudflareStartConfirm
+        case .stop: return Strings.cloudflareStopConfirm
+        case .restart: return Strings.cloudflareRestartConfirm
+        case .removeHostname(let h): return String(format: Strings.cloudflareRemoveHostnameConfirm, h)
+        case .removeRoute(let n): return String(format: Strings.cloudflareRemoveRouteConfirm, n)
+        }
+    }
+
+    private func performCF(_ req: CFConfirmRequest) {
+        Task {
+            switch req.kind {
+            case .start: await stats.cloudflare.startTunnel()
+            case .stop: await stats.cloudflare.stopTunnel()
+            case .restart: await stats.cloudflare.restartTunnel()
+            case .removeHostname(let h): await stats.cloudflare.removePublicHostname(hostname: h)
+            case .removeRoute(let n): await stats.cloudflare.removeIPRoute(network: n)
+            }
+        }
+    }
+
+    private func addCFHostname() {
+        let h = cfHostname.trimmingCharacters(in: .whitespaces)
+        let s = cfService.trimmingCharacters(in: .whitespaces)
+        guard !h.isEmpty, !s.isEmpty else { return }
+        cfHostname = ""
+        showAddHostname = false
+        Task { await stats.cloudflare.addPublicHostname(hostname: h, service: s) }
+    }
+
+    private func addCFRoute() {
+        let n = cfNetwork.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty else { return }
+        cfNetwork = ""
+        showAddRoute = false
+        Task { await stats.cloudflare.addIPRoute(network: n, comment: cfComment.trimmingCharacters(in: .whitespaces)) }
+        cfComment = ""
+    }
+
     private var actionBar: some View {
         HStack(spacing: 6) {
             Spacer()
@@ -2000,6 +2560,7 @@ struct StatsPopoverView: View {
                 stats.refresh()
                 stats.gitHub.refresh()
                 stats.aws.refresh()
+                stats.cloudflare.refresh()
                 loadUsage()
             }
             iconButton(icon: "square.and.arrow.up", label: Strings.exportUsageButton, color: .teal) {
@@ -2013,6 +2574,7 @@ struct StatsPopoverView: View {
                 stats.refresh()
                 stats.gitHub.refresh()
                 stats.aws.refresh()
+                stats.cloudflare.refresh()
                 loadUsage()
             }
             iconButton(icon: "gearshape", label: Strings.settings, color: .secondary) {

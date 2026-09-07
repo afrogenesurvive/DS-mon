@@ -61,3 +61,24 @@ func providerTint(_ providerId: String) -> Color {
     default:          return .blue
     }
 }
+
+/// 顶部 tab 栏/设置标题图标：优先使用打包的品牌资源（github/aws/cloudflare…模板图），
+/// 缺失时回退到可靠的 SF Symbol，保证任何系统版本下图标都可见、可点。
+struct BrandTabIcon: View {
+    let assetName: String?
+    let symbol: String
+    var size: CGFloat = 13
+
+    var body: some View {
+        if let assetName, let image = ProviderLogoStore.image(named: assetName) {
+            Image(nsImage: image)
+                .renderingMode(.template)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size + 4, height: size + 4)
+        } else {
+            Image(systemName: symbol)
+                .font(.system(size: size, weight: .medium))
+        }
+    }
+}

@@ -18,6 +18,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     static let sharedStats = DeepSeekStats()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // 启动时套用保存的外观主题（System / Light / Dark）
+        Theme.apply()
+
         // Dock 图标
         if let url = Bundle.main.url(forResource: "dslogo1", withExtension: "png"),
            let icon = NSImage(contentsOf: url) {
