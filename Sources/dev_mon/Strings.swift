@@ -12,6 +12,8 @@ extension Notification.Name {
     static let seatRegistryChanged = Notification.Name("seatRegistryChanged")
     static let peakSettingsDidChange = Notification.Name("peakSettingsDidChange")
     static let popoverResizeRequested = Notification.Name("popoverResizeRequested")
+    static let appAlertDidFire = Notification.Name("appAlertDidFire")
+    static let appAlertDidUpdate = Notification.Name("appAlertDidUpdate")
     static let appearanceDidChange = Notification.Name("appearanceDidChange")
 }
 
@@ -77,8 +79,16 @@ enum Strings {
         static let cloudflareZoneName = "cloudflare_zone_name"
         static let cloudflareTunnelId = "cloudflare_tunnel_id"
         static let cloudflareTunnelName = "cloudflare_tunnel_name"
+        static let netlifyEnabled = "netlify_enabled"
+        static let netlifyApiToken = "netlify_api_token"
+        static let netlifyAccountId = "netlify_account_id"
+        static let netlifyAccountName = "netlify_account_name"
+        static let netlifySelectedSiteId = "netlify_selected_site_id"
+        static let netlifyDeployNotifyEnabled = "netlify_deploy_notification_enabled"
         static let showPeakDot = "show_peak_dot"
         static let peakNotificationEnabled = "peak_notification_enabled"
+        static let tunnelDownNotificationEnabled = "tunnel_down_notification_enabled"
+        static let balanceAlertEnabled = "balance_alert_enabled"
         static func lastModel(for providerId: String) -> String { "last_model_\(providerId)" }
         /// 按月计费提供商的手填月度预算（用于推导剩余额度）
         static func monthlyBudget(for providerId: String) -> String { "monthly_budget_\(providerId)" }
@@ -144,12 +154,35 @@ enum Strings {
     static var peakStatusOffPeak: String { isZH ? "低谷" : "Off-Peak" }
     static var peakCountdown: String { isZH ? "高峰 · %@ 后切换" : "Peak · %@ left" }
     static var offPeakCountdown: String { isZH ? "低谷 · %@ 后切换" : "Off-Peak · %@ left" }
+    static var peakMenuActive: String { isZH ? "高峰剩 %@" : "Peak %@ left" }
+    static var peakMenuPending: String { isZH ? "%@ 后高峰" : "Peak in %@" }
     static var peakDotLabel: String { isZH ? "高峰/低谷状态点" : "Peak Status Dot" }
     static var peakNotifyLabel: String { isZH ? "高峰/低谷切换通知" : "Peak Transition Notification" }
     static var peakNotifyTitle: String { isZH ? "DeepSeek 高峰时段开始" : "DeepSeek Peak started" }
     static var peakNotifyBody: String { isZH ? "高峰计费已开始（价格为低谷的 2 倍）" : "Peak pricing is now active (2× off-peak)." }
     static var offPeakNotifyTitle: String { isZH ? "DeepSeek 低谷时段开始" : "DeepSeek Off-Peak started" }
-    static var offPeakNotifyBody: String { isZH ? "低谷计费已开始（价格约为高峰一半）" : "Off-peak discount is now active (~50% off)." }
+    static var offPeakNotifyBody: String { isZH ? "低谷计费已开始（价格约为高峰一半）——适合跑大批量任务" : "Off-peak discount is now active (~50% off) — good time for batch jobs." }
+
+    // MARK: - 🔔 Notifications / Alerts
+    static var alertsTabTitle: String { isZH ? "通知" : "Alerts" }
+    static var alertsTabTooltip: String { isZH ? "通知" : "Notifications" }
+    static var alertsEmpty: String { isZH ? "暂无通知" : "No notifications yet" }
+    static var alertsClearAll: String { isZH ? "清空" : "Clear" }
+    static var peakSoonNotifyTitle: String { isZH ? "DeepSeek 高峰即将开始" : "DeepSeek peak starting soon" }
+    static var peakSoonNotifyBody: String { isZH ? "约 10 分钟后进入高峰计费（价格为低谷 2 倍），大型任务建议错峰。" : "Peak pricing (~2× off-peak) starts in ~10 min — consider queuing heavy jobs now." }
+    static var tunnelDownNotifyLabel: String { isZH ? "隧道断开通知" : "Tunnel Down Alert" }
+    static var tunnelDownNotifyHint: String { isZH ? "cloudflared 断开或无法连接时发送系统通知" : "Notify when the tunnel drops or can't connect" }
+    static var tunnelDownTitle: String { isZH ? "Cloudflare 隧道已断开" : "Cloudflare tunnel is down" }
+    static var tunnelDownBody: String { isZH ? "cloudflared 已停止，公网访问可能中断。" : "cloudflared stopped — public access may be interrupted." }
+    static var tunnelDownRemoteBody: String { isZH ? "cloudflared 运行中但未能连接 Cloudflare，请检查 token / 日志。" : "cloudflared is running but not connected to Cloudflare — check token/logs." }
+    static var tunnelRestoredTitle: String { isZH ? "Cloudflare 隧道已恢复" : "Cloudflare tunnel restored" }
+    static var tunnelRestoredBody: String { isZH ? "cloudflared 已重新连接，服务恢复正常。" : "cloudflared reconnected — services are back up." }
+    static var balanceAlertLabel: String { isZH ? "余额预警通知" : "Balance Alert" }
+    static var balanceAlertHint: String { isZH ? "余额进入预警/不足区间时发送系统通知" : "Notify when balance enters warning / low" }
+    static var balanceWarningTitle: String { isZH ? "余额预警" : "Balance warning" }
+    static var balanceWarningBody: String { isZH ? "余额已进入预警区间，请留意用量。" : "Balance is in the warning zone." }
+    static var balanceLowTitle: String { isZH ? "余额不足" : "Low balance" }
+    static var balanceLowBody: String { isZH ? "余额偏低，建议尽快充值以免服务中断。" : "Balance is running low — consider topping up soon." }
 
     // Action bar
     static var refresh: String { isZH ? "刷新" : "Refresh" }
@@ -410,9 +443,10 @@ enum Strings {
     }
     static var usageTabTooltip: String { isZH ? "AI 用量统计与请求历史" : "AI Usage stats & request history" }
     static var licenseTabTooltip: String { isZH ? "许可证席位与有效期" : "License seats & expiry" }
-    static var githubTabTooltip: String { isZH ? "GitHub Actions 免费额度用量" : "GitHub Actions free-tier usage" }
+    static var githubTabTooltip: String { isZH ? "GitHub Actions 用量与仓库" : "GitHub Actions usage & repositories" }
     static var awsTabTooltip: String { isZH ? "AWS 免费套餐与费用" : "AWS free tier & costs" }
     static var cloudflareTabTooltip: String { isZH ? "Cloudflare 隧道状态与路由" : "Cloudflare tunnel status & routes" }
+    static var netlifyTabTooltip: String { isZH ? "Netlify 站点与部署" : "Netlify sites & deploys" }
     static var showChartTooltip: String { isZH ? "切换为图表视图" : "Switch to chart view" }
     static var showListTooltip: String { isZH ? "切换为列表视图" : "Switch to list view" }
 
@@ -447,7 +481,7 @@ enum Strings {
     static var githubSection: String { isZH ? "GitHub Actions" : "GitHub Actions" }
     static var githubToggle: String { isZH ? "启用 GitHub 追踪" : "Enable GitHub Tracking" }
     static var githubTokenLabel: String { isZH ? "Personal Access Token" : "Personal Access Token" }
-    static var githubTokenHint: String { isZH ? "需要 classic PAT（read:user 权限）" : "Requires a classic PAT with read:user scope" }
+    static var githubTokenHint: String { isZH ? "需要 classic PAT；读取私有仓库需勾选 repo 权限" : "Requires a classic PAT; enable the repo scope to include private repos" }
     static var githubTokenRevealHint: String { isZH ? "显示/隐藏令牌" : "Show / hide token" }
     static var githubTokenCopyHint: String { isZH ? "复制令牌" : "Copy token" }
     static var githubUserLabel: String { isZH ? "用户名/组织" : "Username/Org" }
@@ -459,6 +493,30 @@ enum Strings {
     static var githubFreeStatus: String { isZH ? "✅ 在免费额度内" : "✅ Within free tier" }
     static var githubWarningStatus: String { isZH ? "⚠️ 接近免费额度上限" : "⚠️ Approaching free tier limit" }
     static var githubExceededStatus: String { isZH ? "❌ 超过免费额度" : "❌ Exceeded free tier" }
+
+    // —— GitHub 页子页签（Actions / 仓库）——
+    static var githubSubTabActions: String { isZH ? "Actions" : "Actions" }
+    static var githubSubTabRepos: String { isZH ? "仓库" : "Repositories" }
+    static var githubRepoListLabel: String { isZH ? "仓库" : "Repositories" }
+    static var githubSearchPlaceholder: String { isZH ? "搜索仓库…" : "Search repositories…" }
+    static var githubNoSelectionHint: String { isZH ? "选择一个仓库" : "Select a repository" }
+    static var githubNotConfigured: String { isZH ? "请先在 设置→服务 配置 GitHub" : "Configure GitHub in Settings → Services" }
+    static var githubNoRepos: String { isZH ? "没有可见的仓库" : "No repositories found" }
+    static var githubVisibilityLabel: String { isZH ? "可见性" : "Visibility" }
+    static var githubPublicLabel: String { isZH ? "公开" : "Public" }
+    static var githubPrivateLabel: String { isZH ? "私有" : "Private" }
+    static var githubCreatedLabel: String { isZH ? "创建时间" : "Created" }
+    static var githubDetailLoading: String { isZH ? "加载详情…" : "Loading…" }
+    static var githubCommitsSection: String { isZH ? "最近提交" : "Recent Commits" }
+    static var githubBranchesSection: String { isZH ? "分支" : "Branches" }
+    static var githubReleasesSection: String { isZH ? "最近发布" : "Recent Releases" }
+    static var githubNoCommits: String { isZH ? "暂无提交" : "No commits" }
+    static var githubNoBranches: String { isZH ? "暂无分支" : "No branches" }
+    static var githubNoReleases: String { isZH ? "暂无发布" : "No releases" }
+    static var githubMoreBranches: String { isZH ? "另有 %d 个分支未显示" : "+%d more branches" }
+    static var githubCopyAction: String { isZH ? "复制" : "Copy" }
+    static var githubCopied: String { isZH ? "已复制" : "Copied" }
+    static var githubOpenAction: String { isZH ? "在浏览器打开" : "Open in browser" }
 
     // MARK: - ☁️ AWS
     static var awsSection: String { isZH ? "AWS EC2 免费套餐" : "AWS EC2 Free Tier" }
@@ -493,6 +551,7 @@ enum Strings {
     static var awsSubTabOverview: String { isZH ? "概览" : "Overview" }
     static var awsSubTabInstances: String { isZH ? "实例" : "Instances" }
     static var awsInstancesEmpty: String { isZH ? "该区域暂无 EC2 实例" : "No EC2 instances in this region" }
+    static var awsSearchPlaceholder: String { isZH ? "搜索实例…" : "Search instances…" }
     static var awsNoSelectionHint: String { isZH ? "选择一个实例" : "Select an instance" }
     static var awsInstTypeLabel: String { isZH ? "类型" : "Type" }
     static var awsStateLabel: String { isZH ? "状态" : "State" }
@@ -598,6 +657,8 @@ enum Strings {
     static var cloudflareSubTabRoutes: String { isZH ? "私有 IP 路由" : "Private IP Routes" }
     static var cloudflareHostnamesEmpty: String { isZH ? "暂无公开主机名" : "No public hostnames" }
     static var cloudflareRoutesEmpty: String { isZH ? "暂无私有 IP 路由" : "No private IP routes" }
+    static var cloudflareCopyAction: String { isZH ? "复制" : "Copy" }
+    static var cloudflareCopied: String { isZH ? "已复制" : "Copied" }
     static var cloudflareAddHostnameTitle: String { isZH ? "添加公开主机名" : "Add public hostname" }
     static var cloudflareAddRouteTitle: String { isZH ? "添加私有 IP 路由" : "Add private IP route" }
     static var cloudflareHostnameField: String { isZH ? "主机名 (e.g. app.example.com)" : "Hostname (e.g. app.example.com)" }
@@ -612,4 +673,102 @@ enum Strings {
     static var cloudflareServiceRequired: String { isZH ? "请输入本地服务地址" : "Enter a local service URL" }
     static var cloudflareNetworkRequired: String { isZH ? "请输入网络/CIDR" : "Enter a network/CIDR" }
     static var cloudflareConfigHint: String { isZH ? "Settings → Services → Cloudflare 配置" : "Settings → Services → Cloudflare to configure" }
+
+    // MARK: - Netlify
+    static var netlifySection: String { isZH ? "Netlify" : "Netlify" }
+    static var netlifyToggle: String { isZH ? "启用 Netlify 管理" : "Enable Netlify" }
+    static var netlifyTokenLabel: String { isZH ? "Personal Access Token" : "Personal Access Token" }
+    static var netlifyTokenHint: String { isZH ? "在 app.netlify.com → User settings → Applications → Personal access tokens 创建；重置 Netlify 密码会使旧令牌失效。令牌需能访问目标账户（SAML 团队需在创建时勾选允许）。" : "Create at app.netlify.com → User settings → Applications → Personal access tokens. Resetting your Netlify password invalidates tokens; grant access to your team (incl. SAML) when creating." }
+    static var netlifyVerifyAction: String { isZH ? "验证并发现" : "Verify & Discover" }
+    static var netlifyVerifyBusy: String { isZH ? "验证中…" : "Verifying…" }
+    static var netlifyAccountLabel: String { isZH ? "账户" : "Account" }
+    static var netlifyDeployNotifyLabel: String { isZH ? "部署状态通知" : "Deploy notifications" }
+    static var netlifyDeployNotifyHint: String { isZH ? "部署成功 / 失败 / 回滚时发送系统通知" : "Notify when a deploy succeeds, fails, or is rolled back" }
+    static var netlifySettingsNote: String { isZH ? "令牌仅保存在本机钥匙串（SecureStore）。Netlify API 限速：部署相关 3 次/分、100 次/天；普通请求约 500 次/分。" : "Token is stored only in your local keychain (SecureStore). Netlify rate limits: deploys 3/min & 100/day; general API ~500/min." }
+
+    // —— Netlify 站点与部署 ——
+    static var netlifyConfigHint: String { isZH ? "Settings → Services → Netlify 配置" : "Settings → Services → Netlify to configure" }
+    static var netlifySiteSection: String { isZH ? "站点" : "Site" }
+    static var netlifySearchPlaceholder: String { isZH ? "搜索站点…" : "Search sites…" }
+    static var netlifySitesEmpty: String { isZH ? "该账户暂无站点" : "No sites in this account" }
+    static var netlifyNoSelectionHint: String { isZH ? "选择一个站点" : "Select a site" }
+    static var netlifyProjectIDLabel: String { isZH ? "Project ID" : "Project ID" }
+    static var netlifyMainURLLabel: String { isZH ? "主链接" : "URL" }
+    static var netlifyCustomDomainLabel: String { isZH ? "自定义域名" : "Custom domain" }
+    static var netlifyAdminLabel: String { isZH ? "管理后台" : "Admin" }
+    static var netlifyPublishedDeployLabel: String { isZH ? "线上部署" : "Published" }
+    static var netlifyBuildHeader: String { isZH ? "构建设置" : "Build settings" }
+    static var netlifyRepoLabel: String { isZH ? "仓库" : "Repo" }
+    static var netlifyBranchLabel: String { isZH ? "分支" : "Branch" }
+    static var netlifyBuildCmdLabel: String { isZH ? "构建命令" : "Build command" }
+    static var netlifyPublishDirLabel: String { isZH ? "发布目录" : "Publish dir" }
+    static var netlifyDeploysHeader: String { isZH ? "部署历史" : "Deploys" }
+    static var netlifyDeploysEmpty: String { isZH ? "暂无部署" : "No deploys" }
+    static var netlifyLastUpdate: String { isZH ? "更新于" : "Updated" }
+    static var netlifyLiveBadge: String { isZH ? "线上" : "Live" }
+    static var netlifyLockedBadge: String { isZH ? "已锁定" : "Locked" }
+    static var netlifyContextProduction: String { isZH ? "生产" : "Production" }
+    static var netlifyContextBranch: String { isZH ? "分支" : "Branch" }
+    static var netlifyContextPreview: String { isZH ? "预览" : "Preview" }
+    static var netlifyStateReady: String { isZH ? "已就绪" : "Ready" }
+    static var netlifyStateCurrent: String { isZH ? "线上" : "Live" }
+    static var netlifyStateOld: String { isZH ? "旧版" : "Old" }
+    static var netlifyStateError: String { isZH ? "失败" : "Error" }
+    static var netlifyStateBuilding: String { isZH ? "构建中" : "Building" }
+    static var netlifyStateEnqueued: String { isZH ? "排队中" : "Queued" }
+    static var netlifyStateUploading: String { isZH ? "上传中" : "Uploading" }
+    static var netlifyStateProcessing: String { isZH ? "处理中" : "Processing" }
+
+    // —— Netlify 动作 ——
+    static var netlifyTriggerAction: String { isZH ? "触发部署" : "Deploy" }
+    static var netlifyTriggerClearAction: String { isZH ? "清缓存并部署" : "Clear cache & deploy" }
+    static var netlifyDeployFolderAction: String { isZH ? "部署本地目录…" : "Deploy Folder…" }
+    static var netlifyNewSiteAction: String { isZH ? "新建站点" : "New Site" }
+    static var netlifyOpenSiteAction: String { isZH ? "打开站点" : "Open site" }
+    static var netlifyOpenAdminAction: String { isZH ? "打开后台" : "Open admin" }
+    static var netlifyRollbackAction: String { isZH ? "回滚到此" : "Rollback" }
+    static var netlifyLockAction: String { isZH ? "锁定线上版本" : "Lock live" }
+    static var netlifyUnlockAction: String { isZH ? "解锁线上版本" : "Unlock live" }
+    static var netlifyCopyAction: String { isZH ? "复制" : "Copy" }
+    static var netlifyCopied: String { isZH ? "已复制" : "Copied" }
+
+    // —— Netlify 确认与结果 ——
+    static var netlifyConfirmTitle: String { isZH ? "确认 Netlify 操作" : "Confirm Netlify action" }
+    static var netlifyTriggerConfirm: String { isZH ? "为 %@ 触发一次生产部署？" : "Trigger a production deploy for %@?" }
+    static var netlifyTriggerClearConfirm: String { isZH ? "为 %@ 清缓存并触发生产部署？" : "Clear cache and trigger a production deploy for %@?" }
+    static var netlifyRollbackConfirm: String { isZH ? "回滚 %@ 到部署 %@？该版本将重新上线。" : "Roll back %@ to deploy %@? This version will go live again." }
+    static var netlifyLockConfirm: String { isZH ? "锁定部署 %@？将停止自动发布新的生产部署。" : "Lock deploy %@? This stops auto-publishing new production deploys." }
+    static var netlifyUnlockConfirm: String { isZH ? "解锁部署 %@？将恢复自动发布。" : "Unlock deploy %@? This resumes auto-publishing." }
+    static var netlifyTriggerSent: String { isZH ? "已触发部署" : "Deploy triggered" }
+    static var netlifyTriggerClearSent: String { isZH ? "已触发（清缓存）" : "Deploy triggered (clear cache)" }
+    static var netlifyRolledBack: String { isZH ? "已回滚" : "Rolled back" }
+    static var netlifyLocked: String { isZH ? "已锁定部署" : "Deploy locked" }
+    static var netlifyUnlocked: String { isZH ? "已解锁部署" : "Deploy unlocked" }
+    static var netlifySiteCreated: String { isZH ? "站点已创建" : "Site created" }
+    static var netlifyDeployUploaded: String { isZH ? "已上传，等待构建" : "Uploaded — building" }
+    static var netlifyZipDeployTitle: String { isZH ? "%@ · dev_mon 上传" : "%@ · dev_mon upload" }
+
+    // —— Netlify 新建站点 / 本地部署 ——
+    static var netlifyNewSiteSheetTitle: String { isZH ? "从本地目录新建站点" : "New site from a local folder" }
+    static var netlifySiteNameField: String { isZH ? "站点名称（可选）" : "Site name (optional)" }
+    static var netlifyChooseFolderAction: String { isZH ? "选择文件夹…" : "Choose Folder…" }
+    static var netlifyFolderHint: String { isZH ? "选择构建后的发布目录（如 dist / public）；dev_mon 会将其打包为 zip 上传到 Netlify。" : "Pick your built publish folder (e.g. dist / public); dev_mon zips and uploads it to Netlify." }
+    static var netlifyCreateAndDeploy: String { isZH ? "创建并部署" : "Create & Deploy" }
+    static var netlifyDeployTargetNote: String { isZH ? "名称留空 = 用文件夹名新建站点；填写名称 = 新建指定名称的站点；未选文件夹则只创建空站点。" : "Blank name = new site from the folder name; a typed name creates that site; no folder chosen creates an empty site." }
+    static var netlifyFolderRequired: String { isZH ? "请先选择文件夹" : "Choose a folder first" }
+    static var netlifyNamePlaceholder: String { isZH ? "my-site（留空自动生成）" : "my-site (blank = auto)" }
+
+    // —— Netlify 部署通知 ——
+    static var netlifyDeployReadyTitle: String { isZH ? "Netlify 部署成功" : "Netlify deploy ready" }
+    static var netlifyDeployReadyBody: String { isZH ? "%@ 的新部署已上线" : "%@ deploy is live" }
+    static var netlifyDeployFailedTitle: String { isZH ? "Netlify 部署失败" : "Netlify deploy failed" }
+    static var netlifyDeployFailedBody: String { isZH ? "%@ 的部署失败" : "%@ deploy failed" }
+    static var netlifyDeployRolledBackTitle: String { isZH ? "Netlify 已回滚" : "Netlify rolled back" }
+    static var netlifyDeployRolledBackBody: String { isZH ? "已恢复到之前的部署版本" : "Restored a previous deploy" }
+
+    // —— 通用：搜索选择器 ——
+    static var searchNoMatches: String { isZH ? "无匹配结果" : "No matches" }
+    static var searchClearTooltip: String { isZH ? "清除搜索" : "Clear search" }
+    static var searchListExpand: String { isZH ? "展开列表" : "Expand list" }
+    static var searchListCollapse: String { isZH ? "收起列表" : "Collapse list" }
 }

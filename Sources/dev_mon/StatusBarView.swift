@@ -28,6 +28,8 @@ class StatusBarView: NSView {
     var costText: String = ""
     /// 高峰/低谷状态点：nil = 不显示；true = 高峰（黄）；false = 低谷（绿）
     var isPeakHour: Bool?
+    /// 菜单栏 "Peak" 文字芯片内容（DeepSeek：当前窗口 + 距下次切换倒计时）；非 DeepSeek 或未启用时为空。
+    var peakText: String = ""
 
     // MARK: 数据
     private var balanceRatio: Double = 0
@@ -77,10 +79,11 @@ class StatusBarView: NSView {
         iconView.frame.origin.y = (bounds.height - 18) / 2
     }
 
-    func update(balanceRatio: Double, balanceAmount: String = "", hitRateText: String = "", costText: String = "", isError: Bool, isLowAlerting: Bool, blinkOn: Bool, isWarning: Bool = false) {
+    func update(balanceRatio: Double, balanceAmount: String = "", hitRateText: String = "", costText: String = "", peakText: String = "", isError: Bool, isLowAlerting: Bool, blinkOn: Bool, isWarning: Bool = false) {
         self.balanceRatio = balanceRatio
         self.balanceAmount = balanceAmount
         self.costText = costText
+        self.peakText = peakText
         self.isError = isError
         self.isLowAlerting = isLowAlerting
         self.isWarning = isWarning
@@ -103,21 +106,6 @@ class StatusBarView: NSView {
 
         let leftX: CGFloat = showIcon ? 21 : 2
         var cursorX = leftX
-
-        // ── 高峰/低谷状态点（位于图标右上角，仅显示图标时绘制）──
-        if showIcon, let peak = isPeakHour {
-            let iconFrame = iconView.frame
-            let dotSize: CGFloat = 6
-            let dotRect = CGRect(x: iconFrame.maxX - dotSize - 1,
-                                 y: iconFrame.maxY - dotSize - 1,
-                                 width: dotSize, height: dotSize)
-            // 白色描边提升在深浅色菜单栏下的对比度
-            ctx.setFillColor(NSColor.white.withAlphaComponent(0.9).cgColor)
-            ctx.fillEllipse(in: dotRect.insetBy(dx: -1, dy: -1))
-            let dotColor: NSColor = peak ? .systemYellow : .systemGreen
-            ctx.setFillColor(dotColor.cgColor)
-            ctx.fillEllipse(in: dotRect)
-        }
 
         // ── 三个指示灯条 ──
         if showIndicator {
@@ -185,7 +173,7 @@ class StatusBarView: NSView {
 
         // ── 菜单栏文字 ──
         let textModes = (UserDefaults.standard.string(forKey: Strings.Keys.menuBarTextDisplay) ?? "balance")
-            .components(separatedBy: ",").filter { !$0.isEmpty }
+            .components(separatedBy: ",").filter { !$0.isEmpty && $0 != "none" && !($0 == "peak" && peakText.isEmpty) }
         let baseColor: NSColor = {
             if let data = UserDefaults.standard.data(forKey: Strings.Keys.menuBarColor),
                let color = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: data) {
@@ -194,6 +182,7 @@ class StatusBarView: NSView {
             return isDarkMode ? NSColor.white : NSColor.black
         }()
         let font = NSFont.menuFont(ofSize: 0)
+        var textDrawn = false
 
         for (i, mode) in textModes.enumerated() {
             if i > 0 {
@@ -218,12 +207,16 @@ class StatusBarView: NSView {
             case "cost":
                 text = costText.isEmpty ? "\(Strings.currencySymbol)0" : costText
                 color = baseColor
+            case "peak":
+                text = peakText
+                color = DeepSeekPricing.isPeak() ? NSColor.systemOrange : NSColor.systemGreen
             default:
                 text = ""
                 color = baseColor
             }
 
             if !text.isEmpty {
+                textDrawn = true
                 let attr: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
                 let s = text as NSString
                 let size = s.size(withAttributes: attr)
@@ -231,6 +224,32 @@ class StatusBarView: NSView {
                 cursorX += size.width
             }
         }
+
+        // ── 高峰/低谷状态点：贴文字块右上角；无文字但有图标时回退到图标右上角 ──
+        if let peak = isPeakHour {
+            let dotSize: CGFloat = 6
+            if textDrawn {
+                let dotRect = CGRect(x: cursorX - dotSize - 1,
+                                     y: barH - dotSize - 1,
+                                     width: dotSize, height: dotSize)
+                drawPeakDot(ctx: ctx, peak: peak, dotRect: dotRect)
+            } else if showIcon {
+                let iconFrame = iconView.frame
+                let dotRect = CGRect(x: iconFrame.maxX - dotSize - 1,
+                                     y: iconFrame.maxY - dotSize - 1,
+                                     width: dotSize, height: dotSize)
+                drawPeakDot(ctx: ctx, peak: peak, dotRect: dotRect)
+            }
+        }
+    }
+
+    /// 高峰/低谷点：黄色 = 高峰；绿色 = 低谷。白色描边提升在深浅色菜单栏下的对比度。
+    private func drawPeakDot(ctx: CGContext, peak: Bool, dotRect: CGRect) {
+        ctx.setFillColor(NSColor.white.withAlphaComponent(0.9).cgColor)
+        ctx.fillEllipse(in: dotRect.insetBy(dx: -1, dy: -1))
+        let dotColor: NSColor = peak ? .systemYellow : .systemGreen
+        ctx.setFillColor(dotColor.cgColor)
+        ctx.fillEllipse(in: dotRect)
     }
 
     private var isDarkMode: Bool {

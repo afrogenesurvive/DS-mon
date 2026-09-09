@@ -23,9 +23,13 @@ final class ProxyConnectionHandler: @unchecked Sendable {
     /// 最近一次请求的 body 大小（字节），用于 VU 电表
     var requestBodySize: Int = 0
 
-    init(connection: NWConnection, store: UsageStore, onConnectionStateChanged: ((NWConnection.State) -> Void)? = nil, onRequestStarted: ((_ isResponses: Bool) -> Void)? = nil, onRequestCompleted: @escaping () -> Void) {
+    /// 客户端临时端口（代理能读到本地连接时才有值）。用于把本机请求标注为「local - 仓库名」。
+    private let peerPort: UInt16?
+
+    init(connection: NWConnection, store: UsageStore, peerPort: UInt16? = nil, onConnectionStateChanged: ((NWConnection.State) -> Void)? = nil, onRequestStarted: ((_ isResponses: Bool) -> Void)? = nil, onRequestCompleted: @escaping () -> Void) {
         self.conn = connection
         self.store = store
+        self.peerPort = peerPort
         self.onConnectionStateChanged = onConnectionStateChanged
         self.onRequestStarted = onRequestStarted
         self.onRequestCompleted = onRequestCompleted
@@ -52,6 +56,13 @@ final class ProxyConnectionHandler: @unchecked Sendable {
     }
 
     // MARK: - HTTP 接收
+
+    /// 解析本地客户端所属仓库名（缓存由 LocalRepoDetector 内部快照处理）。解析不到返回 ""。
+    func resolveRepo() -> String {
+        guard let peerPort else { return "" }
+        return LocalRepoDetector.shared.repoName(forPeerPort: peerPort,
+                                                 proxyPort: ProxyServer.shared.port) ?? ""
+    }
 
     /// 循环接收直到完整 HTTP 请求（支持大 body）
     private func receive(message: CFHTTPMessage?) {
@@ -305,13 +316,14 @@ final class ProxyConnectionHandler: @unchecked Sendable {
 
             // 记录用量
             let isChatCompletion = statusCode == 200 && path.contains("/chat/completions")
+            let repo = resolveRepo()
             if isChatCompletion {
-                usageLogger.logChatUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, statusCode: statusCode, providerId: activeProviderId, userAgent: userAgent)
+                usageLogger.logChatUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, statusCode: statusCode, providerId: activeProviderId, userAgent: userAgent, repo: repo)
             } else if path.contains("/v1/messages") {
                 // Anthropic Messages API
-                usageLogger.logMessagesUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, statusCode: statusCode, providerId: activeProviderId, userAgent: userAgent)
+                usageLogger.logMessagesUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, statusCode: statusCode, providerId: activeProviderId, userAgent: userAgent, repo: repo)
             } else {
-                usageLogger.logResponsesUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, providerId: activeProviderId, userAgent: userAgent)
+                usageLogger.logResponsesUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, providerId: activeProviderId, userAgent: userAgent, repo: repo)
                 let preview = String(data: accumulatedBody.prefix(800), encoding: .utf8) ?? "(非文本)"
                 debugLog("← \(path) body(\(accumulatedBody.count)B) preview:\n\(preview)")
                 appendLog("← body \(accumulatedBody.count)B | \(preview.replacingOccurrences(of: "\n", with: " ").prefix(200))")

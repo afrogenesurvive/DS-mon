@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.2.10-4] — 2026-09-09
+
+### Changed
+
+- **GitHub / Netlify / AWS 选择器支持搜索**：GitHub 仓库、Netlify 站点、AWS 实例三个「下拉菜单」改为**始终可见的搜索框 + 过滤结果列表**——输入即按名称/域名/ID/类型/状态/IP 过滤，右侧 ✕ 一键清除，点击结果选中并加载详情；**结果列表可折叠**（搜索框右侧箭头收起/展开，输入即自动展开，无论是否在搜索）。
+- **GitHub 仓库详情**：最近提交与最近发布改为取 **10** 条；**分支按最近提交时间由新到旧排序**（对每条分支抓取其最新提交时间后排序，无日期者排在末尾）；提交 / 分支 / 发布三组列表改为**可折叠**区段（点击标题展开/收起，带计数与箭头）。
+- **Netlify 部署历史**：只显示**最近 10** 条，标题可折叠（默认展开，切换站点自动复位）。
+- **菜单栏高峰状态点**：DeepSeek 的黄色（高峰）/绿色（低谷）小圆点改画在**菜单栏文字右上角**，无论显示哪些文字芯片（甚至隐藏图标）；无文字时回退到图标右上角。
+
+### Fixed
+
+- **本地来源的「仓库子标签」一直不显示**：`LocalRepoDetector` 解析 `lsof` 输出时按固定列下标取地址，且没去掉行尾的 `(ESTABLISHED)` 状态 token——`lsof -nP` 实际形如 `TCP 127.0.0.1:59677->127.0.0.1:18080 (ESTABLISHED)`，旧解析永远匹配不到连接 → repo 从未写入。改为**直接找含 `->` 的地址 token**（不依赖列数 / 状态后缀），端口不在快照时**强制补拍一次**（带限流），仓库路径向上查找到文件系统根（不再限于 $HOME）。
+- **GitHub 私有仓库未列出**：仓库列表原用 `GET /users/{username}/repos`——该端点**只返回公开仓库**；现改为已认证用户的 `GET /user/repos`（`visibility=all` + `affiliation=owner,collaborator,organization_member`），私有 / 协作者 / 组织仓库都会列出并可选中（仍需 classic PAT 勾选 `repo` 权限才能看到私有仓库）。
+- **AWS 页签图标呈实心圆**：图标原是「深色圆底 + 白 a」的 Amazon 购物标，小尺寸下像实心圆；现改为从仓库根 `aws.svg` 重新生成的**透明 AWS 字标**（无底色）。
+
+### Changed
+
+- **Usage by Source 显示仓库**：本地来源在**聚合列表**的 local 行下方显示小号仓库副标签（多仓库以 `·` 分隔），**逐条（Individual）列表**的每个本地请求在其来源下方显示所属仓库。
+
+### Added
+
+- **Netlify 页签 / 设置图标使用真实品牌标**：从仓库根 `netflify.png`（Netlify 品牌标）生成透明单色模板图 `Sources/dev_mon/netlify.png` 并随包打包（`Package.swift` 新增 `.process("netlify.png")`）；图标资源缺失时才回退 diamond SF Symbol。
+
+## [0.2.10-3] — 2026-09-09
+
+### Added
+
+- **用量按仓库标注（Source Usage）**：本机请求在逐条来源列表中标注为 **local - <仓库名>**——dev_mon 用 `lsof` 快照抓取本地连接对应的客户端进程 cwd，向上找最近的 `.git` 目录取仓库名（结果缓存约 1 秒）；聚合仍按来源 IP（不按仓库拆库）。解析不到（如 GUI 进程 cwd 非工作区）仍显示 local。`UsageRecord`/`usage_log` 新增 `repo` 列（迁移 V7），Data Sync 推送与用量读取自动携带。
+- **通知与 Cloudflare 的文档 / 导出补齐**：ui-guide 增加 Notifications（铃铛页）说明、Cloudflare tab 与 Services 条目、Source Usage 的 local - repo 说明；settings-guide 增加 Notifications & alerts 汇总；导出/导入配置新增 `tunnelDownNotificationEnabled` 与 `balanceAlertEnabled` 两个通知开关。
+- **菜单栏「Peak」高峰时间文字芯片**：菜单栏文字新增 **Peak** 芯片（Settings → General → Menu Bar Text 开关）——DeepSeek 活跃时显示当前高峰/低谷与距下次切换的倒计时（如 `Peak 2h14m left`，低谷时 `Peak in 6h30m`），高峰橙色、低谷绿色。
+
+## [0.2.10-2] — 2026-09-09
+
+### Added
+
+- **Netlify 站点与部署页**：弹窗新增 Netlify 页签（下拉选择站点 + 全宽详情，样式同 AWS 实例页）：
+  - 站点详情：Project ID / 主链接 / 自定义域名 / 管理后台均带复制按钮并可打开；git 链接站点显示仓库 / 分支 / 构建命令 / 发布目录。
+  - **触发部署**：经构建钩子触发生产部署（站点无钩子时自动创建，默认用其生产分支），支持 **清缓存并部署**；部署标题带 dev_mon 标记。
+  - **部署本地目录**：选择一个构建好的本地目录（如 dist/public），用 `ditto` 打包为 zip 上传为新部署——无需 git 联动；也可在「＋ 新建站点」里从本地目录创建站点。
+  - **部署历史**：状态彩色圆点（绿 = ready/live，橙 = 构建/排队，红 = 失败）+ 上下文（production / branch / preview）+ 分支/标题/时间；部署永久链接可复制、后台链接可打开；失败部署内联显示 error_message。
+  - **回滚 / 锁定**：旧版已构建部署可一键 **回滚**（restore 重新上线）；线上部署可 **锁定**（停止自动发布）与 **解锁**。
+  - **部署状态通知**：成功 / 失败 / 回滚时发系统通知（设置 → 服务 → Netlify 中开关，默认开），用户触发后有冷却抑制。
+- **设置 → 服务 → Netlify**：启用开关、Personal Access Token（钥匙串）、「验证并发现」→ 账户/team 选择、部署通知开关与限速/安全提示。
+- **导出/导入配置**已包含 Netlify 设置（启用、账户、选中站点、通知开关）；令牌走钥匙串（与 Cloudflare 令牌一致，仅本机），随「导出配置」明文导出。
+
 ## [0.2.10-1] — 2026-09-07
 
 ### Changed

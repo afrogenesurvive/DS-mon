@@ -17,6 +17,7 @@ let package = Package(
                 .process("aws.png"),
                 .process("github.png"),
                 .process("cloudflare.png"),
+                .process("netlify.png"),
             ]
         )
     ]

@@ -23,6 +23,8 @@ struct ServicesSettingsView: View {
             Divider().padding(.horizontal, 16)
             CloudflareSettingsView(stats: stats)
             Divider().padding(.horizontal, 16)
+            NetlifySettingsView(stats: stats)
+            Divider().padding(.horizontal, 16)
             SyncSettingsView(stats: stats)
             Spacer()
         }
@@ -286,6 +288,7 @@ private struct CloudflareSettingsView: View {
     @State private var cfToken: String = SecureStore.retrieve(key: Strings.Keys.cloudflareApiToken) ?? ""
     @State private var showCfToken = false
     @State private var isVerifying = false
+    @State private var cfDownAlert: Bool = (UserDefaults.standard.object(forKey: Strings.Keys.tunnelDownNotificationEnabled) as? Bool) ?? true
 
     private var cf: CloudflareTunnelManager { stats.cloudflare }
 
@@ -310,6 +313,17 @@ private struct CloudflareSettingsView: View {
             .onChange(of: cfEnabled) { _, newVal in
                 cf.enabled = newVal
                 if newVal { cf.startAutoRefresh(); cf.refresh() }
+            }
+
+            Toggle(isOn: $cfDownAlert) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(Strings.tunnelDownNotifyLabel).font(.callout)
+                    Text(Strings.tunnelDownNotifyHint).font(.caption2).foregroundColor(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+            .onChange(of: cfDownAlert) { _, newVal in
+                UserDefaults.standard.set(newVal, forKey: Strings.Keys.tunnelDownNotificationEnabled)
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -440,6 +454,128 @@ private struct CloudflareSettingsView: View {
                 set: { id in
                     guard !id.isEmpty else { return }
                     Task { await cf.changeTunnel(id) }
+                })
+    }
+}
+
+// MARK: - Netlify Settings
+
+private struct NetlifySettingsView: View {
+    let stats: DeepSeekStats
+
+    @State private var nfEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.netlifyEnabled)
+    @State private var nfToken: String = SecureStore.retrieve(key: Strings.Keys.netlifyApiToken) ?? ""
+    @State private var showNfToken = false
+    @State private var isVerifying = false
+    @State private var nfDeployAlert: Bool = (UserDefaults.standard.object(forKey: Strings.Keys.netlifyDeployNotifyEnabled) as? Bool) ?? true
+
+    private var nf: NetlifyManager { stats.netlify }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                BrandTabIcon(assetName: "netlify", symbol: "diamond", size: 18)
+                    .foregroundColor(.primary)
+                Text(Strings.netlifySection)
+                    .font(.body).bold()
+                Spacer()
+            }
+
+            Toggle(isOn: $nfEnabled) {
+                Text(Strings.netlifyToggle).font(.callout)
+            }
+            .toggleStyle(.switch)
+            .onChange(of: nfEnabled) { _, newVal in
+                nf.enabled = newVal
+                if newVal { nf.startAutoRefresh(); nf.refresh() }
+            }
+
+            Toggle(isOn: $nfDeployAlert) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(Strings.netlifyDeployNotifyLabel).font(.callout)
+                    Text(Strings.netlifyDeployNotifyHint).font(.caption2).foregroundColor(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+            .onChange(of: nfDeployAlert) { _, newVal in
+                UserDefaults.standard.set(newVal, forKey: Strings.Keys.netlifyDeployNotifyEnabled)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(Strings.netlifyTokenLabel).font(.caption).foregroundColor(.secondary)
+                    Group {
+                        if showNfToken {
+                            TextField("", text: $nfToken)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.caption, design: .monospaced))
+                        } else {
+                            SecureField("", text: $nfToken)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.caption, design: .monospaced))
+                        }
+                    }
+                    .onChange(of: nfToken) { _, newVal in
+                        SecureStore.save(key: Strings.Keys.netlifyApiToken, value: newVal)
+                        if nfEnabled { nf.refresh() }
+                    }
+                    Button {
+                        showNfToken.toggle()
+                    } label: {
+                        Image(systemName: showNfToken ? "eye.slash" : "eye")
+                    }
+                    .buttonStyle(.bordered)
+                    .help(Strings.revealHint)
+                }
+                Text(Strings.netlifyTokenHint).font(.caption2).foregroundColor(.secondary)
+
+                Button {
+                    isVerifying = true
+                    Task {
+                        await nf.verifyAndDiscover()
+                        isVerifying = false
+                    }
+                } label: {
+                    Text(isVerifying ? Strings.netlifyVerifyBusy : Strings.netlifyVerifyAction)
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                .disabled(isVerifying || nfToken.isEmpty)
+
+                if let err = nf.errorMessage {
+                    Text(err).font(.caption2).foregroundColor(.red)
+                }
+            }
+
+            if !nf.accounts.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(Strings.netlifyAccountLabel).font(.caption).foregroundColor(.secondary)
+                        Picker("", selection: accountBinding) {
+                            ForEach(nf.accounts) { a in
+                                Text(a.name.isEmpty ? a.slug : a.name).tag(a.id)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: 220, alignment: .leading)
+                    }
+                }
+            }
+
+            Text(Strings.netlifySettingsNote)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(20)
+    }
+
+    private var accountBinding: Binding<String> {
+        Binding(get: { nf.accountID ?? "" },
+                set: { id in
+                    guard !id.isEmpty else { return }
+                    Task { await nf.changeAccount(id) }
                 })
     }
 }

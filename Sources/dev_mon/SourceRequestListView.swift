@@ -44,12 +44,12 @@ struct SourceRequestListView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                sortableHeader("Time", key: "time", width: 70, align: .leading)
-                sortableHeader("Source", key: "source", width: 52, align: .leading)
-                sortableHeader("pid", key: "pid", width: 52, align: .leading)
+                sortableHeader("Time", key: "time", width: 66, align: .leading)
+                sortableHeader("Source", key: "source", width: 78, align: .leading)
+                sortableHeader("pid", key: "pid", width: 40, align: .leading)
                 sortableHeader("Model", key: "model", width: nil, align: .leading)
-                sortableHeader("Tok", key: "tok", width: 36, align: .trailing)
-                sortableHeader("Status", key: "status", width: 32, align: .trailing)
+                sortableHeader("Tok", key: "tok", width: 32, align: .trailing)
+                sortableHeader("Status", key: "status", width: 30, align: .trailing)
             }
             .font(.system(size: 8, weight: .semibold))
             .foregroundColor(.secondary)
@@ -99,17 +99,27 @@ struct SourceRequestListView: View {
         HStack(spacing: 6) {
             Text(Self.timeFormatter.string(from: record.timestamp))
                 .font(.system(size: 7).monospacedDigit())
-                .frame(width: 70, alignment: .leading)
+                .frame(width: 66, alignment: .leading)
 
-            Text(sourceName(record))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(width: 52, alignment: .leading)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(record.sourceIP.isEmpty ? Strings.localSourceLabel : record.sourceIP)
+                    .font(.system(size: 8.5))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if let repo = record.repo, !repo.isEmpty {
+                    Text(repo)
+                        .font(.system(size: 6.5))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            .frame(width: 78, alignment: .leading)
 
             Text(record.providerId)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(width: 52, alignment: .leading)
+                .frame(width: 40, alignment: .leading)
 
             Text(record.model)
                 .lineLimit(1)
@@ -118,10 +128,10 @@ struct SourceRequestListView: View {
 
             Text("\(record.totalTokens)")
                 .monospacedDigit()
-                .frame(width: 36, alignment: .trailing)
+                .frame(width: 32, alignment: .trailing)
 
             statusBadge(record.statusCode)
-                .frame(width: 32, alignment: .trailing)
+                .frame(width: 30, alignment: .trailing)
         }
         .font(.system(size: 8.5))
         .padding(.horizontal, 8)
@@ -129,7 +139,11 @@ struct SourceRequestListView: View {
     }
 
     private func sourceName(_ record: UsageRecord) -> String {
-        record.sourceIP.isEmpty ? Strings.localSourceLabel : record.sourceIP
+        guard record.sourceIP.isEmpty else { return record.sourceIP }
+        if let repo = record.repo, !repo.isEmpty {
+            return "\(Strings.localSourceLabel) - \(repo)"
+        }
+        return Strings.localSourceLabel
     }
 
     @ViewBuilder

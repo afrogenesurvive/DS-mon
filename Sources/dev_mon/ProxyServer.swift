@@ -74,9 +74,14 @@ final class ProxyServer: @unchecked Sendable {
 
         listener.newConnectionHandler = { [weak self] conn in
             guard let self else { return }
+            let peerPort: UInt16? = {
+                guard case .hostPort(_, let port) = conn.endpoint else { return nil }
+                return port.rawValue
+            }()
             let handler = ProxyConnectionHandler(
                 connection: conn,
                 store: UsageStore.shared,
+                peerPort: peerPort,
                 onConnectionStateChanged: { [weak self] state in
                     guard let self else { return }
                     switch state {

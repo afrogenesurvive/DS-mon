@@ -114,6 +114,14 @@ final class CloudflareTunnelManager {
     }()
 
     private var refreshTask: Task<Void, Never>?
+    /// 本地 cloudflared 进程健康监控（更快感知隧道断开，独立于 10 分钟的 API 刷新）。
+    private var healthTask: Task<Void, Never>?
+    private var wasDaemonUp: Bool?
+    private var wasRemoteHealthy: Bool?
+    private var lastDownFiredAt: Date?
+    private var lastRestoredFiredAt: Date?
+    /// 用户主动 start/stop/restart 后短暂抑制告警，避免把用户操作误报为“隧道断开”。
+    private var suppressAlertUntil: Date?
 
     private(set) var isLoading = false
     private(set) var errorMessage: String?
@@ -191,6 +199,7 @@ final class CloudflareTunnelManager {
     deinit {
         Task { @MainActor [weak self] in
             self?.refreshTask?.cancel()
+            self?.healthTask?.cancel()
         }
     }
 
@@ -205,6 +214,72 @@ final class CloudflareTunnelManager {
                 if self.isEnabled { self.refresh() }
             }
         }
+        startHealthMonitor()
+    }
+
+    // MARK: - Health monitoring（本地进程探测，及时感知「隧道断开」）
+
+    private static let healthProbeInterval: TimeInterval = 60
+    private static let alertCooldown: TimeInterval = 180
+
+    func startHealthMonitor() {
+        healthTask?.cancel()
+        healthTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Self.healthProbeInterval))
+                guard !Task.isCancelled, let self else { return }
+                if self.isEnabled { await self.probeDaemonHealth() }
+            }
+        }
+    }
+
+    /// 探测本地 daemon，仅在其运行↔停止状态切换时发送通知（避免周期性刷屏）。
+    private func probeDaemonHealth() async {
+        let state = await Task.detached(priority: .utility) { Self.probeDaemonSync() }.value
+        guard isEnabled else { return }
+        daemonState = state
+        let up = daemonRunning
+        defer { wasDaemonUp = up }
+        guard let prev = wasDaemonUp, prev != up else { return }
+        if up {
+            fireRestoredIfAllowed()
+        } else {
+            fireDownIfAllowed(body: Strings.tunnelDownBody)
+        }
+    }
+
+    /// API 刷新后发现「进程在跑但隧道失联/不健康」（远程托管隧道的 token/配置问题）。
+    private func evaluateRemoteHealth() {
+        guard isEnabled, errorMessage == nil, daemonRunning, let tunnel = selectedTunnel else { return }
+        let healthy = tunnel.isHealthy
+        if let prev = wasRemoteHealthy, prev != healthy {
+            wasRemoteHealthy = healthy
+            if healthy {
+                fireRestoredIfAllowed()
+            } else {
+                fireDownIfAllowed(body: Strings.tunnelDownRemoteBody)
+            }
+        } else {
+            wasRemoteHealthy = healthy
+        }
+    }
+
+    private var tunnelAlertEnabled: Bool {
+        (UserDefaults.standard.object(forKey: Strings.Keys.tunnelDownNotificationEnabled) as? Bool) ?? true
+    }
+
+    private func fireDownIfAllowed(body: String) {
+        guard tunnelAlertEnabled, Date() > (suppressAlertUntil ?? .distantPast) else { return }
+        if let t = lastDownFiredAt, Date().timeIntervalSince(t) < Self.alertCooldown { return }
+        lastDownFiredAt = Date()
+        AppAlertCenter.fire(.tunnelDown, title: Strings.tunnelDownTitle, body: body)
+    }
+
+    private func fireRestoredIfAllowed() {
+        guard tunnelAlertEnabled, Date() > (suppressAlertUntil ?? .distantPast) else { return }
+        if let t = lastRestoredFiredAt, Date().timeIntervalSince(t) < Self.alertCooldown { return }
+        lastRestoredFiredAt = Date()
+        AppAlertCenter.fire(.tunnelRestored, title: Strings.tunnelRestoredTitle, body: Strings.tunnelRestoredBody)
     }
 
     /// 本地守护进程探测（pgrep；后台执行，无需权限）。
@@ -257,6 +332,7 @@ final class CloudflareTunnelManager {
         if errorMessage == nil {
             lastUpdate = Self.timeFormatter.string(from: Date())
         }
+        evaluateRemoteHealth()
     }
 
     /// 设置里「验证并发现」：校验令牌 → 账户/Zone/隧道列表 + 自动选择。
@@ -443,6 +519,7 @@ final class CloudflareTunnelManager {
     /// 尚未 bootstrap 该 plist）才用 bootstrap 补一次 —— 避免每次都弹多次管理员密码。
     func startTunnel() async {
         isWorking = true
+        suppressAlertUntil = Date().addingTimeInterval(30)
         let plist = Self.daemonPlistPath
         guard FileManager.default.fileExists(atPath: plist) else {
             await finishAdmin(ok: false,
@@ -468,6 +545,7 @@ final class CloudflareTunnelManager {
 
     func stopTunnel() async {
         isWorking = true
+        suppressAlertUntil = Date().addingTimeInterval(30)
         await runAdminCommand("launchctl stop \(Self.serviceLabel)")
         let stopped = await waitForDaemon(running: false, attempts: 6)
         await finishAdmin(ok: stopped,
@@ -476,6 +554,7 @@ final class CloudflareTunnelManager {
 
     func restartTunnel() async {
         isWorking = true
+        suppressAlertUntil = Date().addingTimeInterval(30)
         let daemon = "system/\(Self.serviceLabel)"
         await runAdminCommand("launchctl kickstart -k \(daemon)")
         let running = await waitForDaemon(running: true, attempts: 20)

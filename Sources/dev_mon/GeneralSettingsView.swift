@@ -60,6 +60,7 @@ struct GeneralSettingsView: View {
     @AppStorage(Strings.Keys.currencySymbol) var currencySymbol: String = "¥"
     @AppStorage(Strings.Keys.showPeakDot) var showPeakDot: Bool = false
     @AppStorage(Strings.Keys.peakNotificationEnabled) var peakNotificationEnabled: Bool = false
+    @AppStorage(Strings.Keys.balanceAlertEnabled) var balanceAlertEnabled: Bool = false
 
     @State private var menuBarColor: Color = Color(nsColor: .labelColor)
 
@@ -129,6 +130,17 @@ struct GeneralSettingsView: View {
                     PeakNotifier.scheduleNextTransition()
                 }
 
+                Toggle(isOn: $balanceAlertEnabled) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill").font(.caption)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(Strings.balanceAlertLabel)
+                            Text(Strings.balanceAlertHint).font(.caption2).foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .toggleStyle(.switch)
+
                 HStack(spacing: 8) {
                     Image(systemName: "text.alignleft").font(.caption)
                     Text(Strings.textDisplayLabel)
@@ -137,6 +149,7 @@ struct GeneralSettingsView: View {
                     let hasBalance = modes.contains("balance")
                     let hasHitRate = modes.contains("hitRate")
                     let hasCost = modes.contains("cost")
+                    let hasPeak = modes.contains("peak")
 
                     Button(action: {
                         if hasBalance { modes.removeAll { $0 == "balance" } } else { modes.append("balance") }
@@ -179,6 +192,21 @@ struct GeneralSettingsView: View {
                             .padding(.vertical, 2)
                             .background(hasCost ? Color.accentColor : Color.gray.opacity(0.12))
                             .foregroundColor(hasCost ? .white : .primary)
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: {
+                        if hasPeak { modes.removeAll { $0 == "peak" } } else { modes.append("peak") }
+                        menuBarTextDisplay = modes.isEmpty ? "none" : modes.joined(separator: ",")
+                        NotificationCenter.default.post(name: .menuBarTextDisplayDidChange, object: nil)
+                    }) {
+                        Text(Strings.peakStatusPeak)
+                            .font(.callout)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(hasPeak ? Color.accentColor : Color.gray.opacity(0.12))
+                            .foregroundColor(hasPeak ? .white : .primary)
                             .cornerRadius(4)
                     }
                     .buttonStyle(.plain)

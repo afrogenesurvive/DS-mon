@@ -39,6 +39,165 @@ private struct CFConfirmRequest: Identifiable {
     }
 }
 
+// MARK: - Netlify 操作确认（Trigger / Clear cache / Rollback / Lock / Unlock）
+
+private struct NetlifyConfirmRequest: Identifiable {
+    enum Kind {
+        case trigger
+        case triggerClearCache
+        case rollback(NetlifyDeploy)
+        case lock(NetlifyDeploy)
+        case unlock(NetlifyDeploy)
+    }
+    let kind: Kind
+    let siteID: String
+    var id: String {
+        switch kind {
+        case .trigger: return "nf-trigger"
+        case .triggerClearCache: return "nf-trigger-cc"
+        case .rollback(let d): return "nf-rb-" + d.id
+        case .lock(let d): return "nf-lock-" + d.id
+        case .unlock(let d): return "nf-unlock-" + d.id
+        }
+    }
+}
+
+// MARK: - 可搜索选择器（搜索框 + ✕ 清除 + 过滤结果列表）
+
+/// 替换原生「不可搜索」的 menu Picker：搜索框（含 ✕ 清除）+ 过滤结果列表。
+private struct SearchableSelector<Item: Identifiable, Row: View>: View {
+    let items: [Item]
+    let selectedID: Item.ID?
+    @Binding var searchText: String
+    let placeholder: String
+    let noMatchesText: String
+    let match: (Item, String) -> Bool
+    let onSelect: (Item) -> Void
+    let row: (Item) -> Row
+    var maxListHeight: CGFloat = 128
+    /// 结果列表是否展开（与搜索状态无关，均可折叠）
+    @State private var listExpanded = true
+
+    init(items: [Item],
+         selectedID: Item.ID?,
+         searchText: Binding<String>,
+         placeholder: String,
+         noMatchesText: String,
+         match: @escaping (Item, String) -> Bool,
+         onSelect: @escaping (Item) -> Void,
+         maxListHeight: CGFloat = 128,
+         @ViewBuilder row: @escaping (Item) -> Row) {
+        self.items = items
+        self.selectedID = selectedID
+        self._searchText = searchText
+        self.placeholder = placeholder
+        self.noMatchesText = noMatchesText
+        self.match = match
+        self.onSelect = onSelect
+        self.maxListHeight = maxListHeight
+        self.row = row
+    }
+
+    private var filtered: [Item] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return items }
+        return items.filter { match($0, q) }
+    }
+
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                TextField(placeholder, text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 10))
+                    .lineLimit(1)
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .modifier(HoverTooltip(text: Strings.searchClearTooltip, position: .above))
+                }
+                if !listExpanded {
+                    Text("\(filtered.count)")
+                        .font(.system(size: 9).monospacedDigit())
+                        .foregroundColor(.secondary)
+                }
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) { listExpanded.toggle() }
+                } label: {
+                    Image(systemName: listExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .frame(width: 12)
+                }
+                .buttonStyle(.plain)
+                .modifier(HoverTooltip(text: listExpanded ? Strings.searchListCollapse : Strings.searchListExpand,
+                                       position: .above))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
+            .onChange(of: searchText) { _, newValue in
+                // 输入即自动展开以显示过滤结果；展开后仍可随时收起
+                if !newValue.isEmpty, !listExpanded { listExpanded = true }
+            }
+
+            if listExpanded {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        if filtered.isEmpty {
+                            HStack(spacing: 6) {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 8)).foregroundColor(.secondary)
+                                Text(noMatchesText)
+                                    .font(.system(size: 9)).foregroundColor(.secondary)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 8)
+                        } else {
+                            ForEach(filtered) { item in
+                                let isSelected = selectedID.map { $0 == item.id } ?? false
+                                VStack(spacing: 0) {
+                                    Button {
+                                        onSelect(item)
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                                .font(.system(size: 8))
+                                                .foregroundColor(isSelected ? Color.blue : Color.secondary.opacity(0.45))
+                                            row(item)
+                                            Spacer(minLength: 0)
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    if item.id != filtered.last?.id {
+                                        Divider().padding(.leading, 22)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .frame(maxHeight: maxListHeight)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+    }
+}
+
 // MARK: - SwiftUI 弹出内容
 
 struct StatsPopoverView: View {
@@ -86,6 +245,39 @@ struct StatsPopoverView: View {
     @State private var cfNetwork = ""
     @State private var cfComment = ""
 
+    // Netlify 页状态（站点选择 / 确认 / 复制反馈 / 本地部署）
+    @State private var netlifyConfirmRequest: NetlifyConfirmRequest?
+    @State private var showNetlifyConfirm = false
+    @State private var netlifyCopiedValue: String?
+    @State private var netlifyCopyResetTask: Task<Void, Never>?
+    @State private var showNetlifyNewSite = false
+    @State private var netlifySiteName = ""
+    @State private var netlifyFolderURL: URL?
+    @State private var netlifyCreating = false
+
+    // GitHub 页状态（Actions / 仓库 子页签 + 复制反馈）
+    @State private var gitHubSubTab = 0          // 0 = Actions, 1 = Repositories
+    @State private var ghSelectedRepoID: String?
+    @State private var ghCopiedValue: String?
+    @State private var ghCopyResetTask: Task<Void, Never>?
+    /// GitHub 详情区段折叠状态（repoID|commits/branches/releases → 是否展开）
+    @State private var ghSectionExpanded: [String: Bool] = [:]
+
+    // 选择器搜索框文本（GitHub 仓库 / Netlify 站点 / AWS 实例）
+    @State private var ghSearchText = ""
+    @State private var netlifySearchText = ""
+    @State private var awsInstanceSearchText = ""
+    /// Netlify 部署历史是否展开
+    @State private var netlifyDeploysExpanded = true
+
+    // 通知中心 UI（popover 横幅 + 「通知」页）
+    @State private var recentAlerts: [AppAlert] = []
+    @State private var currentBanner: AppAlert?
+    @State private var bannerDismissTask: Task<Void, Never>?
+    // Cloudflare 复制反馈（短暂显示勾选）
+    @State private var cfCopiedValue: String?
+    @State private var cfCopyResetTask: Task<Void, Never>?
+
     // 折叠区段状态（DeepSeek 页）
     @State private var showAccountSection = true    // 余额/充值/提示行
     @State private var showUsageStatsSection = true // 用量统计
@@ -99,6 +291,7 @@ struct StatsPopoverView: View {
                    height: AppConfig.popoverHeight * uiScale,
                    alignment: .topLeading)
             .overlay(alignment: .bottomTrailing) { resizeGrip }
+            .overlay(alignment: .top) { alertBannerOverlay }
             .frame(width: AppConfig.popoverWidth * uiScale,
                    height: AppConfig.popoverHeight * uiScale)
             .clipped()
@@ -169,11 +362,21 @@ struct StatsPopoverView: View {
                     } message: { req in
                         Text(cfConfirmMessage(req))
                     }
+            } else if selectedTab == 6 {
+                netlifyTabContent
+                    .alert(Strings.netlifyConfirmTitle, isPresented: $showNetlifyConfirm, presenting: netlifyConfirmRequest) { req in
+                        Button(Strings.cancel, role: .cancel) {}
+                        Button(netlifyConfirmButtonLabel(req)) { performNetlify(req) }
+                    } message: { req in
+                        Text(netlifyConfirmMessage(req))
+                    }
+            } else if selectedTab == 5 {
+                ScrollView { alertsTabContent.padding(14) }
+            } else if selectedTab == 2 {
+                // GitHub 页自行管理布局：页内子页签（Actions / 仓库）+ 独立滚动
+                gitHubTabContent
             } else {
-                ScrollView {
-                    if selectedTab == 1 { licenseTabContent }
-                    else { gitHubTabContent }
-                }
+                ScrollView { licenseTabContent }
             }
             Divider().padding(.horizontal, 14)
             actionBar
@@ -182,9 +385,20 @@ struct StatsPopoverView: View {
         .frame(width: AppConfig.popoverWidth)
         .frame(maxHeight: 550)
         .scrollIndicators(.hidden)
-        .onAppear { loadUsage(); loadSourceUsage(); loadSourceOptions(); postPopoverResize() }
+        .onAppear {
+            loadUsage(); loadSourceUsage(); loadSourceOptions(); postPopoverResize()
+            recentAlerts = AppAlertCenter.recent
+        }
         .onReceive(NotificationCenter.default.publisher(for: .usageRecorded)) { _ in
             loadUsage(); loadSourceUsage(); loadSourceOptions()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .appAlertDidFire)) { note in
+            guard let alert = note.object as? AppAlert else { return }
+            recentAlerts = AppAlertCenter.recent
+            showBanner(alert)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .appAlertDidUpdate)) { _ in
+            recentAlerts = AppAlertCenter.recent
         }
         .onChange(of: stats.providerID) { _, _ in loadUsage(); loadSourceUsage(); loadSourceOptions() }
         .alert(Strings.awsConfirmTitle, isPresented: $showAwsConfirm, presenting: awsConfirmRequest) { req in
@@ -462,10 +676,10 @@ struct StatsPopoverView: View {
                     valueColor: stats.isAvailable ? .green : .red)
             if stats.supportsPricingWindow {
                 infoRow(icon: stats.isPeakHour ? "sun.max.fill" : "moon.zzz.fill",
-                        iconColor: stats.isPeakHour ? .yellow : .green,
+                        iconColor: stats.pricingWindowIconColor,
                         label: Strings.pricingWindowLabel,
                         value: stats.pricingWindowDetailText,
-                        valueColor: stats.isPeakHour ? .yellow : .green)
+                        valueColor: stats.pricingWindowTextColor)
             }
             if let error = stats.errorMessage {
                 infoRow(icon: "exclamationmark.triangle.fill", iconColor: .orange, label: Strings.errorLabel, value: error, valueColor: .orange)
@@ -506,6 +720,7 @@ struct StatsPopoverView: View {
     @State private var sourceMode = 0            // 0 = aggregate, 1 = individual
     @State private var selectedSource = ""       // "" = all sources
     @State private var sourceData: [SourceUsage] = []
+    @State private var sourceRepos: [String: [String]] = [:]
     @State private var sourceChartData: [TokenBar] = []
     @State private var sourceOptions: [String] = []
     @State private var aggregateSortKey = "cost"
@@ -676,6 +891,7 @@ struct StatsPopoverView: View {
             if sourceMode == 0 {
                 let rows = await store.aggregateBySourceIP(since: since, sourceIP: src, providerId: pid)
                 sourceData = rows
+                sourceRepos = await store.reposBySource(since: since, sourceIP: src, providerId: pid)
                 sourceChartData = rows.map { item in
                     TokenBar(label: sourceDisplayName(item),
                              missTokens: item.promptTokens - item.cachedTokens,
@@ -834,12 +1050,12 @@ struct StatsPopoverView: View {
         } else {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
-                    aggregateSortableHeader("Source", key: "source", width: 60, align: .leading)
-                    aggregateSortableHeader("pid", key: "pid", width: 46, align: .leading)
-                    aggregateSortableHeader("Req", key: "req", width: 24, align: .trailing)
-                    aggregateSortableHeader("Tokens", key: "tokens", width: 34, align: .trailing)
-                    aggregateSortableHeader("Cost", key: "cost", width: 44, align: .trailing)
-                    aggregateSortableHeader(Strings.lastSeenLabel, key: "last", width: 50, align: .trailing)
+                    aggregateSortableHeader("Source", key: "source", width: 76, align: .leading)
+                    aggregateSortableHeader("pid", key: "pid", width: 38, align: .leading)
+                    aggregateSortableHeader("Req", key: "req", width: 22, align: .trailing)
+                    aggregateSortableHeader("Tokens", key: "tokens", width: 30, align: .trailing)
+                    aggregateSortableHeader("Cost", key: "cost", width: 42, align: .trailing)
+                    aggregateSortableHeader(Strings.lastSeenLabel, key: "last", width: 48, align: .trailing)
                 }
                 .font(.system(size: 8, weight: .semibold))
                 .foregroundColor(.secondary)
@@ -852,29 +1068,39 @@ struct StatsPopoverView: View {
                     LazyVStack(spacing: 0) {
                         ForEach(sortedSourceData, id: \.sourceIP) { item in
                             HStack(spacing: 6) {
-                                Text(sourceDisplayName(item))
-                                    .font(.system(size: 8.5))
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                    .frame(width: 60, alignment: .leading)
+                                VStack(alignment: .leading, spacing: 0) {
+                                    Text(sourceDisplayName(item))
+                                        .font(.system(size: 8.5))
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                    if let repos = sourceRepos[item.sourceIP], !repos.isEmpty {
+                                        Text(repos.joined(separator: " · "))
+                                            .font(.system(size: 6.5))
+                                            .foregroundColor(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .help(repos.joined(separator: "\n"))
+                                    }
+                                }
+                                .frame(width: 76, alignment: .leading)
                                 Text(item.providerIds.isEmpty ? "—" : item.providerIds)
                                     .font(.system(size: 8.5))
                                     .lineLimit(1)
                                     .truncationMode(.tail)
-                                    .frame(width: 46, alignment: .leading)
+                                    .frame(width: 38, alignment: .leading)
                                     .foregroundColor(.secondary)
                                 Text("\(item.requestCount)")
                                     .font(.system(size: 8.5).monospacedDigit())
-                                    .frame(width: 24, alignment: .trailing)
+                                    .frame(width: 22, alignment: .trailing)
                                 Text(Strings.tokensShort(item.totalTokens))
                                     .font(.system(size: 8.5).monospacedDigit())
-                                    .frame(width: 34, alignment: .trailing)
+                                    .frame(width: 30, alignment: .trailing)
                                 Text(Strings.costShort(item.totalCost))
                                     .font(.system(size: 8.5, weight: .medium).monospacedDigit())
-                                    .frame(width: 44, alignment: .trailing)
+                                    .frame(width: 42, alignment: .trailing)
                                 Text(Self.sourceTimeFormatter.string(from: item.lastTimestamp))
                                     .font(.system(size: 7).monospacedDigit())
-                                    .frame(width: 50, alignment: .trailing)
+                                    .frame(width: 48, alignment: .trailing)
                                     .foregroundColor(.secondary)
                                     .help(Strings.lastSeenLabel)
                             }
@@ -1006,6 +1232,8 @@ struct StatsPopoverView: View {
             tabButton(assetName: "github", symbol: "chevron.left.forwardslash.chevron.right", tag: 2, tooltip: Strings.githubTabTooltip)
             tabButton(assetName: "aws", symbol: "cloud.fill", tag: 3, tooltip: Strings.awsTabTooltip)
             tabButton(assetName: "cloudflare", symbol: "cloud.bolt.fill", tag: 4, tooltip: Strings.cloudflareTabTooltip)
+            tabButton(assetName: "netlify", symbol: "diamond.fill", tag: 6, tooltip: Strings.netlifyTabTooltip)
+            alertsTabButton
             Spacer()
         }
         .padding(.horizontal, 14)
@@ -1187,26 +1415,70 @@ struct StatsPopoverView: View {
 
     private var gitHubTabContent: some View {
         VStack(spacing: 0) {
+            githubSubTabBar
+            Divider().padding(.horizontal, 14)
+            if gitHubSubTab == 0 {
+                gitHubActionsContent
+            } else {
+                gitHubReposContent
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var githubSubTabBar: some View {
+        HStack(spacing: 4) {
+            githubSubTabButton(Strings.githubSubTabActions, tag: 0)
+            githubSubTabButton(Strings.githubSubTabRepos, tag: 1)
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 4)
+    }
+
+    private func githubSubTabButton(_ title: String, tag: Int) -> some View {
+        let active = gitHubSubTab == tag
+        return Button(action: { gitHubSubTab = tag }) {
+            Text(title)
+                .font(.system(size: 10, weight: active ? .semibold : .regular))
+                .foregroundColor(active ? .white : .secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(active ? Color.blue : Color.clear)
+                .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .modifier(HoverTooltip(text: title, position: .below))
+    }
+
+    // GitHub 页 - Actions 子页（免费额度用量）
+    private var gitHubActionsContent: some View {
+        Group {
             if stats.gitHub.isLoading {
-                Spacer(minLength: 40)
-                HStack { Spacer(); ProgressView().scaleEffect(1.2); Spacer() }
-                Spacer(minLength: 40)
+                VStack(spacing: 12) {
+                    Spacer(minLength: 40)
+                    HStack { Spacer(); ProgressView().scaleEffect(1.2); Spacer() }
+                    Spacer(minLength: 40)
+                }
             } else if let err = stats.gitHub.errorMessage {
-                Spacer(minLength: 40)
                 VStack(spacing: 8) {
+                    Spacer(minLength: 40)
                     Image(systemName: "exclamationmark.triangle.fill").font(.title2).foregroundColor(.orange)
                     Text(err).font(.caption).foregroundColor(.orange).multilineTextAlignment(.center)
                     Text("Settings -> Services to configure")
                         .font(.caption2).foregroundColor(.secondary)
+                    Spacer(minLength: 40)
                 }
                 .padding(.horizontal, 14)
-                Spacer(minLength: 40)
             } else {
-                gitHubDataView
+                ScrollView {
+                    gitHubDataView
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var gitHubDataView: some View {
@@ -1229,6 +1501,345 @@ struct StatsPopoverView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    // MARK: GitHub — Repositories（仓库列表 + 详情）
+
+    private var gitHubReposContent: some View {
+        Group {
+            if !stats.gitHub.isEnabled {
+                ghCenteredMessage(icon: "key.slash", text: Strings.githubNotConfigured)
+            } else if stats.gitHub.reposLoading && stats.gitHub.repos.isEmpty {
+                VStack(spacing: 12) {
+                    Spacer(minLength: 40)
+                    HStack { Spacer(); ProgressView().scaleEffect(1.2); Spacer() }
+                    Spacer(minLength: 40)
+                }
+            } else if stats.gitHub.repos.isEmpty, let err = stats.gitHub.reposError {
+                ghCenteredError(err)
+            } else if stats.gitHub.repos.isEmpty {
+                ghCenteredMessage(icon: "tray", text: Strings.githubNoRepos)
+            } else {
+                githubReposListView
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            stats.gitHub.refreshRepos()
+            ensureGHRepoSelection()
+        }
+        .onChange(of: stats.gitHub.repos) { _, _ in ensureGHRepoSelection() }
+        .onChange(of: ghSelectedRepoID) { _, newValue in
+            guard let id = newValue else { return }
+            stats.gitHub.loadRepoDetail(fullName: id)
+        }
+    }
+
+    private func ghCenteredMessage(icon: String, text: String) -> some View {
+        VStack(spacing: 8) {
+            Spacer(minLength: 40)
+            Image(systemName: icon).font(.title2).foregroundColor(.secondary)
+            Text(text).font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center)
+            Spacer(minLength: 40)
+        }
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func ghCenteredError(_ err: String) -> some View {
+        VStack(spacing: 8) {
+            Spacer(minLength: 40)
+            Image(systemName: "exclamationmark.triangle.fill").font(.title2).foregroundColor(.orange)
+            Text(err).font(.caption).foregroundColor(.orange).multilineTextAlignment(.center)
+            Text("Settings -> Services to configure").font(.caption2).foregroundColor(.secondary)
+            Spacer(minLength: 40)
+        }
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var githubReposListView: some View {
+        VStack(spacing: 0) {
+            SearchableSelector(
+                items: stats.gitHub.repos,
+                selectedID: ghSelectedRepoID,
+                searchText: $ghSearchText,
+                placeholder: Strings.githubSearchPlaceholder,
+                noMatchesText: Strings.searchNoMatches,
+                match: { repo, q in
+                    repo.name.localizedCaseInsensitiveContains(q)
+                        || repo.fullName.localizedCaseInsensitiveContains(q)
+                        || (repo.desc ?? "").localizedCaseInsensitiveContains(q)
+                },
+                onSelect: { repo in
+                    ghSelectedRepoID = repo.id
+                }
+            ) { repo in
+                HStack(spacing: 6) {
+                    Image(systemName: repo.isPrivate ? "lock.fill" : "globe")
+                        .font(.system(size: 8))
+                        .foregroundColor(repo.isPrivate ? .orange : .green)
+                        .frame(width: 10)
+                    Text(repo.name)
+                        .font(.system(size: 10))
+                        .lineLimit(1).truncationMode(.tail)
+                }
+            }
+
+            Divider().padding(.horizontal, 14)
+
+            if let repo = selectedGHRepo {
+                ScrollView {
+                    githubRepoDetailView(repo)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                VStack {
+                    Spacer()
+                    Text(Strings.githubNoSelectionHint)
+                        .font(.caption).foregroundColor(.secondary)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var selectedGHRepo: GitHubRepo? {
+        guard let id = ghSelectedRepoID else { return nil }
+        return stats.gitHub.repos.first { $0.id == id }
+    }
+
+    private func ensureGHRepoSelection() {
+        guard !stats.gitHub.repos.isEmpty else { ghSelectedRepoID = nil; return }
+        if ghSelectedRepoID == nil
+            || !stats.gitHub.repos.contains(where: { $0.id == ghSelectedRepoID }) {
+            ghSelectedRepoID = stats.gitHub.repos[0].id
+        }
+    }
+
+    private func githubRepoDetailView(_ repo: GitHubRepo) -> some View {
+        let showing = stats.gitHub.repoDetailFor == repo.id
+        let loading = showing && stats.gitHub.repoDetailLoading
+        let det = showing ? stats.gitHub.repoDetail : nil
+
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: repo.isPrivate ? "lock.fill" : "globe")
+                    .font(.system(size: 9))
+                    .foregroundColor(repo.isPrivate ? .orange : .green)
+                Text(repo.name)
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1).truncationMode(.middle)
+                Spacer()
+                githubOpenIcon(URL(string: repo.htmlURL), size: 9)
+                githubCopyButton(repo.fullName, size: 9)
+            }
+            if let d = repo.desc, !d.isEmpty {
+                Text(d).font(.caption2).foregroundColor(.secondary).lineLimit(2)
+            }
+            HStack(spacing: 6) {
+                Text(Strings.githubVisibilityLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                Spacer()
+                Text(repo.isPrivate ? Strings.githubPrivateLabel : Strings.githubPublicLabel)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(repo.isPrivate ? .orange : .green)
+            }
+            HStack(spacing: 6) {
+                Text(Strings.githubCreatedLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                Spacer()
+                Text(Self.ghDateText(repo.createdAt))
+                    .font(.system(size: 9))
+                    .foregroundColor(.primary)
+                    .textSelection(.enabled)
+            }
+            Divider().padding(.vertical, 2)
+
+            if loading {
+                HStack(spacing: 8) {
+                    Spacer()
+                    ProgressView().controlSize(.small)
+                    Text(Strings.githubDetailLoading).font(.caption2).foregroundColor(.secondary)
+                    Spacer()
+                }
+                .padding(.vertical, 14)
+            } else if let det {
+                let repoKey = repo.id
+                ghCollapsibleSection(title: Strings.githubCommitsSection,
+                                     icon: "clock.arrow.circlepath",
+                                     expanded: ghSectionBinding(repoKey, kind: "commits")) {
+                    if det.commits.isEmpty {
+                        ghEmptyLine(Strings.githubNoCommits)
+                    } else {
+                        ForEach(det.commits) { c in ghCommitRow(c) }
+                    }
+                }
+                ghCollapsibleSection(title: Strings.githubBranchesSection,
+                                     icon: "arrow.branch",
+                                     expanded: ghSectionBinding(repoKey, kind: "branches"),
+                                     count: det.branches.count) {
+                    if det.branches.isEmpty {
+                        ghEmptyLine(Strings.githubNoBranches)
+                    } else {
+                        ForEach(det.branches.prefix(20)) { b in ghBranchRow(b, repo: repo) }
+                        if det.branches.count > 20 {
+                            ghEmptyLine(String(format: Strings.githubMoreBranches, det.branches.count - 20))
+                        }
+                    }
+                }
+                ghCollapsibleSection(title: Strings.githubReleasesSection,
+                                     icon: "tag",
+                                     expanded: ghSectionBinding(repoKey, kind: "releases")) {
+                    if det.releases.isEmpty {
+                        ghEmptyLine(Strings.githubNoReleases)
+                    } else {
+                        ForEach(det.releases) { rel in ghReleaseRow(rel) }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - GitHub 详情折叠区段（提交 / 分支 / 发布）
+
+    private func ghSectionBinding(_ repoID: String, kind: String) -> Binding<Bool> {
+        let key = "\(repoID)|\(kind)"
+        return Binding(
+            get: { ghSectionExpanded[key, default: true] },
+            set: { ghSectionExpanded[key] = $0 }
+        )
+    }
+
+    @ViewBuilder
+    private func ghCollapsibleSection<Content: View>(title: String, icon: String,
+                                                     expanded: Binding<Bool>,
+                                                     count: Int? = nil,
+                                                     @ViewBuilder content: () -> Content) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) { expanded.wrappedValue.toggle() }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 8)).foregroundColor(.teal).frame(width: 14)
+                Text(title).font(.system(size: 9, weight: .semibold)).foregroundColor(.secondary)
+                Spacer()
+                if let count { Text("\(count)").font(.system(size: 8)).foregroundColor(.secondary) }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 7, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .rotationEffect(.degrees(expanded.wrappedValue ? 90 : 0))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 6)
+
+        if expanded.wrappedValue {
+            content()
+        }
+    }
+
+    private func ghEmptyLine(_ text: String) -> some View {
+        HStack {
+            Text(text).font(.caption2).foregroundColor(.secondary).padding(.leading, 20)
+            Spacer()
+        }
+        .padding(.vertical, 1)
+    }
+
+    private func ghCommitRow(_ c: GitHubCommit) -> some View {
+        HStack(spacing: 6) {
+            Text(c.shortSha)
+                .font(.system(size: 8, design: .monospaced))
+                .foregroundColor(.secondary)
+                .frame(width: 52, alignment: .leading)
+            Text(c.message)
+                .font(.system(size: 8))
+                .lineLimit(1).truncationMode(.tail)
+            if let d = c.date {
+                Text(Self.ghRelativeDate(d))
+                    .font(.system(size: 7)).foregroundColor(.secondary)
+            }
+            Spacer(minLength: 0)
+            githubOpenIcon(URL(string: c.htmlURL))
+            githubCopyButton(c.sha)
+        }
+    }
+
+    private func ghBranchRow(_ b: GitHubBranch, repo: GitHubRepo) -> some View {
+        HStack(spacing: 6) {
+            Text(b.name)
+                .font(.system(size: 8, design: .monospaced))
+                .lineLimit(1).truncationMode(.middle)
+            Spacer()
+            githubOpenIcon(URL(string: repo.htmlURL + "/tree/" + b.name))
+            githubCopyButton(b.name)
+        }
+    }
+
+    private func ghReleaseRow(_ rel: GitHubRelease) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "tag.fill").font(.system(size: 6)).foregroundColor(.purple)
+            Text(rel.name)
+                .font(.system(size: 8))
+                .lineLimit(1).truncationMode(.middle)
+            if let d = rel.published {
+                Text(Self.ghRelativeDate(d))
+                    .font(.system(size: 7)).foregroundColor(.secondary)
+            }
+            Spacer(minLength: 0)
+            githubOpenIcon(URL(string: rel.htmlURL))
+            githubCopyButton(rel.tag)
+        }
+    }
+
+    private func githubOpenIcon(_ url: URL?, size: CGFloat = 8) -> some View {
+        Button {
+            if let url { NSWorkspace.shared.open(url) }
+        } label: {
+            Image(systemName: "arrow.up.right.square")
+                .font(.system(size: size)).foregroundColor(.secondary)
+        }
+        .buttonStyle(.plain)
+        .modifier(HoverTooltip(text: Strings.githubOpenAction, position: .below))
+    }
+
+    private func githubCopyButton(_ value: String, size: CGFloat = 8) -> some View {
+        let copied = ghCopiedValue == value
+        return Button(action: { githubCopyValue(value) }) {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                .font(.system(size: size))
+                .foregroundColor(copied ? .green : .secondary)
+        }
+        .buttonStyle(.plain)
+        .modifier(HoverTooltip(text: copied ? Strings.githubCopied : Strings.githubCopyAction,
+                               position: .below))
+    }
+
+    private func githubCopyValue(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        ghCopiedValue = value
+        ghCopyResetTask?.cancel()
+        ghCopyResetTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1200))
+            guard !Task.isCancelled else { return }
+            ghCopiedValue = nil
+        }
+    }
+
+    private static func ghDateText(_ d: Date?) -> String {
+        d?.formatted(date: .abbreviated, time: .shortened) ?? "—"
+    }
+
+    private static func ghRelativeDate(_ d: Date) -> String {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .short
+        return f.localizedString(for: d, relativeTo: Date())
     }
 
     // MARK: - AWS Tab
@@ -1434,16 +2045,37 @@ struct StatsPopoverView: View {
                 }
                 Spacer()
             } else {
-                Picker(Strings.awsSubTabInstances, selection: $awsSelectedID) {
-                    ForEach(stats.aws.instances.sorted(by: awsInstanceSort)) { inst in
-                        Text(awsInstanceMenuLabel(inst)).tag(Optional(inst.instanceId))
+                SearchableSelector(
+                    items: stats.aws.instances.sorted(by: awsInstanceSort),
+                    selectedID: awsSelectedID,
+                    searchText: $awsInstanceSearchText,
+                    placeholder: Strings.awsSearchPlaceholder,
+                    noMatchesText: Strings.searchNoMatches,
+                    match: { inst, q in
+                        inst.instanceId.localizedCaseInsensitiveContains(q)
+                            || (inst.name ?? "").localizedCaseInsensitiveContains(q)
+                            || inst.instanceType.localizedCaseInsensitiveContains(q)
+                            || awsStateText(inst.state).localizedCaseInsensitiveContains(q)
+                            || (inst.publicIp ?? "").localizedCaseInsensitiveContains(q)
+                            || (inst.privateIp ?? "").localizedCaseInsensitiveContains(q)
+                    },
+                    onSelect: { inst in
+                        awsSelectedID = inst.instanceId
+                    }
+                ) { inst in
+                    HStack(spacing: 6) {
+                        Circle().fill(awsStateColor(inst.state)).frame(width: 6, height: 6)
+                        Text(inst.instanceId)
+                            .font(.system(size: 9, design: .monospaced))
+                            .lineLimit(1).truncationMode(.middle)
+                        if let name = inst.name, !name.isEmpty {
+                            Text(name).font(.system(size: 9)).foregroundColor(.secondary)
+                                .lineLimit(1).truncationMode(.tail)
+                        }
+                        Text(inst.instanceType)
+                            .font(.system(size: 8)).foregroundColor(.secondary)
                     }
                 }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
                 .onChange(of: awsSelectedID) { _, newValue in
                     guard let id = newValue,
                           let inst = stats.aws.instances.first(where: { $0.instanceId == id })
@@ -1472,13 +2104,6 @@ struct StatsPopoverView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { ensureAWSSelection() }
         .onChange(of: stats.aws.instances) { _, _ in ensureAWSSelection() }
-    }
-
-    private func awsInstanceMenuLabel(_ inst: AWSInstance) -> String {
-        var label = inst.instanceId
-        if let name = inst.name, !name.isEmpty { label += " · \(name)" }
-        label += " · \(inst.instanceType)"
-        return label
     }
 
     private func awsInstanceDetail(_ inst: AWSInstance) -> some View {
@@ -2342,12 +2967,14 @@ struct StatsPopoverView: View {
                             Text(rule.hostname)
                                 .font(.system(size: 9, design: .monospaced))
                                 .lineLimit(1).truncationMode(.middle)
+                                .textSelection(.enabled)
                             Text(rule.service)
                                 .font(.system(size: 8))
                                 .foregroundColor(.secondary)
                                 .lineLimit(1).truncationMode(.middle)
                         }
                         Spacer()
+                        cfCopyButton(rule.hostname)
                         Button {
                             cfConfirmRequest = CFConfirmRequest(kind: .removeHostname(rule.hostname))
                             showCFConfirm = true
@@ -2418,6 +3045,7 @@ struct StatsPopoverView: View {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(route.network)
                                 .font(.system(size: 9, design: .monospaced))
+                                .textSelection(.enabled)
                             if let c = route.comment, !c.isEmpty {
                                 Text(c)
                                     .font(.system(size: 8))
@@ -2426,6 +3054,7 @@ struct StatsPopoverView: View {
                             }
                         }
                         Spacer()
+                        cfCopyButton(route.network)
                         Button {
                             cfConfirmRequest = CFConfirmRequest(kind: .removeRoute(route.network))
                             showCFConfirm = true
@@ -2536,6 +3165,737 @@ struct StatsPopoverView: View {
         cfComment = ""
     }
 
+    // MARK: - Netlify Tab
+
+    private var netlifyTabContent: some View {
+        VStack(spacing: 0) {
+            if !stats.netlify.isEnabled {
+                netlifyUnconfiguredState
+            } else if let err = stats.netlify.errorMessage, stats.netlify.sites.isEmpty {
+                netlifyErrorState(err)
+            } else if stats.netlify.sites.isEmpty {
+                if stats.netlify.isLoading {
+                    netlifyLoadingState
+                } else {
+                    netlifyNoSitesState
+                }
+            } else {
+                netlifyProjectsView
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var netlifyLoadingState: some View {
+        VStack {
+            Spacer(minLength: 40)
+            HStack { Spacer(); ProgressView().scaleEffect(1.2); Spacer() }
+            Spacer(minLength: 40)
+        }
+    }
+
+    private var netlifyUnconfiguredState: some View {
+        VStack {
+            Spacer()
+            VStack(spacing: 8) {
+                Image(systemName: "icloud.and.arrow.up.fill").font(.title2).foregroundColor(.secondary)
+                Text(Strings.netlifyConfigHint)
+                    .font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            Spacer()
+        }
+    }
+
+    private func netlifyErrorState(_ err: String) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill").font(.title2).foregroundColor(.orange)
+            Text(err).font(.caption).foregroundColor(.orange).multilineTextAlignment(.center)
+            Text(Strings.netlifyConfigHint)
+                .font(.caption2).foregroundColor(.secondary)
+            netlifyActionButton(Strings.netlifyVerifyAction, "checkmark.seal.fill", color: .blue,
+                                disabled: false) {
+                Task { await stats.netlify.verifyAndDiscover() }
+            }
+            .padding(.top, 2)
+        }
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var netlifyNoSitesState: some View {
+        VStack {
+            Spacer()
+            VStack(spacing: 8) {
+                Image(systemName: "server.rack").font(.title2).foregroundColor(.secondary)
+                Text(Strings.netlifySitesEmpty)
+                    .font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            Spacer()
+        }
+    }
+
+    // MARK: Netlify — Projects (dropdown + full-width detail)
+
+    private var netlifyProjectsView: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "person.2.fill")
+                    .font(.system(size: 8)).foregroundColor(.secondary).frame(width: 14)
+                Text(stats.netlify.selectedAccount?.name ?? (stats.netlify.accountName ?? "-"))
+                    .font(.system(size: 9)).foregroundColor(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+                Spacer()
+                if stats.netlify.isWorking {
+                    ProgressView().controlSize(.mini)
+                }
+                Button {
+                    toggleNetlifyNewSite()
+                } label: {
+                    Image(systemName: showNetlifyNewSite ? "xmark" : "plus")
+                        .font(.system(size: 9)).foregroundColor(.blue)
+                }
+                .buttonStyle(.plain)
+                .modifier(HoverTooltip(text: Strings.netlifyNewSiteAction, position: .below))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 4)
+
+            if showNetlifyNewSite {
+                netlifyNewSitePanel
+            }
+
+            SearchableSelector(
+                items: stats.netlify.sites,
+                selectedID: stats.netlify.selectedSiteID,
+                searchText: $netlifySearchText,
+                placeholder: Strings.netlifySearchPlaceholder,
+                noMatchesText: Strings.searchNoMatches,
+                match: { site, q in
+                    site.name.localizedCaseInsensitiveContains(q)
+                        || (site.customDomain ?? "").localizedCaseInsensitiveContains(q)
+                        || site.displayName.localizedCaseInsensitiveContains(q)
+                },
+                onSelect: { site in
+                    Task { await stats.netlify.selectSite(site.id) }
+                }
+            ) { site in
+                HStack(spacing: 6) {
+                    Image(systemName: "globe")
+                        .font(.system(size: 8)).foregroundColor(.teal).frame(width: 10)
+                    Text(site.displayName)
+                        .font(.system(size: 10))
+                        .lineLimit(1).truncationMode(.tail)
+                }
+            }
+
+            Divider().padding(.horizontal, 14)
+
+            if let sel = stats.netlify.selectedSite {
+                netlifySiteDetail(sel)
+            } else if stats.netlify.isLoading {
+                netlifyLoadingState
+            } else {
+                VStack(spacing: 6) {
+                    Spacer()
+                    Image(systemName: "info.circle").font(.title3).foregroundColor(.secondary)
+                    Text(Strings.netlifyNoSelectionHint)
+                        .font(.caption).foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { ensureNetlifySelection() }
+        .onChange(of: stats.netlify.sites) { _, _ in ensureNetlifySelection() }
+        .onChange(of: stats.netlify.selectedSiteID) { _, _ in
+            netlifyDeploysExpanded = true
+        }
+    }
+
+    @MainActor
+    private func ensureNetlifySelection() {
+        guard !stats.netlify.sites.isEmpty else { return }
+        if stats.netlify.selectedSite == nil {
+            Task { await stats.netlify.selectSite(stats.netlify.sites[0].id) }
+        }
+    }
+
+    private func netlifySiteDetail(_ site: NetlifySite) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                // 头部：站点名 + Live / 已锁定徽标
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(site.publishedDeployID != nil ? Color.green : Color.gray)
+                        .frame(width: 8, height: 8)
+                    Text(site.name)
+                        .font(.system(size: 11, design: .monospaced).weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .textSelection(.enabled)
+                    Spacer()
+                    if site.publishedDeployID != nil {
+                        Text(Strings.netlifyLiveBadge)
+                            .font(.system(size: 8))
+                            .foregroundColor(.green)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.green.opacity(0.12))
+                            .cornerRadius(6)
+                    }
+                }
+
+                // 动作行
+                HStack(spacing: 6) {
+                    netlifyActionButton(Strings.netlifyTriggerAction, "arrow.up.circle.fill", color: .green,
+                                        disabled: stats.netlify.isWorking) {
+                        beginNetlifyConfirm(.trigger, site: site)
+                    }
+                    netlifyActionButton(Strings.netlifyTriggerClearAction, "flame.fill", color: .orange,
+                                        disabled: stats.netlify.isWorking) {
+                        beginNetlifyConfirm(.triggerClearCache, site: site)
+                    }
+                    netlifyActionButton(Strings.netlifyDeployFolderAction, "folder.badge.gearshape", color: .blue,
+                                        disabled: stats.netlify.isWorking) {
+                        netlifyDeployFolder(for: site)
+                    }
+                    Spacer()
+                }
+                HStack(spacing: 6) {
+                    netlifyActionButton(Strings.netlifyOpenSiteAction, "safari", color: .teal,
+                                        disabled: false) {
+                        if let url = netlifySiteURL(site) { NSWorkspace.shared.open(url) }
+                    }
+                    netlifyActionButton(Strings.netlifyOpenAdminAction, "arrow.up.right.square", color: .teal,
+                                        disabled: false) {
+                        if let url = netlifyAdminURL(site) { NSWorkspace.shared.open(url) }
+                    }
+                    Spacer()
+                }
+
+                // 站点信息行（均可复制 / 打开）
+                netlifyInfoRow(Strings.netlifyProjectIDLabel, value: site.id, copy: site.id)
+                if let d = site.customDomain, !d.isEmpty {
+                    netlifyInfoRow(Strings.netlifyCustomDomainLabel, value: d, copy: d)
+                }
+                if let u = site.url, !u.isEmpty {
+                    netlifyInfoRow(Strings.netlifyMainURLLabel, value: u, copy: u,
+                                   openURL: netlifySiteURL(site))
+                }
+                if let a = site.adminURL, !a.isEmpty {
+                    netlifyInfoRow(Strings.netlifyAdminLabel, value: a, copy: a,
+                                   openURL: netlifyAdminURL(site))
+                }
+                if let pid = site.publishedDeployID {
+                    netlifyInfoRow(Strings.netlifyPublishedDeployLabel, value: pid, copy: pid)
+                }
+
+                // 构建设置
+                if site.isGitLinked {
+                    Divider().padding(.vertical, 2)
+                    Text(Strings.netlifyBuildHeader)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.secondary)
+                    if let r = site.repoURL, !r.isEmpty {
+                        netlifyInfoRow(Strings.netlifyRepoLabel, value: r, copy: r)
+                    }
+                    if let b = site.repoBranch, !b.isEmpty {
+                        netlifyInfoRow(Strings.netlifyBranchLabel, value: b, copy: b)
+                    }
+                    if let c = site.buildCommand, !c.isEmpty {
+                        netlifyInfoRow(Strings.netlifyBuildCmdLabel, value: c, copy: c)
+                    }
+                    if let d = site.publishDir, !d.isEmpty {
+                        netlifyInfoRow(Strings.netlifyPublishDirLabel, value: d, copy: d)
+                    }
+                }
+
+                Divider().padding(.vertical, 2)
+
+                // 部署历史（可折叠；显示最近 10 条）
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) { netlifyDeploysExpanded.toggle() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(Strings.netlifyDeploysHeader)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.primary)
+                        Spacer()
+                        if stats.netlify.isWorking {
+                            ProgressView().controlSize(.mini)
+                        }
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundColor(.secondary)
+                            .rotationEffect(.degrees(netlifyDeploysExpanded ? 90 : 0))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 2)
+
+                if netlifyDeploysExpanded {
+                    netlifyDeploysSection(site)
+                }
+
+                if let msg = stats.netlify.actionMessage {
+                    HStack(spacing: 6) {
+                        Image(systemName: stats.netlify.actionSuccess ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .font(.system(size: 8))
+                            .foregroundColor(stats.netlify.actionSuccess ? .green : .red)
+                            .frame(width: 14)
+                        Text(msg).font(.system(size: 8))
+                            .foregroundColor(stats.netlify.actionSuccess ? .secondary : .red)
+                        Spacer()
+                    }
+                    .padding(.top, 2)
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func netlifyInfoRow(_ label: String, value: String,
+                                copy: String? = nil, openURL: URL? = nil) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(label).font(.system(size: 9)).foregroundColor(.secondary)
+            Spacer(minLength: 6)
+            Text(value)
+                .font(.system(size: 9))
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+                .textSelection(.enabled)
+            if let url = openURL {
+                Button {
+                    NSWorkspace.shared.open(url)
+                } label: {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 8)).foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .modifier(HoverTooltip(text: Strings.netlifyOpenSiteAction, position: .below))
+            }
+            if let c = copy, !c.isEmpty {
+                netlifyCopyButton(c)
+            }
+        }
+    }
+
+    private func netlifyDeploysSection(_ site: NetlifySite) -> some View {
+        let list = stats.netlify.deploys
+        let shown = Array(list.prefix(10))
+        return VStack(alignment: .leading, spacing: 0) {
+            if shown.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 8)).foregroundColor(.secondary).frame(width: 14)
+                    Text(Strings.netlifyDeploysEmpty)
+                        .font(.system(size: 9)).foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
+            } else {
+                ForEach(shown) { dep in
+                    netlifyDeployRow(dep, site: site)
+                    if dep.id != shown.last?.id {
+                        Divider().padding(.leading, 8)
+                    }
+                }
+            }
+        }
+    }
+
+    private func netlifyDeployRow(_ dep: NetlifyDeploy, site: NetlifySite) -> some View {
+        let isPublished = dep.id == site.publishedDeployID
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Circle().fill(netlifyStateColor(dep.state)).frame(width: 6, height: 6)
+                if let ctx = netlifyContextText(dep.context), !ctx.isEmpty {
+                    Text(ctx)
+                        .font(.system(size: 8)).foregroundColor(.secondary).lineLimit(1)
+                }
+                Text(netlifyDeployTitle(dep))
+                    .font(.system(size: 9))
+                    .lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 2)
+                if let t = dep.createdAt {
+                    Text(Self.netlifyDateText(t))
+                        .font(.system(size: 7).monospacedDigit())
+                        .foregroundColor(.secondary)
+                }
+            }
+            HStack(spacing: 6) {
+                Text(netlifyStateText(dep.state))
+                    .font(.system(size: 8))
+                    .foregroundColor(netlifyStateColor(dep.state))
+                if isPublished {
+                    Text(Strings.netlifyLiveBadge)
+                        .font(.system(size: 8)).foregroundColor(.green)
+                }
+                if dep.locked {
+                    Text(Strings.netlifyLockedBadge)
+                        .font(.system(size: 8)).foregroundColor(.orange)
+                }
+                Spacer()
+                if let permalink = dep.url ?? dep.deployURL, !permalink.isEmpty {
+                    netlifyCopyButton(permalink)
+                }
+                if let a = dep.adminURL, let url = URL(string: a) {
+                    netlifyOpenIcon(url, tooltip: Strings.netlifyOpenAdminAction)
+                }
+                if dep.isBuilt && !isPublished {
+                    netlifyRowActionIcon("arrow.uturn.backward", color: .blue,
+                                         tooltip: Strings.netlifyRollbackAction) {
+                        beginNetlifyConfirm(.rollback(dep), site: site)
+                    }
+                }
+                if isPublished || dep.locked {
+                    if dep.locked {
+                        netlifyRowActionIcon("lock.open", color: .orange,
+                                             tooltip: Strings.netlifyUnlockAction) {
+                            beginNetlifyConfirm(.unlock(dep), site: site)
+                        }
+                    } else {
+                        netlifyRowActionIcon("lock", color: .orange,
+                                             tooltip: Strings.netlifyLockAction) {
+                            beginNetlifyConfirm(.lock(dep), site: site)
+                        }
+                    }
+                }
+            }
+            if dep.isError, let msg = dep.errorMessage, !msg.isEmpty {
+                Text(msg)
+                    .font(.system(size: 7))
+                    .foregroundColor(.red)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.vertical, 3)
+    }
+
+    // MARK: Netlify — helpers (rows / colors / copy / confirm)
+
+    private func netlifyDeployTitle(_ dep: NetlifyDeploy) -> String {
+        if let t = dep.title, !t.isEmpty { return t }
+        if let b = dep.branch, !b.isEmpty { return b }
+        return Self.netlifyDeployShort(dep.id)
+    }
+
+    private func netlifyContextText(_ context: String?) -> String? {
+        switch context {
+        case "production": return Strings.netlifyContextProduction
+        case "branch-deploy": return Strings.netlifyContextBranch
+        case "deploy-preview": return Strings.netlifyContextPreview
+        case let c? where !c.isEmpty: return c.capitalized
+        default: return nil
+        }
+    }
+
+    private func netlifyStateColor(_ state: String) -> Color {
+        switch state {
+        case "ready", "current": return .green
+        case "error": return .red
+        case "old": return .secondary
+        case "building", "uploading", "processing", "enqueued", "new", "preparing", "prepared": return .orange
+        default: return .secondary
+        }
+    }
+
+    private func netlifyStateText(_ state: String) -> String {
+        switch state {
+        case "ready": return Strings.netlifyStateReady
+        case "current": return Strings.netlifyStateCurrent
+        case "old": return Strings.netlifyStateOld
+        case "error": return Strings.netlifyStateError
+        case "building": return Strings.netlifyStateBuilding
+        case "uploading": return Strings.netlifyStateUploading
+        case "processing": return Strings.netlifyStateProcessing
+        case "enqueued", "new": return Strings.netlifyStateEnqueued
+        default: return state.capitalized
+        }
+    }
+
+    private func netlifyActionButton(_ title: String, _ icon: String, color: Color,
+                                     disabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 8))
+                Text(title).font(.system(size: 9, weight: .medium))
+            }
+            .foregroundColor(disabled ? Color.secondary : color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(disabled ? Color.gray.opacity(0.12) : color.opacity(0.15))
+            .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled || stats.netlify.isWorking)
+    }
+
+    private func netlifyRowActionIcon(_ symbol: String, color: Color, tooltip: String,
+                                      action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 8)).foregroundColor(color)
+        }
+        .buttonStyle(.plain)
+        .modifier(HoverTooltip(text: tooltip, position: .below))
+        .disabled(stats.netlify.isWorking)
+    }
+
+    private func netlifyOpenIcon(_ url: URL, tooltip: String) -> some View {
+        Button {
+            NSWorkspace.shared.open(url)
+        } label: {
+            Image(systemName: "arrow.up.right.square")
+                .font(.system(size: 8)).foregroundColor(.secondary)
+        }
+        .buttonStyle(.plain)
+        .modifier(HoverTooltip(text: tooltip, position: .below))
+        .disabled(stats.netlify.isWorking)
+    }
+
+    private func netlifyCopyValue(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        netlifyCopiedValue = value
+        netlifyCopyResetTask?.cancel()
+        netlifyCopyResetTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1200))
+            guard !Task.isCancelled else { return }
+            netlifyCopiedValue = nil
+        }
+    }
+
+    private func netlifyCopyButton(_ value: String) -> some View {
+        let copied = netlifyCopiedValue == value
+        return Button(action: { netlifyCopyValue(value) }) {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                .font(.system(size: 9))
+                .foregroundColor(copied ? .green : .secondary)
+        }
+        .buttonStyle(.plain)
+        .modifier(HoverTooltip(text: copied ? Strings.netlifyCopied : Strings.netlifyCopyAction,
+                               position: .below))
+        .disabled(stats.netlify.isWorking)
+    }
+
+    private func netlifySiteURL(_ site: NetlifySite) -> URL? {
+        if let u = site.url, let url = URL(string: u) { return url }
+        return URL(string: "https://\(site.name).netlify.app")
+    }
+
+    private func netlifyAdminURL(_ site: NetlifySite) -> URL? {
+        if let a = site.adminURL, let url = URL(string: a) { return url }
+        return URL(string: "https://app.netlify.com/sites/\(site.name)")
+    }
+
+    private static func netlifyDeployShort(_ id: String) -> String {
+        String(id.prefix(8))
+    }
+
+    private static func netlifyDateText(_ d: Date) -> String {
+        d.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    // MARK: Netlify — 新建站点（从本地目录）
+
+    private var netlifyNewSitePanel: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(Strings.netlifyNewSiteSheetTitle)
+                .font(.system(size: 10, weight: .semibold))
+            TextField(Strings.netlifySiteNameField, text: $netlifySiteName)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 9))
+            HStack(spacing: 6) {
+                Text(netlifyFolderURL?.path ?? "—")
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Button(action: chooseNetlifyFolder) {
+                    Text(Strings.netlifyChooseFolderAction).font(.system(size: 9))
+                }
+                .controlSize(.small)
+            }
+            Text(Strings.netlifyFolderHint)
+                .font(.system(size: 8)).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(Strings.netlifyDeployTargetNote)
+                .font(.system(size: 8)).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Spacer()
+                if netlifyCreating {
+                    ProgressView().controlSize(.mini)
+                }
+                Button(Strings.cancel) { closeNetlifyNewSite() }
+                    .controlSize(.small)
+                Button(action: createNetlifySiteFlow) {
+                    Text(Strings.netlifyCreateAndDeploy).font(.system(size: 9))
+                }
+                .controlSize(.small)
+                .buttonStyle(.borderedProminent)
+                .disabled(netlifyCreating)
+            }
+        }
+        .padding(8)
+        .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
+        .cornerRadius(8)
+        .padding(.horizontal, 14)
+        .padding(.bottom, 6)
+    }
+
+    @MainActor
+    private func toggleNetlifyNewSite() {
+        showNetlifyNewSite.toggle()
+        if !showNetlifyNewSite {
+            netlifySiteName = ""
+            netlifyFolderURL = nil
+        }
+    }
+
+    @MainActor
+    private func closeNetlifyNewSite() {
+        showNetlifyNewSite = false
+        netlifySiteName = ""
+        netlifyFolderURL = nil
+        netlifyCreating = false
+    }
+
+    @MainActor
+    private func chooseNetlifyFolder() {
+        let panel = NSOpenPanel()
+        panel.title = Strings.netlifyDeployFolderAction
+        panel.message = Strings.netlifyFolderHint
+        panel.prompt = Strings.netlifyChooseFolderAction
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in
+                netlifyFolderURL = url
+            }
+        }
+    }
+
+    @MainActor
+    private func createNetlifySiteFlow() {
+        guard !netlifyCreating else { return }
+        let raw = netlifySiteName.trimmingCharacters(in: .whitespaces)
+        let folder = netlifyFolderURL
+        let name: String
+        if !raw.isEmpty {
+            name = Self.sanitizeSiteName(raw)
+        } else if let folder {
+            name = Self.sanitizeSiteName(folder.lastPathComponent)
+        } else {
+            name = "site-\(Int(Date().timeIntervalSince1970) % 100_000)"
+        }
+        guard !name.isEmpty else { return }
+        netlifyCreating = true
+        Task {
+            let site = await stats.netlify.createSite(name: name)
+            if let site, let folder {
+                _ = await stats.netlify.deployLocalFolder(siteID: site.id, folderURL: folder,
+                                                          siteNameForTitle: site.name)
+            }
+            netlifyCreating = false
+            closeNetlifyNewSite()
+        }
+    }
+
+    /// 把本地文件夹部署到「当前选中的站点」（已存在站点）。
+    @MainActor
+    private func netlifyDeployFolder(for site: NetlifySite) {
+        let panel = NSOpenPanel()
+        panel.title = Strings.netlifyDeployFolderAction
+        panel.message = Strings.netlifyFolderHint
+        panel.prompt = Strings.netlifyChooseFolderAction
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in
+                _ = await stats.netlify.deployLocalFolder(siteID: site.id, folderURL: url,
+                                                          siteNameForTitle: site.name)
+            }
+        }
+    }
+
+    /// Netlify 站点名只能是小写字母/数字/连字符。
+    @MainActor private static func sanitizeSiteName(_ s: String) -> String {
+        let lowered = s.lowercased()
+        var out = ""
+        var lastDash = false
+        for ch in lowered {
+            if ch.isLetter || ch.isNumber {
+                out.append(ch)
+                lastDash = false
+            } else if !lastDash {
+                out.append("-")
+                lastDash = true
+            }
+        }
+        while out.hasPrefix("-") { out.removeFirst() }
+        while out.hasSuffix("-") { out.removeLast() }
+        return String(out.prefix(60))
+    }
+
+    // MARK: Netlify — confirm & dispatch
+
+    @MainActor
+    private func beginNetlifyConfirm(_ kind: NetlifyConfirmRequest.Kind, site: NetlifySite) {
+        netlifyConfirmRequest = NetlifyConfirmRequest(kind: kind, siteID: site.id)
+        showNetlifyConfirm = true
+    }
+
+    private func netlifyConfirmButtonLabel(_ req: NetlifyConfirmRequest) -> String {
+        switch req.kind {
+        case .trigger: return Strings.netlifyTriggerAction
+        case .triggerClearCache: return Strings.netlifyTriggerClearAction
+        case .rollback: return Strings.netlifyRollbackAction
+        case .lock: return Strings.netlifyLockAction
+        case .unlock: return Strings.netlifyUnlockAction
+        }
+    }
+
+    private func netlifyConfirmMessage(_ req: NetlifyConfirmRequest) -> String {
+        let name = stats.netlify.selectedSite?.displayName ?? req.siteID
+        switch req.kind {
+        case .trigger: return String(format: Strings.netlifyTriggerConfirm, name)
+        case .triggerClearCache: return String(format: Strings.netlifyTriggerClearConfirm, name)
+        case .rollback(let d): return String(format: Strings.netlifyRollbackConfirm, name, Self.netlifyDeployShort(d.id))
+        case .lock(let d): return String(format: Strings.netlifyLockConfirm, Self.netlifyDeployShort(d.id))
+        case .unlock(let d): return String(format: Strings.netlifyUnlockConfirm, Self.netlifyDeployShort(d.id))
+        }
+    }
+
+    @MainActor
+    private func performNetlify(_ req: NetlifyConfirmRequest) {
+        guard let site = stats.netlify.selectedSite ?? stats.netlify.sites.first(where: { $0.id == req.siteID })
+        else { return }
+        Task {
+            switch req.kind {
+            case .trigger: await stats.netlify.triggerDeploy(site: site, clearCache: false, title: nil)
+            case .triggerClearCache: await stats.netlify.triggerDeploy(site: site, clearCache: true, title: nil)
+            case .rollback(let d): await stats.netlify.rollbackToDeploy(d, siteID: site.id)
+            case .lock(let d): await stats.netlify.setDeployLocked(d, locked: true, siteID: site.id)
+            case .unlock(let d): await stats.netlify.setDeployLocked(d, locked: false, siteID: site.id)
+            }
+        }
+    }
+
     private var actionBar: some View {
         HStack(spacing: 6) {
             iconButton(icon: "arrow.clockwise", label: Strings.refresh, color: .blue) {
@@ -2543,6 +3903,7 @@ struct StatsPopoverView: View {
                 stats.gitHub.refresh()
                 stats.aws.refresh()
                 stats.cloudflare.refresh()
+                stats.netlify.refresh()
                 loadUsage()
             }
             iconButton(icon: "square.and.arrow.up", label: Strings.exportUsageButton, color: .teal) {
@@ -2557,6 +3918,7 @@ struct StatsPopoverView: View {
                 stats.gitHub.refresh()
                 stats.aws.refresh()
                 stats.cloudflare.refresh()
+                stats.netlify.refresh()
                 loadUsage()
             }
             iconButton(icon: "gearshape", label: Strings.settings, color: .secondary) {
@@ -2590,6 +3952,217 @@ struct StatsPopoverView: View {
         .buttonStyle(.plain)
         .modifier(HoverTooltip(text: label, position: .above))
         .fixedSize()
+    }
+
+    // MARK: - 通知中心（popover 横幅 + 「通知」页）
+
+    private static let alertTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f
+    }()
+
+    private var alertBannerOverlay: some View {
+        Group {
+            if let a = currentBanner {
+                HStack(spacing: 6) {
+                    Image(systemName: alertIcon(a.kind))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(alertColor(a.kind))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(a.title).font(.system(size: 10, weight: .semibold)).lineLimit(1)
+                        Text(a.body)
+                            .font(.system(size: 8))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    Button(action: dismissBanner) {
+                        Image(systemName: "xmark").font(.system(size: 8)).foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .windowBackgroundColor)))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+                .padding(.horizontal, 10)
+                .padding(.top, 8)
+                .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+    }
+
+    private func showBanner(_ alert: AppAlert) {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { currentBanner = alert }
+        bannerDismissTask?.cancel()
+        bannerDismissTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { currentBanner = nil }
+        }
+    }
+
+    private func dismissBanner() {
+        bannerDismissTask?.cancel()
+        withAnimation(.easeOut(duration: 0.2)) { currentBanner = nil }
+    }
+
+    private var alertsTabButton: some View {
+        let active = selectedTab == 5
+        let unread = recentAlerts.filter { $0.isUnread }.count
+        return Button(action: {
+            selectedTab = 5
+            AppAlertCenter.markAllRead()
+            recentAlerts = AppAlertCenter.recent
+        }) {
+            Image(systemName: "bell.fill")
+                .font(.system(size: 13))
+                .foregroundColor(active ? .white : .secondary)
+                .frame(width: 30, height: 24)
+                .background(active ? Color.blue : Color.clear)
+                .cornerRadius(6)
+                .contentShape(Rectangle())
+                .overlay(alignment: .topTrailing) {
+                    if unread > 0 {
+                        Text("\(unread)")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.red))
+                            .offset(x: 2, y: -2)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .modifier(HoverTooltip(text: Strings.alertsTabTooltip, position: .below))
+    }
+
+    private var alertsTabContent: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "bell.badge.fill")
+                    .font(.system(size: 10)).foregroundColor(.orange)
+                Text(Strings.alertsTabTitle).font(.system(size: 10, weight: .semibold))
+                Spacer()
+                if !recentAlerts.isEmpty {
+                    Button {
+                        AppAlertCenter.removeAll()
+                        recentAlerts = AppAlertCenter.recent
+                    } label: {
+                        Label(Strings.alertsClearAll, systemImage: "trash")
+                            .font(.system(size: 8))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            if recentAlerts.isEmpty {
+                VStack(spacing: 6) {
+                    Image(systemName: "bell.slash").font(.system(size: 16)).foregroundColor(.secondary)
+                    Text(Strings.alertsEmpty).font(.system(size: 9)).foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(recentAlerts) { alert in
+                        alertRow(alert)
+                        if alert.id != recentAlerts.last?.id {
+                            Divider().padding(.leading, 8)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func alertRow(_ alert: AppAlert) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: alertIcon(alert.kind))
+                .font(.system(size: 9))
+                .foregroundColor(alertColor(alert.kind))
+                .frame(width: 14)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    Text(alert.title).font(.system(size: 9, weight: .semibold)).lineLimit(1)
+                    if alert.isUnread {
+                        Circle().fill(Color.blue).frame(width: 5, height: 5)
+                    }
+                }
+                Text(alert.body)
+                    .font(.system(size: 8))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 4)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(Self.alertTimeFormatter.string(from: alert.date))
+                    .font(.system(size: 7).monospacedDigit())
+                    .foregroundColor(.secondary)
+                Button {
+                    AppAlertCenter.remove(alert.id)
+                    recentAlerts = AppAlertCenter.recent
+                } label: {
+                    Image(systemName: "xmark").font(.system(size: 7)).foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func alertIcon(_ kind: AppAlertKind) -> String {
+        switch kind {
+        case .peakStart: return "sun.max.fill"
+        case .peakEnd: return "moon.zzz.fill"
+        case .peakSoon: return "sun.max.trianglebadge.exclamationmark"
+        case .tunnelDown: return "cloud.bolt.rain.fill"
+        case .tunnelRestored: return "checkmark.circle.fill"
+        case .netlifyDeployReady: return "checkmark.circle.fill"
+        case .netlifyDeployFailed: return "exclamationmark.triangle.fill"
+        case .netlifyDeployRolledBack: return "arrow.uturn.backward.circle.fill"
+        case .lowBalance: return "exclamationmark.circle.fill"
+        case .balanceWarning: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private func alertColor(_ kind: AppAlertKind) -> Color {
+        switch kind {
+        case .peakStart, .peakSoon, .balanceWarning: return .orange
+        case .peakEnd, .tunnelRestored, .netlifyDeployReady, .netlifyDeployRolledBack: return .green
+        case .tunnelDown, .lowBalance, .netlifyDeployFailed: return .red
+        }
+    }
+
+    // MARK: - Cloudflare 复制
+
+    private func copyCFValue(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        cfCopiedValue = value
+        cfCopyResetTask?.cancel()
+        cfCopyResetTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1200))
+            guard !Task.isCancelled else { return }
+            cfCopiedValue = nil
+        }
+    }
+
+    private func cfCopyButton(_ value: String) -> some View {
+        let copied = cfCopiedValue == value
+        return Button(action: { copyCFValue(value) }) {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                .font(.system(size: 9))
+                .foregroundColor(copied ? .green : .secondary)
+        }
+        .buttonStyle(.plain)
+        .modifier(HoverTooltip(text: copied ? Strings.cloudflareCopied : Strings.cloudflareCopyAction,
+                               position: .below))
+        .disabled(stats.cloudflare.isWorking)
     }
 }
 

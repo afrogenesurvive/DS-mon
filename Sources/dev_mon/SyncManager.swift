@@ -291,7 +291,8 @@ final class SyncManager: @unchecked Sendable {
                             latencyMs: records[i].latencyMs,
                             statusCode: records[i].statusCode,
                             userAgent: records[i].userAgent,
-                            sourceIP: clientIP
+                            sourceIP: clientIP,
+                            repo: records[i].repo
                         )
                     }
                     syncLog("[Sync] Server: insert \(records.count) records from \(clientIP)")

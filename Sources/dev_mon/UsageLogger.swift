@@ -4,10 +4,10 @@ struct UsageLogger: @unchecked Sendable {
     let store: UsageStore
     let onComplete: () -> Void
 
-    func logChatUsage(requestBody: Data, responseBody: Data, latencyMs: Double, statusCode: Int, providerId: String = "", userAgent: String = "") {
+    func logChatUsage(requestBody: Data, responseBody: Data, latencyMs: Double, statusCode: Int, providerId: String = "", userAgent: String = "", repo: String = "") {
         if let respJSON = try? JSONSerialization.jsonObject(with: responseBody) as? [String: Any],
            let usage = respJSON["usage"] as? [String: Any] {
-            writeUsage(requestBody: requestBody, usage: usage, latencyMs: latencyMs, statusCode: statusCode, providerId: providerId, userAgent: userAgent)
+            writeUsage(requestBody: requestBody, usage: usage, latencyMs: latencyMs, statusCode: statusCode, providerId: providerId, userAgent: userAgent, repo: repo)
             return
         }
 
@@ -19,13 +19,13 @@ struct UsageLogger: @unchecked Sendable {
             if let chunkData = jsonStr.data(using: .utf8),
                let json = try? JSONSerialization.jsonObject(with: chunkData) as? [String: Any],
                let usage = json["usage"] as? [String: Any] {
-                writeUsage(requestBody: requestBody, usage: usage, latencyMs: latencyMs, statusCode: statusCode, providerId: providerId, userAgent: userAgent)
+                writeUsage(requestBody: requestBody, usage: usage, latencyMs: latencyMs, statusCode: statusCode, providerId: providerId, userAgent: userAgent, repo: repo)
                 return
             }
         }
     }
 
-    func logResponsesUsage(requestBody: Data, responseBody: Data, latencyMs: Double, providerId: String = "", userAgent: String = "") {
+    func logResponsesUsage(requestBody: Data, responseBody: Data, latencyMs: Double, providerId: String = "", userAgent: String = "", repo: String = "") {
         guard let text = String(data: responseBody, encoding: .utf8) else { return }
         var usage: [String: Any]?
 
@@ -93,13 +93,14 @@ struct UsageLogger: @unchecked Sendable {
             latencyMs: latencyMs,
             statusCode: 200,
             userAgent: userAgent,
-            sourceIP: ""
+            sourceIP: "",
+            repo: repo.isEmpty ? nil : repo
         )
         insertAndNotify(record)
     }
 
     /// 记录 Anthropic Messages API（/v1/messages）用量
-    func logMessagesUsage(requestBody: Data, responseBody: Data, latencyMs: Double, statusCode: Int, providerId: String = "", userAgent: String = "") {
+    func logMessagesUsage(requestBody: Data, responseBody: Data, latencyMs: Double, statusCode: Int, providerId: String = "", userAgent: String = "", repo: String = "") {
         var usage: [String: Any]?
 
         // 1) 非流式：顶层 usage 对象
@@ -145,10 +146,10 @@ struct UsageLogger: @unchecked Sendable {
         }
 
         guard let usage else { return }
-        writeMessagesUsage(requestBody: requestBody, usage: usage, latencyMs: latencyMs, statusCode: statusCode, providerId: providerId, userAgent: userAgent)
+        writeMessagesUsage(requestBody: requestBody, usage: usage, latencyMs: latencyMs, statusCode: statusCode, providerId: providerId, userAgent: userAgent, repo: repo)
     }
 
-    private func writeMessagesUsage(requestBody: Data, usage: [String: Any], latencyMs: Double, statusCode: Int, providerId: String = "", userAgent: String = "") {
+    private func writeMessagesUsage(requestBody: Data, usage: [String: Any], latencyMs: Double, statusCode: Int, providerId: String = "", userAgent: String = "", repo: String = "") {
         var model = "unknown"
         if let reqJSON = try? JSONSerialization.jsonObject(with: requestBody) as? [String: Any] {
             model = reqJSON["model"] as? String ?? "unknown"
@@ -170,12 +171,13 @@ struct UsageLogger: @unchecked Sendable {
             latencyMs: latencyMs,
             statusCode: statusCode,
             userAgent: userAgent,
-            sourceIP: ""
+            sourceIP: "",
+            repo: repo.isEmpty ? nil : repo
         )
         insertAndNotify(record)
     }
 
-    private func writeUsage(requestBody: Data, usage: [String: Any], latencyMs: Double, statusCode: Int, providerId: String = "", userAgent: String = "") {
+    private func writeUsage(requestBody: Data, usage: [String: Any], latencyMs: Double, statusCode: Int, providerId: String = "", userAgent: String = "", repo: String = "") {
         var model = "unknown"
         if let reqJSON = try? JSONSerialization.jsonObject(with: requestBody) as? [String: Any] {
             model = reqJSON["model"] as? String ?? "unknown"
@@ -203,7 +205,8 @@ struct UsageLogger: @unchecked Sendable {
             latencyMs: latencyMs,
             statusCode: statusCode,
             userAgent: userAgent,
-            sourceIP: ""
+            sourceIP: "",
+            repo: repo.isEmpty ? nil : repo
         )
         insertAndNotify(record)
     }

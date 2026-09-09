@@ -210,7 +210,7 @@ extension ProxyConnectionHandler {
             sessions.saveWithId(id: responseId, messages: fullHistory)
 
             let elapsed = Date().timeIntervalSince(start) * 1000
-            usageLogger.logChatUsage(requestBody: requestBody, responseBody: accumulatedBody, latencyMs: elapsed, statusCode: 200, providerId: providerId, userAgent: userAgent)
+            usageLogger.logChatUsage(requestBody: requestBody, responseBody: accumulatedBody, latencyMs: elapsed, statusCode: 200, providerId: providerId, userAgent: userAgent, repo: resolveRepo())
 
         } catch {
             //appendLog("[Responses] 流错误: \(error.localizedDescription)")
@@ -274,7 +274,7 @@ extension ProxyConnectionHandler {
             })
 
             let elapsed = Date().timeIntervalSince(start) * 1000
-            usageLogger.logChatUsage(requestBody: requestBody, responseBody: data, latencyMs: elapsed, statusCode: 200, providerId: providerId, userAgent: userAgent)
+            usageLogger.logChatUsage(requestBody: requestBody, responseBody: data, latencyMs: elapsed, statusCode: 200, providerId: providerId, userAgent: userAgent, repo: resolveRepo())
 
         } catch {
             //appendLog("[Responses] 阻塞请求错误: \(error.localizedDescription)")

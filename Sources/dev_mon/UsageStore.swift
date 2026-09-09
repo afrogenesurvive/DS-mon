@@ -173,6 +173,8 @@ struct UsageRecord: Codable, Sendable {
     let statusCode: Int
     let userAgent: String
     let sourceIP: String
+    /// 本地仓库名（可选）。仅本机来源、且能解析出客户端 cwd 时才有值；远程/未知来源为 nil。
+    let repo: String?
 }
 
 struct AggregatedUsage: Sendable {
@@ -215,9 +217,9 @@ actor UsageStore {
     private static let insertColumns = """
     uuid, timestamp, provider_id, model, endpoint,
     prompt_tokens, completion_tokens, total_tokens, cached_tokens,
-    reasoning_tokens, latency_ms, status_code, cost, user_agent, source_ip
+    reasoning_tokens, latency_ms, status_code, cost, user_agent, source_ip, repo
     """
-    private static let insertValues = "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+    private static let insertValues = "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
 
     private func bindRecord(_ stmt: OpaquePointer, _ record: UsageRecord, cost: Double) {
         sqlite3_bind_text(stmt, 1, record.uuid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
@@ -235,6 +237,7 @@ actor UsageStore {
         sqlite3_bind_double(stmt, 13, cost)
         sqlite3_bind_text(stmt, 14, record.userAgent, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         sqlite3_bind_text(stmt, 15, record.sourceIP, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(stmt, 16, record.repo ?? "", -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
     }
 
     private static let dayLookupFormatter: DateFormatter = {
@@ -317,6 +320,10 @@ actor UsageStore {
         }
         // 迁移 V6: 添加 source_ip 列（忽略"列已存在"错误）
         if sqlite3_exec(handle, "ALTER TABLE usage_log ADD COLUMN source_ip TEXT DEFAULT ''", nil, nil, nil) != SQLITE_OK {
+            // duplicate column - silently ignored
+        }
+        // 迁移 V7: 添加 repo 列（本地仓库名，忽略"列已存在"错误）
+        if sqlite3_exec(handle, "ALTER TABLE usage_log ADD COLUMN repo TEXT DEFAULT ''", nil, nil, nil) != SQLITE_OK {
             // duplicate column - silently ignored
         }
 
@@ -406,7 +413,7 @@ actor UsageStore {
         let sql = """
         SELECT uuid, timestamp, provider_id, model, endpoint,
                prompt_tokens, completion_tokens, total_tokens, cached_tokens,
-               reasoning_tokens, latency_ms, status_code, user_agent, source_ip
+               reasoning_tokens, latency_ms, status_code, user_agent, source_ip, repo
         FROM usage_log
         WHERE timestamp > ?
         ORDER BY timestamp ASC;
@@ -434,7 +441,8 @@ actor UsageStore {
                 latencyMs: sqlite3_column_double(stmt, 10),
                 statusCode: Int(sqlite3_column_int64(stmt, 11)),
                 userAgent: String(cString: sqlite3_column_text(stmt, 12)),
-                sourceIP: String(cString: sqlite3_column_text(stmt, 13))
+                sourceIP: String(cString: sqlite3_column_text(stmt, 13)),
+                repo: sqlite3_column_text(stmt, 14).map { String(cString: $0) }
             ))
         }
         return records
@@ -473,7 +481,7 @@ actor UsageStore {
         let hasSince = since != nil
         let sql = """
         SELECT timestamp, model, endpoint, latency_ms, status_code, user_agent, uuid, source_ip, provider_id,
-               prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens
+               prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens, repo
         FROM usage_log
         WHERE 1=1\(hasProvider ? " AND provider_id = ?" : "")\(hasSince ? " AND timestamp >= ?" : "")
         ORDER BY timestamp DESC
@@ -508,7 +516,8 @@ actor UsageStore {
                 latencyMs: sqlite3_column_double(stmt, 3),
                 statusCode: Int(sqlite3_column_int64(stmt, 4)),
                 userAgent: String(cString: sqlite3_column_text(stmt, 5)),
-                sourceIP: String(cString: sqlite3_column_text(stmt, 7))
+                sourceIP: String(cString: sqlite3_column_text(stmt, 7)),
+                repo: sqlite3_column_text(stmt, 14).map { String(cString: $0) }
             ))
         }
         return results
@@ -584,6 +593,49 @@ actor UsageStore {
         return results
     }
 
+    /// 每个来源使用过的仓库名（repo 非空），按最近使用倒序；用于聚合行的仓库副标签。
+    func reposBySource(since: Date? = nil, sourceIP: String? = nil, providerId: String? = nil) -> [String: [String]] {
+        guard let db else { return [:] }
+        let hasSince = since != nil
+        let hasSource = sourceIP.map { !$0.isEmpty } ?? false
+        let hasProvider = providerId.map { !$0.isEmpty } ?? false
+        let sql = """
+        SELECT source_ip, repo, MAX(timestamp)
+        FROM usage_log
+        WHERE repo != '' AND repo IS NOT NULL
+        \(hasSince ? " AND timestamp >= ?" : "")\(hasSource ? " AND source_ip = ?" : "")\(hasProvider ? " AND provider_id = ?" : "")
+        GROUP BY source_ip, repo
+        ORDER BY source_ip ASC, MAX(timestamp) DESC;
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [:] }
+        var bindIdx: Int32 = 1
+        if let since {
+            sqlite3_bind_double(stmt, bindIdx, since.timeIntervalSince1970)
+            bindIdx += 1
+        }
+        if let src = sourceIP, hasSource {
+            sqlite3_bind_text(stmt, bindIdx, src, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            bindIdx += 1
+        }
+        if let pid = providerId, hasProvider {
+            sqlite3_bind_text(stmt, bindIdx, pid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            bindIdx += 1
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        var results: [String: [String]] = [:]
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let repoPtr = sqlite3_column_text(stmt, 1) else { continue }
+            let ip = String(cString: sqlite3_column_text(stmt, 0))
+            let repo = String(cString: repoPtr)
+            if !repo.isEmpty {
+                results[ip, default: []].append(repo)
+            }
+        }
+        return results
+    }
+
     /// Distinct non-empty sources for the source filter dropdown
     func distinctSources() -> [String] {
         guard let db else { return [] }
@@ -645,7 +697,7 @@ actor UsageStore {
         let sql = """
         SELECT uuid, timestamp, provider_id, model, endpoint,
                prompt_tokens, completion_tokens, total_tokens, cached_tokens,
-               reasoning_tokens, latency_ms, status_code, user_agent, source_ip
+               reasoning_tokens, latency_ms, status_code, user_agent, source_ip, repo
         FROM usage_log
         WHERE 1=1\(hasSince ? " AND timestamp >= ?" : "")\(sourceClause)\(hasProvider ? " AND provider_id = ?" : "")
         ORDER BY timestamp DESC
@@ -685,7 +737,8 @@ actor UsageStore {
                 latencyMs: sqlite3_column_double(stmt, 10),
                 statusCode: Int(sqlite3_column_int64(stmt, 11)),
                 userAgent: String(cString: sqlite3_column_text(stmt, 12)),
-                sourceIP: String(cString: sqlite3_column_text(stmt, 13))
+                sourceIP: String(cString: sqlite3_column_text(stmt, 13)),
+                repo: sqlite3_column_text(stmt, 14).map { String(cString: $0) }
             ))
         }
         return results

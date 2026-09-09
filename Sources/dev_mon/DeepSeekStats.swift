@@ -27,6 +27,7 @@ final class DeepSeekStats {
     private(set) var gitHub = GitHubUsageTracker()
     private(set) var aws = AWSUsageTracker()
     private(set) var cloudflare = CloudflareTunnelManager()
+    private(set) var netlify = NetlifyManager()
 
     // 活跃提供商信息
     private(set) var providerName: String = "DeepSeek"
@@ -268,8 +269,14 @@ final class DeepSeekStats {
         isPeakHour ? Strings.peakStatusPeak : Strings.peakStatusOffPeak
     }
 
-    var pricingWindowColor: Color {
+    /// 图标用色：高峰黄 / 低谷绿（图标在浅色背景上可读）。
+    var pricingWindowIconColor: Color {
         isPeakHour ? .yellow : .green
+    }
+
+    /// 文本用色：高峰用橙色（黄字在浅色背景上对比度不足），低谷绿色。
+    var pricingWindowTextColor: Color {
+        isPeakHour ? .orange : .green
     }
 
     /// 弹窗信息行展示文本（含剩余时间），如 "高峰 · 3h 12m 后切换"

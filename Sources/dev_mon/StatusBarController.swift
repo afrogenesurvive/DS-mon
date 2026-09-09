@@ -23,6 +23,10 @@ class StatusBarController: NSObject, NSWindowDelegate {
     private var statusView: StatusBarView?
     private var eventMonitor: Any?
 
+    /// 运行中的事件边沿检测（不依赖跨边界的定时调度）。
+    private var lastPeakState: Bool?
+    private var lastBalanceLevel = -1   // -1=未知, 0=正常, 1=预警, 2=不足
+
     func setup() {
         guard statusItem == nil, let s = stats else { return }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -213,11 +217,49 @@ class StatusBarController: NSObject, NSWindowDelegate {
         let isDeepSeek = s.providerID == "deepseek"
         statusView?.isPeakHour = (isDeepSeek && showPeakDot) ? DeepSeekPricing.isPeak() : nil
 
-        applyLabel(balanceRatio: ratio, balanceAmount: balanceText, hitRateText: hitRateText, costText: costText, isError: isError, isLow: isLow, blinkOn: blinkOn, isWarning: isWarning)
+        // 高峰/低谷切换检测（运行中）：写入 popover 通知页/横幅；系统通知由 PeakNotifier 调度。
+        if isDeepSeek, PeakNotifier.enabled {
+            let peakNow = DeepSeekPricing.isPeak()
+            if let prev = lastPeakState, prev != peakNow {
+                let kind: AppAlertKind = peakNow ? .peakStart : .peakEnd
+                let title = peakNow ? Strings.peakNotifyTitle : Strings.offPeakNotifyTitle
+                let body = peakNow ? Strings.peakNotifyBody : Strings.offPeakNotifyBody
+                AppAlertCenter.postInApp(AppAlert(kind: kind, title: title, body: body))
+            }
+            lastPeakState = peakNow
+        } else {
+            lastPeakState = nil
+        }
+
+        // 余额预警/不足检测（可选系统通知，设置开关）。
+        let balanceAlertsOn = UserDefaults.standard.object(forKey: Strings.Keys.balanceAlertEnabled) as? Bool ?? false
+        if balanceAlertsOn, !s.isLoading, s.errorMessage == nil, s.hasBalanceAPI, !s.providerIsFree {
+            let level = s.isLowBalance ? 2 : (s.isWarningBalance ? 1 : 0)
+            if lastBalanceLevel >= 0, level > lastBalanceLevel {
+                if level >= 2 {
+                    AppAlertCenter.fire(.lowBalance, title: Strings.balanceLowTitle, body: Strings.balanceLowBody)
+                } else {
+                    AppAlertCenter.fire(.balanceWarning, title: Strings.balanceWarningTitle, body: Strings.balanceWarningBody)
+                }
+            }
+            lastBalanceLevel = level
+        } else {
+            lastBalanceLevel = -1
+        }
+
+        // 菜单栏 "Peak" 文字芯片：DeepSeek 显示当前窗口与距下一次切换的倒计时。
+        let peakText: String = {
+            guard isDeepSeek else { return "" }
+            let peak = DeepSeekPricing.isPeak()
+            let countdown = DeepSeekPricing.timeToTransitionText()
+            return String(format: peak ? Strings.peakMenuActive : Strings.peakMenuPending, countdown)
+        }()
+
+        applyLabel(balanceRatio: ratio, balanceAmount: balanceText, hitRateText: hitRateText, costText: costText, peakText: peakText, isError: isError, isLow: isLow, blinkOn: blinkOn, isWarning: isWarning)
     }
 
-    private func applyLabel(balanceRatio: Double, balanceAmount: String = "", hitRateText: String = "", costText: String = "", isError: Bool, isLow: Bool, blinkOn: Bool, isWarning: Bool = false) {
-        statusView?.update(balanceRatio: balanceRatio, balanceAmount: balanceAmount, hitRateText: hitRateText, costText: costText, isError: isError, isLowAlerting: isLow, blinkOn: blinkOn, isWarning: isWarning)
+    private func applyLabel(balanceRatio: Double, balanceAmount: String = "", hitRateText: String = "", costText: String = "", peakText: String = "", isError: Bool, isLow: Bool, blinkOn: Bool, isWarning: Bool = false) {
+        statusView?.update(balanceRatio: balanceRatio, balanceAmount: balanceAmount, hitRateText: hitRateText, costText: costText, peakText: peakText, isError: isError, isLowAlerting: isLow, blinkOn: blinkOn, isWarning: isWarning)
 
         // 计算总宽度
         let showIcon = UserDefaults.standard.object(forKey: Strings.Keys.showMenuIcon) as? Bool ?? false
@@ -228,7 +270,7 @@ class StatusBarController: NSObject, NSWindowDelegate {
         if showIndicator {
             w += 23  // leadingGap + 3bars + 2columnGaps + border + padding
         }
-        let textModes = (textMode as String).components(separatedBy: ",").filter { !$0.isEmpty && $0 != "none" }
+        let textModes = (textMode as String).components(separatedBy: ",").filter { !$0.isEmpty && $0 != "none" && !($0 == "peak" && peakText.isEmpty) }
         if !textModes.isEmpty {
             let font = NSFont.menuFont(ofSize: 0)
             for (i, mode) in textModes.enumerated() {
@@ -237,11 +279,16 @@ class StatusBarController: NSObject, NSWindowDelegate {
                 case "balance": balanceAmount.isEmpty ? "\(Strings.currencySymbol)0" : balanceAmount
                 case "hitRate": hitRateText.isEmpty ? "0%" : hitRateText
                 case "cost": costText.isEmpty ? "\(Strings.currencySymbol)0" : costText
+                case "peak": peakText.isEmpty ? "" : peakText
                 default: ""
                 }
                 w += (t as NSString).size(withAttributes: [.font: font]).width
             }
             w += 4
+        }
+        // 高峰/低谷点贴文字右上角时，为圆点预留右侧空间（仅有点且显示文字时）
+        if statusView?.isPeakHour != nil, !textModes.isEmpty {
+            w += 8
         }
         w += 2  // trailing padding
         statusItem?.length = w

@@ -443,6 +443,8 @@ enum ConfigExporter {
             Strings.Keys.awsMaxCredits,
             Strings.Keys.showPeakDot,
             Strings.Keys.peakNotificationEnabled,
+            Strings.Keys.balanceAlertEnabled,
+            Strings.Keys.tunnelDownNotificationEnabled,
             // Cloudflare 隧道配置
             Strings.Keys.cloudflareEnabled,
             Strings.Keys.cloudflareAccountId,
@@ -451,6 +453,12 @@ enum ConfigExporter {
             Strings.Keys.cloudflareZoneName,
             Strings.Keys.cloudflareTunnelId,
             Strings.Keys.cloudflareTunnelName,
+            // Netlify 配置
+            Strings.Keys.netlifyEnabled,
+            Strings.Keys.netlifyAccountId,
+            Strings.Keys.netlifyAccountName,
+            Strings.Keys.netlifySelectedSiteId,
+            Strings.Keys.netlifyDeployNotifyEnabled,
             // Z.AI 端点选择（Coding Plan / Standard）
             Strings.Keys.zaiEndpoint,
         ]
@@ -470,6 +478,7 @@ enum ConfigExporter {
             Strings.Keys.awsSecretKey,
             Strings.Keys.syncPushToken,
             Strings.Keys.cloudflareApiToken,
+            Strings.Keys.netlifyApiToken,
         ]
     }
 
