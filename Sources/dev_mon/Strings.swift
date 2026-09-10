@@ -85,6 +85,13 @@ enum Strings {
         static let netlifyAccountName = "netlify_account_name"
         static let netlifySelectedSiteId = "netlify_selected_site_id"
         static let netlifyDeployNotifyEnabled = "netlify_deploy_notification_enabled"
+        // Local DBs（本地数据库监控）
+        static let localDBsEnabled = "local_dbs_enabled"
+        static let localDBsNotifyEnabled = "local_dbs_down_notification_enabled"
+        static let localDBsMySQLUser = "local_dbs_mysql_user"
+        static let localDBsMySQLPassword = "local_dbs_mysql_password"
+        static let localDBsNeo4jUser = "local_dbs_neo4j_user"
+        static let localDBsNeo4jPassword = "local_dbs_neo4j_password"
         static let showPeakDot = "show_peak_dot"
         static let peakNotificationEnabled = "peak_notification_enabled"
         static let tunnelDownNotificationEnabled = "tunnel_down_notification_enabled"
@@ -447,6 +454,7 @@ enum Strings {
     static var awsTabTooltip: String { isZH ? "AWS 免费套餐与费用" : "AWS free tier & costs" }
     static var cloudflareTabTooltip: String { isZH ? "Cloudflare 隧道状态与路由" : "Cloudflare tunnel status & routes" }
     static var netlifyTabTooltip: String { isZH ? "Netlify 站点与部署" : "Netlify sites & deploys" }
+    static var localDBsTabTooltip: String { isZH ? "本地数据库状态与库列表" : "Local databases — status & DBs" }
     static var showChartTooltip: String { isZH ? "切换为图表视图" : "Switch to chart view" }
     static var showListTooltip: String { isZH ? "切换为列表视图" : "Switch to list view" }
 
@@ -765,6 +773,59 @@ enum Strings {
     static var netlifyDeployFailedBody: String { isZH ? "%@ 的部署失败" : "%@ deploy failed" }
     static var netlifyDeployRolledBackTitle: String { isZH ? "Netlify 已回滚" : "Netlify rolled back" }
     static var netlifyDeployRolledBackBody: String { isZH ? "已恢复到之前的部署版本" : "Restored a previous deploy" }
+
+    // MARK: - Local DBs（本地数据库 MongoDB / MySQL / Neo4j）
+    static var localDBsSection: String { isZH ? "本地数据库" : "Local DBs" }
+    static var localDBsToggle: String { isZH ? "启用本地数据库监控" : "Enable local DBs" }
+    static var localDBsNotifyLabel: String { isZH ? "数据库状态通知" : "Database status notification" }
+    static var localDBsNotifyHint: String { isZH ? "受监控的数据库停止 / 恢复运行时发送系统通知" : "Notify when a monitored database stops or restarts" }
+    static var localDBsMySQLUserLabel: String { isZH ? "MySQL 用户名" : "MySQL user" }
+    static var localDBsNeo4jUserLabel: String { isZH ? "Neo4j 用户名" : "Neo4j user" }
+    static var localDBsPasswordLabel: String { isZH ? "密码（可选，留空 = 无密码）" : "Password (optional, blank = none)" }
+    static var localDBsSettingsNote: String {
+        isZH ? "状态通过本地端口探测；启动/停止用 `brew services`（用户级，无需管理员密码）。MongoDB 与 Neo4j 注册为登录服务；MySQL 用 ad-hoc `brew services run`（不改变登录自启）。凭据仅存本机钥匙串。"
+             : "Status is probed via local ports. Start/Stop use `brew services` (user-level, no admin). MongoDB & Neo4j are login services; MySQL starts ad-hoc (`brew services run`, no login autostart). Credentials stay in your keychain."
+    }
+    static var localDBsCheckAction: String { isZH ? "检查状态" : "Check status" }
+    static var localDBsCheckBusy: String { isZH ? "检查中…" : "Checking…" }
+    static var localDBsConfigHint: String { isZH ? "Settings → Services → Local DBs 配置" : "Settings → Services → Local DBs to configure" }
+    static var dbStatusRunning: String { isZH ? "运行中" : "Running" }
+    static var dbStatusStopped: String { isZH ? "已停止" : "Stopped" }
+    static var dbStatusUnknown: String { isZH ? "未知" : "Unknown" }
+    static var dbActionStart: String { isZH ? "启动" : "Start" }
+    static var dbActionStop: String { isZH ? "停止" : "Stop" }
+    static var dbDbsAction: String { isZH ? "库" : "DBs" }
+    static var dbDatabasesEmpty: String { isZH ? "无数据库" : "No databases" }
+    static var dbFromDisk: String { isZH ? "（离线 · 磁盘）" : "(offline · on disk)" }
+    static var localDBBrewMissing: String { isZH ? "未找到 Homebrew（brew）" : "Homebrew (brew) not found" }
+    static var localDBStarted: String { isZH ? "%@ 已启动" : "%@ started" }
+    static var localDBStopped: String { isZH ? "%@ 已停止" : "%@ stopped" }
+    static var localDBStartFailed: String { isZH ? "%@ 启动失败（可能仍在启动）" : "%@ failed to start (may still be starting)" }
+    static var dbDownTitle: String { isZH ? "%@ 已停止" : "%@ stopped" }
+    static var dbDownBody: String { isZH ? "本地数据库 %@ 已停止运行" : "Local database %@ is no longer running" }
+    static var dbRestoredTitle: String { isZH ? "%@ 已恢复" : "%@ restored" }
+    static var dbRestoredBody: String { isZH ? "本地数据库 %@ 已恢复运行" : "%@ is running again" }
+
+    static func localDBName(_ id: String) -> String {
+        switch id {
+        case "mongodb": return "MongoDB"
+        case "mysql": return "MySQL"
+        case "neo4j": return "Neo4j"
+        default: return id
+        }
+    }
+    static func localDBClientMissing(_ tool: String) -> String {
+        isZH ? "未找到命令行客户端：\(tool)（请用 Homebrew 安装）" : "Client not found: \(tool) (install via Homebrew)"
+    }
+    static func dbUptime(_ seconds: Int) -> String {
+        let d = seconds / 86400
+        let h = (seconds % 86400) / 3600
+        let m = (seconds % 3600) / 60
+        if seconds < 60 { return isZH ? "\(seconds)秒" : "\(seconds)s" }
+        if d > 0 { return isZH ? "\(d)天\(h)小时" : "\(d)d \(h)h" }
+        if h > 0 { return isZH ? "\(h)小时\(m)分" : "\(h)h \(m)m" }
+        return isZH ? "\(m)分" : "\(m)m"
+    }
 
     // —— 通用：搜索选择器 ——
     static var searchNoMatches: String { isZH ? "无匹配结果" : "No matches" }

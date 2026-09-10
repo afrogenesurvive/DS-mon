@@ -370,6 +370,8 @@ struct StatsPopoverView: View {
                     } message: { req in
                         Text(netlifyConfirmMessage(req))
                     }
+            } else if selectedTab == 7 {
+                localDBsTabContent
             } else if selectedTab == 5 {
                 ScrollView { alertsTabContent.padding(14) }
             } else if selectedTab == 2 {
@@ -1233,6 +1235,7 @@ struct StatsPopoverView: View {
             tabButton(assetName: "aws", symbol: "cloud.fill", tag: 3, tooltip: Strings.awsTabTooltip)
             tabButton(assetName: "cloudflare", symbol: "cloud.bolt.fill", tag: 4, tooltip: Strings.cloudflareTabTooltip)
             tabButton(assetName: "netlify", symbol: "diamond.fill", tag: 6, tooltip: Strings.netlifyTabTooltip)
+            tabButton(symbol: "cylinder.split.1x2", tag: 7, tooltip: Strings.localDBsTabTooltip)
             alertsTabButton
             Spacer()
         }
@@ -3896,6 +3899,179 @@ struct StatsPopoverView: View {
         }
     }
 
+    // MARK: - Local Databases Tab
+
+    private var localDBsTabContent: some View {
+        VStack(spacing: 0) {
+            if !stats.localDBs.isEnabled {
+                localDBsUnconfiguredState
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "cylinder.split.1x2")
+                        .font(.system(size: 10)).foregroundColor(.teal)
+                    Text(Strings.localDBsSection)
+                        .font(.system(size: 10, weight: .semibold))
+                    Spacer()
+                    if stats.localDBs.isLoading {
+                        ProgressView().controlSize(.mini)
+                    }
+                    Text(String(format: "%@ %@", Strings.netlifyLastUpdate, stats.localDBs.lastUpdate))
+                        .font(.system(size: 8)).foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                Divider().padding(.horizontal, 14)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(stats.localDBs.services) { state in
+                            localDBRow(state)
+                            Divider().padding(.horizontal, 14)
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var localDBsUnconfiguredState: some View {
+        VStack {
+            Spacer()
+            VStack(spacing: 8) {
+                Image(systemName: "cylinder.split.1x2").font(.title2).foregroundColor(.secondary)
+                Text(Strings.localDBsConfigHint)
+                    .font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            Spacer()
+        }
+    }
+
+    private func localDBRow(_ state: LocalDBServiceState) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                dbMonogram(state.id)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(Strings.localDBName(state.id.rawValue))
+                        .font(.system(size: 11, weight: .semibold))
+                    HStack(spacing: 4) {
+                        Circle().fill(dbStatusColor(state)).frame(width: 6, height: 6)
+                        Text(dbStatusText(state)).font(.system(size: 9)).foregroundColor(dbStatusColor(state))
+                        if let uptime = state.uptimeSeconds {
+                            Text("· \(Strings.dbUptime(uptime))")
+                                .font(.system(size: 9)).foregroundColor(.secondary)
+                        }
+                    }
+                }
+                Spacer()
+                if state.working {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    localDBActionButton(Strings.dbActionStart, "play.fill", color: .green,
+                                        disabled: state.running) { stats.localDBs.start(state.id) }
+                    localDBActionButton(Strings.dbActionStop, "stop.fill", color: .red,
+                                        disabled: !state.running) { stats.localDBs.stop(state.id) }
+                }
+                localDBActionButton(Strings.dbDbsAction,
+                                    state.databasesExpanded ? "chevron.up" : "chevron.down",
+                                    color: .teal, disabled: false) {
+                    stats.localDBs.toggleDatabases(state.id)
+                }
+            }
+            if let err = state.error {
+                Text(err)
+                    .font(.system(size: 8)).foregroundColor(.orange)
+                    .lineLimit(3)
+            }
+            if state.databasesExpanded {
+                databasesList(state)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+    }
+
+    private func databasesList(_ state: LocalDBServiceState) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if state.databasesLoading {
+                HStack(spacing: 4) {
+                    ProgressView().controlSize(.mini)
+                    Text("…").font(.caption2).foregroundColor(.secondary)
+                }
+            } else if state.databases.isEmpty {
+                Text(Strings.dbDatabasesEmpty)
+                    .font(.caption2).foregroundColor(.secondary)
+            } else {
+                ForEach(state.databases, id: \.self) { name in
+                    HStack(spacing: 5) {
+                        Image(systemName: "cylinder").font(.system(size: 7)).foregroundColor(.teal)
+                        Text(name)
+                            .font(.system(size: 9, design: .monospaced))
+                            .textSelection(.enabled)
+                        Spacer()
+                    }
+                }
+            }
+            if state.databasesSource == .disk {
+                Text(Strings.dbFromDisk).font(.system(size: 7)).foregroundColor(.secondary)
+            }
+        }
+        .padding(.leading, 22)
+        .padding(.top, 2)
+    }
+
+    private func dbStatusText(_ state: LocalDBServiceState) -> String {
+        state.running ? Strings.dbStatusRunning : Strings.dbStatusStopped
+    }
+
+    private func dbStatusColor(_ state: LocalDBServiceState) -> Color {
+        state.running ? .green : .red
+    }
+
+    private func dbMonogram(_ id: LocalDBID) -> some View {
+        let brand = dbBrand(id)
+        return Text(dbShortName(id))
+            .font(.system(size: 7, weight: .bold))
+            .foregroundColor(brand.0)
+            .frame(width: 17, height: 17)
+            .background(brand.1)
+            .clipShape(Circle())
+    }
+
+    private func dbBrand(_ id: LocalDBID) -> (Color, Color) {
+        switch id {
+        case .mongodb: return (.white, Color(red: 0.32, green: 0.55, blue: 0.18))
+        case .mysql: return (.white, Color(red: 0.10, green: 0.52, blue: 0.75))
+        case .neo4j: return (.white, Color(red: 0.45, green: 0.30, blue: 0.72))
+        }
+    }
+
+    private func dbShortName(_ id: LocalDBID) -> String {
+        switch id {
+        case .mongodb: return "Mo"
+        case .mysql: return "My"
+        case .neo4j: return "N4"
+        }
+    }
+
+    private func localDBActionButton(_ title: String, _ icon: String, color: Color,
+                                     disabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                Image(systemName: icon).font(.system(size: 7))
+                Text(title).font(.system(size: 8, weight: .medium))
+            }
+            .foregroundColor(disabled ? Color.secondary : color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(disabled ? Color.gray.opacity(0.12) : color.opacity(0.15))
+            .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+    }
+
     private var actionBar: some View {
         HStack(spacing: 6) {
             iconButton(icon: "arrow.clockwise", label: Strings.refresh, color: .blue) {
@@ -3904,6 +4080,7 @@ struct StatsPopoverView: View {
                 stats.aws.refresh()
                 stats.cloudflare.refresh()
                 stats.netlify.refresh()
+                stats.localDBs.refresh()
                 loadUsage()
             }
             iconButton(icon: "square.and.arrow.up", label: Strings.exportUsageButton, color: .teal) {
@@ -3919,6 +4096,7 @@ struct StatsPopoverView: View {
                 stats.aws.refresh()
                 stats.cloudflare.refresh()
                 stats.netlify.refresh()
+                stats.localDBs.refresh()
                 loadUsage()
             }
             iconButton(icon: "gearshape", label: Strings.settings, color: .secondary) {
@@ -4122,6 +4300,8 @@ struct StatsPopoverView: View {
         case .peakSoon: return "sun.max.trianglebadge.exclamationmark"
         case .tunnelDown: return "cloud.bolt.rain.fill"
         case .tunnelRestored: return "checkmark.circle.fill"
+        case .dbDown: return "xmark.octagon.fill"
+        case .dbRestored: return "checkmark.seal.fill"
         case .netlifyDeployReady: return "checkmark.circle.fill"
         case .netlifyDeployFailed: return "exclamationmark.triangle.fill"
         case .netlifyDeployRolledBack: return "arrow.uturn.backward.circle.fill"
@@ -4133,8 +4313,8 @@ struct StatsPopoverView: View {
     private func alertColor(_ kind: AppAlertKind) -> Color {
         switch kind {
         case .peakStart, .peakSoon, .balanceWarning: return .orange
-        case .peakEnd, .tunnelRestored, .netlifyDeployReady, .netlifyDeployRolledBack: return .green
-        case .tunnelDown, .lowBalance, .netlifyDeployFailed: return .red
+        case .peakEnd, .tunnelRestored, .netlifyDeployReady, .netlifyDeployRolledBack, .dbRestored: return .green
+        case .tunnelDown, .lowBalance, .netlifyDeployFailed, .dbDown: return .red
         }
     }
 

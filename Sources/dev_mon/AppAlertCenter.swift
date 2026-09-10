@@ -10,6 +10,8 @@ enum AppAlertKind: String, Codable {
     case peakSoon           // 建议：高峰即将开始（提前提醒）
     case tunnelDown         // Cloudflare 隧道断开
     case tunnelRestored     // Cloudflare 隧道恢复
+    case dbDown             // 本地数据库停止
+    case dbRestored         // 本地数据库恢复
     case netlifyDeployReady // Netlify 部署成功
     case netlifyDeployFailed // Netlify 部署失败
     case netlifyDeployRolledBack // Netlify 回滚成功

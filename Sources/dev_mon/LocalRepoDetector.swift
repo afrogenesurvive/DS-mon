@@ -111,8 +111,24 @@ final class LocalRepoDetector: @unchecked Sendable {
         return result
     }
 
-    /// 解析进程 cwd，向上找最近的 .git 目录；返回目录名（仓库名）。
+    /// 解析某本地客户端进程所属仓库（目录名）。顺序：
+    /// 1) 进程 cwd 向上找 .git；2) cwd 不是仓库时扫其打开的文件；
+    /// 3) GUI 父进程（如 VS Code 扩展宿主 cwd=/）→ 查其子进程 cwd 里的仓库。均失败返回 nil。
     private static func repoName(lsofPath: String, forPid pid: UInt32) -> String? {
+        if let root = Self.repoRootFromCwd(lsofPath: lsofPath, forPid: pid) {
+            return URL(fileURLWithPath: root).lastPathComponent
+        }
+        if let root = Self.repoRootFromOpenFiles(lsofPath: lsofPath, forPid: pid) {
+            return URL(fileURLWithPath: root).lastPathComponent
+        }
+        if let root = Self.repoRootFromDescendants(lsofPath: lsofPath, forPid: pid) {
+            return URL(fileURLWithPath: root).lastPathComponent
+        }
+        return nil
+    }
+
+    /// 进程 cwd 向上找最近的含 .git 的目录（仓库根路径）；找不到返回 nil。
+    private static func repoRootFromCwd(lsofPath: String, forPid pid: UInt32) -> String? {
         let r = ProcessRunner.run(launchPath: lsofPath,
                                   args: ["-a", "-p", "\(pid)", "-d", "cwd", "-Fn"],
                                   timeout: 5)
@@ -122,14 +138,81 @@ final class LocalRepoDetector: @unchecked Sendable {
             cwd = String(line.dropFirst())
             break
         }
-        guard var dirURL = cwd.map({ URL(fileURLWithPath: $0) }) else { return nil }
-        // 从 cwd 向上找最近的 .git（仓库可能在 $HOME 之外，故走到文件系统根为止）。
-        while dirURL.path != "/" {
-            if FileManager.default.fileExists(atPath: dirURL.appendingPathComponent(".git").path) {
-                let name = dirURL.lastPathComponent
-                return name.isEmpty ? nil : name
+        guard let cwdPath = cwd else { return nil }
+        var dir = URL(fileURLWithPath: cwdPath)
+        while dir.path != "/" {
+            if FileManager.default.fileExists(atPath: dir.appendingPathComponent(".git").path) {
+                return dir.path
             }
-            dirURL.deleteLastPathComponent()
+            dir.deleteLastPathComponent()
+        }
+        return nil
+    }
+
+    /// 回退1：扫进程打开的文件（工作区文件常以 fd 打开），取命中最多的工作区仓库根；找不到返回 nil。
+    private static func repoRootFromOpenFiles(lsofPath: String, forPid pid: UInt32) -> String? {
+        let r = ProcessRunner.run(launchPath: lsofPath, args: ["-p", "\(pid)", "-Fn"], timeout: 5)
+        guard r.status == 0 else { return nil }
+        var votes: [String: Int] = [:]   // 仓库根路径 -> 命中次数
+        for line in r.stdout.split(separator: "\n") where line.hasPrefix("n") && line.count > 1 {
+            let path = String(line.dropFirst())
+            guard path.hasPrefix("/") else { continue }
+            // 跳过系统/应用目录（打开的可执行/框架不属于工作区）
+            if path.hasPrefix("/System") || path.hasPrefix("/Library")
+                || path.hasPrefix("/Applications") || path.hasPrefix("/dev") { continue }
+            guard let root = Self.gitRootPath(forFilePath: path) else { continue }
+            votes[root, default: 0] += 1
+        }
+        guard let best = votes.max(by: {
+            $0.value != $1.value ? $0.value < $1.value : $0.key.count > $1.key.count
+        }) else { return nil }
+        return best.key
+    }
+
+    /// 回退2：某些 GUI 父进程（VS Code 扩展宿主等）cwd=/，但其子进程（按扩展）cwd=工作区。
+    /// 递归收集后代进程 cwd 里的仓库根，多数投票；找不到返回 nil。
+    private static func repoRootFromDescendants(lsofPath: String, forPid pid: UInt32) -> String? {
+        let ps = ProcessRunner.run(launchPath: "/bin/ps", args: ["-axo", "pid=,ppid="], timeout: 5)
+        guard ps.status == 0 else { return nil }
+        var children: [UInt32: [UInt32]] = [:]
+        for line in ps.stdout.split(separator: "\n") {
+            let t = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+            guard t.count >= 2, let c = UInt32(t[0]), let p = UInt32(t[1]) else { continue }
+            children[p, default: []].append(c)
+        }
+        var votes: [String: Int] = [:]
+        var queue = children[pid] ?? []
+        var visited = Set<UInt32>()
+        var depth = 0
+        var guardCount = 0
+        while !queue.isEmpty, depth < 6, guardCount < 400 {
+            depth += 1
+            var next: [UInt32] = []
+            for c in queue {
+                guard !visited.contains(c) else { continue }
+                visited.insert(c)
+                guardCount += 1
+                if let root = Self.repoRootFromCwd(lsofPath: lsofPath, forPid: c) {
+                    votes[root, default: 0] += 1
+                }
+                next.append(contentsOf: children[c] ?? [])
+            }
+            queue = next
+        }
+        guard let best = votes.max(by: {
+            $0.value != $1.value ? $0.value < $1.value : $0.key.count > $1.key.count
+        }) else { return nil }
+        return best.key
+    }
+
+    /// 从某文件/目录路径向上找最近的含 .git 的目录（仓库根）；找不到返回 nil。
+    private static func gitRootPath(forFilePath path: String) -> String? {
+        var dir = URL(fileURLWithPath: path)
+        while dir.path != "/" {
+            if FileManager.default.fileExists(atPath: dir.appendingPathComponent(".git").path) {
+                return dir.path
+            }
+            dir.deleteLastPathComponent()
         }
         return nil
     }

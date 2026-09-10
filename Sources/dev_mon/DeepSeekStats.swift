@@ -28,6 +28,7 @@ final class DeepSeekStats {
     private(set) var aws = AWSUsageTracker()
     private(set) var cloudflare = CloudflareTunnelManager()
     private(set) var netlify = NetlifyManager()
+    private(set) var localDBs = LocalDBManager()
 
     // 活跃提供商信息
     private(set) var providerName: String = "DeepSeek"

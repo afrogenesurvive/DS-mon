@@ -68,6 +68,15 @@ enum ProcessRunner {
                 String(decoding: errSink.data, as: UTF8.self))
     }
 
+    /// 异步运行（切到后台线程），避免阻塞主线程；常用于 brew services 等耗时命令。
+    static func runAsync(launchPath: String, args: [String], timeout: TimeInterval = 15) async
+        -> (status: Int32, stdout: String, stderr: String)
+    {
+        await Task.detached(priority: .userInitiated) {
+            run(launchPath: launchPath, args: args, timeout: timeout)
+        }.value
+    }
+
     /// 在 PATH 里查找可执行文件（如 cloudflared）。
     static func which(_ name: String) -> String? {
         let r = run(launchPath: "/usr/bin/which", args: [name], timeout: 5)

@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.3.1-1] — 2026-09-09
+
+### Added
+
+- **本地数据库页签（Databases）**：弹窗在 Netlify 与「通知」之间新增 Databases 页签，监控本机 Homebrew 安装的 **MongoDB / MySQL / Neo4j**——每行显示彩色字标、状态圆点（运行中绿 / 已停止红）与运行时长（uptime），并提供 **Start / Stop**（经用户级 `brew services`，无需管理员密码；MongoDB 与 Neo4j 以登录服务方式 `start` 重启，MySQL 用 ad-hoc `brew services run`，不改变登录自启）与 **DBs** 展开库列表（运行中实时查询 `mongosh` / `mysql` / `cypher-shell`；停止时列出磁盘数据目录并标注 *offline · on disk*）。
+- **数据库状态通知**：被监控数据库停止 / 恢复时发系统通知 + 铃铛页条目（默认开；Settings → Services → Local DBs 中开关），带冷却与用户操作抑制，避免自触发误报。
+- **设置 → 服务 → Local DBs**：启用开关、数据库状态通知开关、可选的 MySQL / Neo4j 用户名与密码（密码存钥匙串）、「检查状态」。
+- **导出/导入配置**新增 Local DBs 键：启用、通知开关、MySQL / Neo4j 用户名（settingsKeys）；MySQL / Neo4j 密码随密钥明文导出（secretKeys）。
+- **AppAlertKind 新增 dbDown / dbRestored**（弹窗铃铛图标与配色 switch 同步补齐）。
+- **ProcessRunner.runAsync**：后台线程异步执行，供 `brew services` 等耗时命令使用。
+
+### Changed
+
+- **文档补齐**：ui-guide 顶部 View-tabs 列表补上 Notifications（铃铛）与新 Databases，Settings 由五页改为六页（含 Guide 指南页）；settings-guide / ui-guide / how-it-works 新增 Local DBs（Services 条目、Part 1.5 Databases 小节、通知来源、疑难排查、密钥安全提示）与「用量记录携带客户端仓库 repo（Data Sync / 导出保留）」说明；ui-guide「Source Usage」与 how-it-works「Where your data lives」补充仓库识别的三重回退与「连接建立时解析」说明。
+
+### Fixed
+
+- **本机来源的仓库子标签（local - <仓库名>）漏标 / 识别不到**：仓库解析扩展为最多三重回退——① 客户端进程 cwd 向上找 `.git`；② cwd 不在仓库内时，扫描该进程**已打开的文件**路径，按多数投票取仓库根（跳过 /System、/Library、/Applications、/dev）；③ GUI / 编辑器宿主（如 VS Code 辅助进程）cwd 为 `/` 时，遍历其**后代进程**（`ps -axo pid=,ppid=`，深度 ≤6、上限 400）的 cwd 取多数仓库。同时仓库名改为在**连接就绪时**即解析一次并按连接缓存（仅缓存成功结果，失败可重试），避免请求结束时连接已关闭、读不到客户端端口而漏标。
+
 ## [0.2.10-4] — 2026-09-09
 
 ### Changed

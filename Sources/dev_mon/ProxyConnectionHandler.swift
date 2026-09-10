@@ -26,6 +26,10 @@ final class ProxyConnectionHandler: @unchecked Sendable {
     /// 客户端临时端口（代理能读到本地连接时才有值）。用于把本机请求标注为「local - 仓库名」。
     private let peerPort: UInt16?
 
+    /// 已解析到的仓库名（仅缓存成功结果；解析不到不缓存，以便后续在连接仍存活时重试）。
+    private var cachedRepo: String?
+    private let repoLock = NSLock()
+
     init(connection: NWConnection, store: UsageStore, peerPort: UInt16? = nil, onConnectionStateChanged: ((NWConnection.State) -> Void)? = nil, onRequestStarted: ((_ isResponses: Bool) -> Void)? = nil, onRequestCompleted: @escaping () -> Void) {
         self.conn = connection
         self.store = store
@@ -42,7 +46,10 @@ final class ProxyConnectionHandler: @unchecked Sendable {
             self.onConnectionStateChanged?(state)
             print("[ProxyConnectionHandler] state: \(state)")
             switch state {
-            case .ready: print("[ProxyConnectionHandler] ready, calling receive"); self.receive(message: nil)
+            case .ready:
+                print("[ProxyConnectionHandler] ready, calling receive")
+                self.primeRepo()
+                self.receive(message: nil)
             case .failed(let err):
                 print("[ProxyConnectionHandler] Connection failed: \(err)")
                 self.onFinished?()
@@ -57,11 +64,27 @@ final class ProxyConnectionHandler: @unchecked Sendable {
 
     // MARK: - HTTP 接收
 
-    /// 解析本地客户端所属仓库名（缓存由 LocalRepoDetector 内部快照处理）。解析不到返回 ""。
+    /// 连接刚就绪即解析一次（此时连接一定存在，避免请求结束时连接已关闭导致查不到端口）。
+    func primeRepo() {
+        _ = resolveRepo()
+    }
+
+    /// 解析本地客户端所属仓库名（成功结果按连接缓存；LocalRepoDetector 内部负责快照/限流）。
+    /// 解析不到返回 ""。
     func resolveRepo() -> String {
-        guard let peerPort else { return "" }
-        return LocalRepoDetector.shared.repoName(forPeerPort: peerPort,
-                                                 proxyPort: ProxyServer.shared.port) ?? ""
+        repoLock.lock()
+        if let cached = cachedRepo {
+            repoLock.unlock()
+            return cached
+        }
+        var value = ""
+        if let peerPort {
+            value = LocalRepoDetector.shared.repoName(forPeerPort: peerPort,
+                                                      proxyPort: ProxyServer.shared.port) ?? ""
+        }
+        if !value.isEmpty { cachedRepo = value }
+        repoLock.unlock()
+        return value
     }
 
     /// 循环接收直到完整 HTTP 请求（支持大 body）

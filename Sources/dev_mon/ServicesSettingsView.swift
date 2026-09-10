@@ -25,6 +25,8 @@ struct ServicesSettingsView: View {
             Divider().padding(.horizontal, 16)
             NetlifySettingsView(stats: stats)
             Divider().padding(.horizontal, 16)
+            LocalDBsSettingsView(stats: stats)
+            Divider().padding(.horizontal, 16)
             SyncSettingsView(stats: stats)
             Spacer()
         }
@@ -577,6 +579,132 @@ private struct NetlifySettingsView: View {
                     guard !id.isEmpty else { return }
                     Task { await nf.changeAccount(id) }
                 })
+    }
+}
+
+// MARK: - Local DBs Settings
+
+private struct LocalDBsSettingsView: View {
+    let stats: DeepSeekStats
+
+    @State private var dbEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.localDBsEnabled)
+    @State private var dbNotify: Bool = (UserDefaults.standard.object(forKey: Strings.Keys.localDBsNotifyEnabled) as? Bool) ?? true
+    @State private var mysqlUser: String = UserDefaults.standard.string(forKey: Strings.Keys.localDBsMySQLUser) ?? ""
+    @State private var mysqlPassword: String = SecureStore.retrieve(key: Strings.Keys.localDBsMySQLPassword) ?? ""
+    @State private var neo4jUser: String = UserDefaults.standard.string(forKey: Strings.Keys.localDBsNeo4jUser) ?? ""
+    @State private var neo4jPassword: String = SecureStore.retrieve(key: Strings.Keys.localDBsNeo4jPassword) ?? ""
+    @State private var showMySQLPw = false
+    @State private var showNeo4jPw = false
+    @State private var isChecking = false
+
+    private var dbm: LocalDBManager { stats.localDBs }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "cylinder.split.1x2")
+                    .foregroundColor(.teal)
+                Text(Strings.localDBsSection).font(.body).bold()
+                Spacer()
+            }
+
+            Toggle(isOn: $dbEnabled) {
+                Text(Strings.localDBsToggle).font(.callout)
+            }
+            .toggleStyle(.switch)
+            .onChange(of: dbEnabled) { _, newVal in
+                dbm.enabled = newVal
+                if newVal { dbm.startAutoRefresh(); dbm.refresh() }
+            }
+
+            Toggle(isOn: $dbNotify) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(Strings.localDBsNotifyLabel).font(.callout)
+                    Text(Strings.localDBsNotifyHint).font(.caption2).foregroundColor(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+            .onChange(of: dbNotify) { _, newVal in
+                UserDefaults.standard.set(newVal, forKey: Strings.Keys.localDBsNotifyEnabled)
+            }
+
+            Text(Strings.localDBsMySQLUserLabel).font(.caption).foregroundColor(.secondary)
+            TextField("", text: $mysqlUser)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.caption, design: .monospaced))
+                .onChange(of: mysqlUser) { _, newVal in dbm.setMySQLUser(newVal) }
+            HStack(spacing: 8) {
+                Group {
+                    if showMySQLPw {
+                        TextField(Strings.localDBsPasswordLabel, text: $mysqlPassword)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.caption, design: .monospaced))
+                    } else {
+                        SecureField(Strings.localDBsPasswordLabel, text: $mysqlPassword)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.caption, design: .monospaced))
+                    }
+                }
+                .onChange(of: mysqlPassword) { _, newVal in dbm.setMySQLPassword(newVal) }
+                Button {
+                    showMySQLPw.toggle()
+                } label: {
+                    Image(systemName: showMySQLPw ? "eye.slash" : "eye")
+                }
+                .buttonStyle(.bordered)
+                .help(Strings.revealHint)
+            }
+
+            Text(Strings.localDBsNeo4jUserLabel).font(.caption).foregroundColor(.secondary)
+            TextField("", text: $neo4jUser)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.caption, design: .monospaced))
+                .onChange(of: neo4jUser) { _, newVal in dbm.setNeo4jUser(newVal) }
+            HStack(spacing: 8) {
+                Group {
+                    if showNeo4jPw {
+                        TextField(Strings.localDBsPasswordLabel, text: $neo4jPassword)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.caption, design: .monospaced))
+                    } else {
+                        SecureField(Strings.localDBsPasswordLabel, text: $neo4jPassword)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.caption, design: .monospaced))
+                    }
+                }
+                .onChange(of: neo4jPassword) { _, newVal in dbm.setNeo4jPassword(newVal) }
+                Button {
+                    showNeo4jPw.toggle()
+                } label: {
+                    Image(systemName: showNeo4jPw ? "eye.slash" : "eye")
+                }
+                .buttonStyle(.bordered)
+                .help(Strings.revealHint)
+            }
+
+            Button {
+                isChecking = true
+                Task {
+                    await dbm.checkNow()
+                    isChecking = false
+                }
+            } label: {
+                Text(isChecking ? Strings.localDBsCheckBusy : Strings.localDBsCheckAction)
+                    .font(.caption)
+            }
+            .buttonStyle(.bordered)
+            .disabled(isChecking || !dbEnabled)
+
+            if dbEnabled, let msg = dbm.actionMessage {
+                Text(msg).font(.caption2).foregroundColor(dbm.actionSuccess ? .green : .orange)
+            }
+
+            Text(Strings.localDBsSettingsNote)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(20)
     }
 }
 

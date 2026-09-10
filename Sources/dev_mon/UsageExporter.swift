@@ -459,6 +459,11 @@ enum ConfigExporter {
             Strings.Keys.netlifyAccountName,
             Strings.Keys.netlifySelectedSiteId,
             Strings.Keys.netlifyDeployNotifyEnabled,
+            // Local DBs 配置
+            Strings.Keys.localDBsEnabled,
+            Strings.Keys.localDBsNotifyEnabled,
+            Strings.Keys.localDBsMySQLUser,
+            Strings.Keys.localDBsNeo4jUser,
             // Z.AI 端点选择（Coding Plan / Standard）
             Strings.Keys.zaiEndpoint,
         ]
@@ -479,6 +484,8 @@ enum ConfigExporter {
             Strings.Keys.syncPushToken,
             Strings.Keys.cloudflareApiToken,
             Strings.Keys.netlifyApiToken,
+            Strings.Keys.localDBsMySQLPassword,
+            Strings.Keys.localDBsNeo4jPassword,
         ]
     }
 
