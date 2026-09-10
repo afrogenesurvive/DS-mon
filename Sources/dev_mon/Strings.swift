@@ -93,6 +93,13 @@ enum Strings {
         static let localDBsNeo4jUser = "local_dbs_neo4j_user"
         static let localDBsNeo4jPassword = "local_dbs_neo4j_password"
         static let showPeakDot = "show_peak_dot"
+        // Repo Data Stores（仓库数据存储）
+        static let repoStoresEnabled = "repo_stores_enabled"
+        static let repoStoresNotifyEnabled = "repo_stores_notification_enabled"
+        static let repoStoresRoots = "repo_stores_roots"
+        static let repoStoresDepth = "repo_stores_depth"
+        static let repoStoresShowDetails = "repo_stores_show_details"
+        static let repoStoresIncludeRemote = "repo_stores_include_remote"
         static let peakNotificationEnabled = "peak_notification_enabled"
         static let tunnelDownNotificationEnabled = "tunnel_down_notification_enabled"
         static let balanceAlertEnabled = "balance_alert_enabled"
@@ -797,6 +804,28 @@ enum Strings {
     static var dbDbsAction: String { isZH ? "库" : "DBs" }
     static var dbDatabasesEmpty: String { isZH ? "无数据库" : "No databases" }
     static var dbFromDisk: String { isZH ? "（离线 · 磁盘）" : "(offline · on disk)" }
+    static var dbCopyError: String { isZH ? "复制" : "Copy" }
+    static var dbCopyHint: String { isZH ? "复制错误信息" : "Copy the error message" }
+    static var dbRetry: String { isZH ? "重试" : "Retry" }
+    static var dbRetryHint: String { isZH ? "重试刚才失败的操作" : "Retry the action that failed" }
+    static var dbTrustTap: String { isZH ? "信任 Tap" : "Trust tap" }
+    static var dbTrustTapHint: String {
+        isZH ? "运行 brew trust 使 Homebrew 可以加载该第三方 tap，然后重试"
+             : "Run brew trust so Homebrew may load this third-party tap, then retry"
+    }
+    static var dbTrustRunning: String { isZH ? "正在信任…" : "Trusting…" }
+    static var dbTrustFailed: String { isZH ? "brew trust 失败" : "brew trust failed" }
+    static var dbStopIncomplete: String {
+        isZH ? "%@ 仍在运行（stop 未生效）" : "%@ is still running (stop did not take effect)"
+    }
+
+    /// Homebrew 4.6+ 的第三方 tap 信任错误：给出原因 + 可行的修复命令。
+    static func dbUntrustedTapError(_ formula: String, _ command: String) -> String {
+        if isZH {
+            return "Homebrew 拒绝加载未受信任 tap 中的 formula\n\(formula)\n修复：\(command)"
+        }
+        return "Homebrew refused to load a formula from an untrusted tap\n\(formula)\nFix: \(command)"
+    }
     static var localDBBrewMissing: String { isZH ? "未找到 Homebrew（brew）" : "Homebrew (brew) not found" }
     static var localDBStarted: String { isZH ? "%@ 已启动" : "%@ started" }
     static var localDBStopped: String { isZH ? "%@ 已停止" : "%@ stopped" }
@@ -825,6 +854,99 @@ enum Strings {
         if d > 0 { return isZH ? "\(d)天\(h)小时" : "\(d)d \(h)h" }
         if h > 0 { return isZH ? "\(h)小时\(m)分" : "\(h)h \(m)m" }
         return isZH ? "\(m)分" : "\(m)m"
+    }
+
+    // MARK: - Repo Data Stores（仓库数据存储）
+
+    static var dbSubTabLocal: String { isZH ? "本地" : "Local" }
+    static var dbSubTabRepo: String { isZH ? "仓库" : "Repo" }
+    static var repoStoresTabTooltip: String {
+        isZH ? "仓库数据存储 — SQLite / 队列 / 状态文件" : "Repository data stores — SQLite, queues, state files"
+    }
+    static var repoStoresSection: String { isZH ? "仓库数据存储" : "Repo Data Stores" }
+    static var repoStoresToggle: String { isZH ? "启用仓库数据存储监控" : "Enable repo data stores" }
+    static var repoStoresRootsLabel: String { isZH ? "扫描目录（逗号分隔）" : "Scan folders (comma-separated)" }
+    static var repoStoresResetRoots: String { isZH ? "恢复默认" : "Reset" }
+    static var repoStoresDepthLabel: String { isZH ? "扫描深度" : "Scan depth" }
+    static var repoStoresShowDetailsLabel: String { isZH ? "显示详细信息" : "Show store details" }
+    static var repoStoresShowDetailsHint: String {
+        isZH ? "显示表名等细节；敏感存储（如语音指纹库）永远只显示总量"
+             : "Show table names and details; sensitive stores (e.g. voiceprints) always show totals only"
+    }
+    static var repoStoresIncludeRemoteLabel: String { isZH ? "包含外部系统" : "Include remote systems" }
+    static var repoStoresIncludeRemoteHint: String {
+        isZH ? "例如以 Trello 作为唯一数据源的仓库" : "e.g. repos whose system of record is Trello"
+    }
+    static var repoStoresNotifyLabel: String { isZH ? "仓库服务状态通知" : "Repo service status notification" }
+    static var repoStoresNotifyHint: String {
+        isZH ? "仓库自带服务（后端 / webhook）停止或恢复时发送通知"
+             : "Notify when a repo's own service (backend / webhook) stops or restarts"
+    }
+    static var repoStoresScanAction: String { isZH ? "立即扫描" : "Scan now" }
+    static var repoStoresScanBusy: String { isZH ? "扫描中…" : "Scanning…" }
+    static var repoStoresConfigHint: String {
+        isZH ? "Settings → Services → Repo Data Stores 配置" : "Settings → Services → Repo Data Stores to configure"
+    }
+    static var repoStoresEmpty: String { isZH ? "未发现数据存储" : "No data stores found" }
+    static var repoStoresSettingsNote: String {
+        isZH ? "只读：仅做 stat 与只读查询，不写入仓库。永不读取 config.json、.env 的值或密钥目录内容。"
+             : "Read-only: stat and read-only queries only — never writes into a repo, and never reads config.json, .env values, or key directories."
+    }
+    static var repoStoresServiceUp: String { isZH ? "服务运行中" : "service up" }
+    static var repoStoresServiceDown: String { isZH ? "服务未运行" : "service down" }
+    static var repoStoresSensitiveNote: String { isZH ? "敏感 · 仅显示总量" : "sensitive · totals only" }
+
+    static var storeActionCounts: String { isZH ? "统计" : "Counts" }
+    static var storeActionBackup: String { isZH ? "备份" : "Back up" }
+    static var storeActionReveal: String { isZH ? "显示" : "Reveal" }
+    static var storeActionOpen: String { isZH ? "打开" : "Open" }
+    static var storeMissing: String { isZH ? "文件不存在" : "file not found" }
+    static var storeInUse: String { isZH ? "使用中" : "in use" }
+    static var storeRemoteHint: String { isZH ? "外部系统（唯一数据源）" : "remote system of record" }
+    static var storeBackupTitle: String { isZH ? "备份数据存储" : "Back up data store" }
+    static var storeBackupConfirm: String { isZH ? "备份" : "Back up" }
+    static func storeBackupMessage(_ label: String, _ repo: String) -> String {
+        isZH ? "将 \(repo) 的 \(label) 备份到 ~/Backups/dev_mon/（不在仓库内写入）"
+             : "Copy \(label) from \(repo) to ~/Backups/dev_mon/ (nothing is written into the repo)"
+    }
+    static var storeBackupDone: String { isZH ? "已备份到 %@" : "Backed up to %@" }
+    static var storeOpenHint: String { isZH ? "在终端用 sqlite3 打开" : "Open with sqlite3 in Terminal" }
+
+    static var storeDownTitle: String { isZH ? "%@ 服务已停止" : "%@ service stopped" }
+    static var storeDownBody: String {
+        isZH ? "仓库 %@ 自带的服务已停止运行" : "The service for repo %@ is no longer running"
+    }
+    static var storeRestoredTitle: String { isZH ? "%@ 服务已恢复" : "%@ service restored" }
+    static var storeRestoredBody: String { isZH ? "仓库 %@ 的服务已恢复运行" : "The service for repo %@ is running again" }
+
+    static func storeKindName(_ kind: String) -> String {
+        switch kind {
+        case "sqlite": return "SQLite"
+        case "chroma": return "Chroma"
+        case "jsonl": return "JSONL"
+        case "jsonState": return "JSON"
+        case "remote": return isZH ? "外部" : "Remote"
+        default: return kind
+        }
+    }
+    static func storeKindShort(_ kind: String) -> String {
+        switch kind {
+        case "sqlite": return "SQ"
+        case "chroma": return "Ch"
+        case "jsonl": return "JS"
+        case "jsonState": return "{}"
+        case "remote": return "○"
+        default: return "?"
+        }
+    }
+    static func storeSourceName(_ source: String) -> String {
+        switch source {
+        case "manifest": return "devmon.json"
+        case "dotenv": return ".env"
+        case "glob": return "glob"
+        case "knownDir": return isZH ? "目录" : "dir"
+        default: return source
+        }
     }
 
     // —— 通用：搜索选择器 ——

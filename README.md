@@ -186,6 +186,9 @@ dev_mon/
 │   ├── GeneralSettingsView.swift         # 通用设置
 │   ├── ProviderSettingsView.swift        # 提供商设置（API Key + baseURL 帮助）
 │   ├── ServicesSettingsView.swift        # 代理 + 同步设置
+│   ├── LocalDBManager.swift              # 本地数据库（MongoDB/MySQL/Neo4j）监控
+│   ├── RepoDataStoreManager.swift        # 仓库数据存储（SQLite/队列/状态文件）监控
+│   ├── PortProbe.swift                   # 端口 / 进程 / uptime 探测（两者共用）
 │   ├── AboutSettingsView.swift           # 关于页面
 │   ├── DeepSeekStats.swift               # @Observable 数据模型
 │   ├── ResponsesTranslator.swift         # Responses API ↔ Chat Completions

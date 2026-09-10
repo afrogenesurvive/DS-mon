@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.3.1-2] — 2026-09-10
+
+### Added
+
+- **仓库数据存储（Repo Data Stores）**：Databases 页签内新增 **本地 / 仓库** 子页签，列出本地仓库自带的数据存储 —— SQLite 文件（含 WAL「使用中」标记）、Chroma 向量库、JSONL 队列（条目数 / 待处理数 / 缓冲区占用）与 JSON 状态文件，按仓库分组可折叠；每个仓库还显示其**自带服务**（如后端 5001、webhook 3199 / runner PID）的运行状态与时长。发现顺序为仓库根目录 **`devmon.json`（精确声明）→ `.env` 声明的路径 → 已知目录 / 文件名模式**。严格只读：只做 stat 与只读查询，**绝不写入仓库**，也**绝不读取** `config.json`、`.env` 的值或密钥目录内容。
+- **`devmon.json`**：仓库可选的清单文件，声明 `stores`（kind / path / label / tables / sensitive / capBytes）与 `service`（port / pidFile / triggerFile）。已为 `ai_transcription_agent`（Ephemeral Memory、Voiceprints、Semantic Memory + 5001）与 `copilot_agentic_task_helper`（两个队列 JSONL、DS-mon 用量缓冲、Trello = system of record + 3199）添加。
+- **存储计数**：SQLite 显示 `quick_check` 完整性、表数量与逐表行数（`events` 等队列表按 `status` 分组，failed / dlq 高亮为橙色）；默认**只显示总量**，「显示详细信息」开关开启后才展开表名；`sensitive` 存储（如 `voiceprints.db`）**永远只显示总量**，不显示表名或内容。
+- **备份存储**：SQLite / Chroma 用 `VACUUM INTO` 生成一致性快照，其余按文件复制到 `~/Backups/dev_mon/<仓库>/`（不在仓库内写入任何文件）。
+- **设置 → 服务 → Repo Data Stores**：启用开关、扫描目录、扫描深度、显示详细信息、包含外部系统、仓库服务状态通知、立即扫描，并注明「只读、不读密钥文件」。
+- **AppAlertKind 新增 storeDegraded / storeRestored**：仓库自带服务停止 / 恢复时发系统通知 + 铃铛条目（默认开，带冷却与自触发抑制；弹窗铃铛图标与配色 switch 同步补齐）。
+- **导出/导入配置**新增六个 Repo Data Stores 键（启用、通知、扫描目录、深度、显示详细信息、包含外部系统）。
+
+### Fixed
+
+- **MongoDB（及其它第三方 tap 数据库）无法停止 / 启动**：Homebrew 4.6+ 要求先信任第三方 tap，`brew services stop mongodb-community` 会以 `Refusing to load formula mongodb/brew/mongodb-community from untrusted tap mongodb/brew.` 失败——旧版只是把该错误截断显示，数据库其实仍在运行。现在该错误被**结构化识别**，行内显示完整原因与修复命令，并提供 **信任 Tap**（执行 `brew trust --formula <formula>`，失败则回退 `brew trust --tap <tap>`）与 **重试** 按钮自动续跑刚才失败的动作；另加 **复制** 按钮。dev_mon 不会自行改动 Homebrew 的信任状态。
+- **找不到数据库命令行客户端（mongosh / mysql / cypher-shell）**：`ProcessRunner.which` 依赖继承的 PATH，而从 Finder / Dock 启动的 app 只有 `/usr/bin:/bin:/usr/sbin:/sbin`，Homebrew 目录不在其中 → 客户端永远「未找到」并回退到磁盘列表。现在 `ProcessRunner` 为所有子进程把 Homebrew 目录**前置进 PATH**，并对每个客户端按**候选绝对路径**（`/opt/homebrew/bin`、`/opt/homebrew/opt/<keg>/bin`、`/usr/local/bin`）查找后再回退 `which`。
+- **MongoDB 库列表显示引擎内部文件**：停止时会把数据目录里的任意子目录都当作数据库，于是出现 `diagnostic.data`、`journal` 之类的「库名」。现在按引擎规则过滤（跳过 `diagnostic.data`、`journal`、`WiredTiger*`、`_mdb_catalog.wt`、`sizeStorer.wt`、`mongod.lock`、`_`/`collection-`/`index-` 前缀），并把 `<name>.wt` 还原为库名。
+- **MongoDB 运行中看不到库列表**：`mongosh --eval` 默认打印 JS 风格数组（`[ 'admin', 'config' ]`），JSON 解析必然失败 → 列表恒为空。改为 `JSON.stringify(...)` 并解析 JSON 数组（保留旧输出与字典形式的回退解析）。
+- **错误信息被截断到 240 字符 / 3 行**，恰好切掉唯一可操作的 `brew trust …` 命令。现在保留完整文本（仅压缩空行、上限 600 字符），可选中复制，并附修复按钮。
+- **停止成功与否不再靠猜**：`brew services stop` 返回 0 但进程仍在时会显示「仍在运行（stop 未生效）」并可重试，而不是无条件把状态置为已停止。
+
+### Changed
+
+- **探测逻辑抽到 `PortProbe`**（端口 / socket / `ps etime` / pid 文件），本地数据库与仓库数据存储共用；本机数据库行的错误区改为「完整错误 + 复制 / 信任 Tap / 重试」。
+
 ## [0.3.1-1] — 2026-09-09
 
 ### Added

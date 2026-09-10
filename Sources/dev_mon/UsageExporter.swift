@@ -464,6 +464,13 @@ enum ConfigExporter {
             Strings.Keys.localDBsNotifyEnabled,
             Strings.Keys.localDBsMySQLUser,
             Strings.Keys.localDBsNeo4jUser,
+            // Repo Data Stores 配置（运行时缓存 repoStoresCache 不导出）
+            Strings.Keys.repoStoresEnabled,
+            Strings.Keys.repoStoresNotifyEnabled,
+            Strings.Keys.repoStoresRoots,
+            Strings.Keys.repoStoresDepth,
+            Strings.Keys.repoStoresShowDetails,
+            Strings.Keys.repoStoresIncludeRemote,
             // Z.AI 端点选择（Coding Plan / Standard）
             Strings.Keys.zaiEndpoint,
         ]

@@ -62,6 +62,15 @@ private struct NetlifyConfirmRequest: Identifiable {
     }
 }
 
+// MARK: - 仓库数据存储操作确认（备份）
+
+private struct StoreConfirmRequest: Identifiable {
+    let storeID: String
+    let label: String
+    let repoName: String
+    var id: String { "store-backup-" + storeID }
+}
+
 // MARK: - 可搜索选择器（搜索框 + ✕ 清除 + 过滤结果列表）
 
 /// 替换原生「不可搜索」的 menu Picker：搜索框（含 ✕ 清除）+ 过滤结果列表。
@@ -269,6 +278,12 @@ struct StatsPopoverView: View {
     @State private var awsInstanceSearchText = ""
     /// Netlify 部署历史是否展开
     @State private var netlifyDeploysExpanded = true
+
+    // 数据库页子页签（0 = 本地数据库, 1 = 仓库数据存储）+ 仓库分组折叠状态
+    @State private var dbSubTab = 0
+    @State private var storeSectionExpanded: [String: Bool] = [:]
+    @State private var storeConfirmRequest: StoreConfirmRequest?
+    @State private var showStoreConfirm = false
 
     // 通知中心 UI（popover 横幅 + 「通知」页）
     @State private var recentAlerts: [AppAlert] = []
@@ -3903,23 +3918,14 @@ struct StatsPopoverView: View {
 
     private var localDBsTabContent: some View {
         VStack(spacing: 0) {
-            if !stats.localDBs.isEnabled {
+            dbSubTabBar
+            Divider().padding(.horizontal, 14)
+            if dbSubTab == 1 {
+                repoStoresTabContent
+            } else if !stats.localDBs.isEnabled {
                 localDBsUnconfiguredState
             } else {
-                HStack(spacing: 6) {
-                    Image(systemName: "cylinder.split.1x2")
-                        .font(.system(size: 10)).foregroundColor(.teal)
-                    Text(Strings.localDBsSection)
-                        .font(.system(size: 10, weight: .semibold))
-                    Spacer()
-                    if stats.localDBs.isLoading {
-                        ProgressView().controlSize(.mini)
-                    }
-                    Text(String(format: "%@ %@", Strings.netlifyLastUpdate, stats.localDBs.lastUpdate))
-                        .font(.system(size: 8)).foregroundColor(.secondary)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
+                localDBsHeader
                 Divider().padding(.horizontal, 14)
                 ScrollView {
                     VStack(spacing: 0) {
@@ -3935,6 +3941,49 @@ struct StatsPopoverView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// 数据库页内子页签：本地数据库 / 仓库数据存储。
+    private var dbSubTabBar: some View {
+        HStack(spacing: 4) {
+            dbSubTabButton(Strings.dbSubTabLocal, tag: 0)
+            dbSubTabButton(Strings.dbSubTabRepo, tag: 1)
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 4)
+    }
+
+    private func dbSubTabButton(_ title: String, tag: Int) -> some View {
+        let active = dbSubTab == tag
+        return Button(action: { dbSubTab = tag }) {
+            Text(title)
+                .font(.system(size: 10, weight: active ? .semibold : .regular))
+                .foregroundColor(active ? .white : .secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(active ? Color.blue : Color.clear)
+                .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .modifier(HoverTooltip(text: title, position: .below))
+    }
+
+    private var localDBsHeader: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "cylinder.split.1x2")
+                .font(.system(size: 10)).foregroundColor(.teal)
+            Text(Strings.localDBsSection)
+                .font(.system(size: 10, weight: .semibold))
+            Spacer()
+            if stats.localDBs.isLoading {
+                ProgressView().controlSize(.mini)
+            }
+            Text(String(format: "%@ %@", Strings.netlifyLastUpdate, stats.localDBs.lastUpdate))
+                .font(.system(size: 8)).foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+    }
+
     private var localDBsUnconfiguredState: some View {
         VStack {
             Spacer()
@@ -3946,6 +3995,261 @@ struct StatsPopoverView: View {
             .frame(maxWidth: .infinity)
             Spacer()
         }
+    }
+
+    // MARK: - Repo Data Stores（本地数据库页的第二个子页签）
+
+    private var repoStoresTabContent: some View {
+        VStack(spacing: 0) {
+            if !stats.repoStores.isEnabled {
+                repoStoresUnconfiguredState
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "shippingbox")
+                        .font(.system(size: 10)).foregroundColor(.indigo)
+                    Text(Strings.repoStoresSection)
+                        .font(.system(size: 10, weight: .semibold))
+                    Spacer()
+                    if stats.repoStores.isLoading {
+                        ProgressView().controlSize(.mini)
+                    }
+                    Text(String(format: "%@ %@", Strings.netlifyLastUpdate, stats.repoStores.lastUpdate))
+                        .font(.system(size: 8)).foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                Divider().padding(.horizontal, 14)
+                if stats.repoStores.groups.isEmpty {
+                    VStack {
+                        Spacer()
+                        VStack(spacing: 8) {
+                            Image(systemName: "shippingbox").font(.title2).foregroundColor(.secondary)
+                            Text(Strings.repoStoresEmpty)
+                                .font(.caption).foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        Spacer()
+                    }
+                } else {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(stats.repoStores.groups) { group in
+                                repoStoreSection(group)
+                                Divider().padding(.horizontal, 14)
+                            }
+                        }
+                        .padding(.top, 2)
+                    }
+                }
+            }
+        }
+        .alert(Strings.storeBackupTitle, isPresented: $showStoreConfirm, presenting: storeConfirmRequest) { req in
+            Button(Strings.cancel, role: .cancel) {}
+            Button(Strings.storeBackupConfirm) { performStore(req) }
+        } message: { req in
+            Text(Strings.storeBackupMessage(req.label, req.repoName))
+        }
+    }
+
+    private var repoStoresUnconfiguredState: some View {
+        VStack {
+            Spacer()
+            VStack(spacing: 8) {
+                Image(systemName: "shippingbox").font(.title2).foregroundColor(.secondary)
+                Text(Strings.repoStoresConfigHint)
+                    .font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            Spacer()
+        }
+    }
+
+    /// 一个仓库分组（可折叠）。组头显示仓库名 + 服务状态。
+    private func repoStoreSection(_ group: RepoStoreGroup) -> some View {
+        CollapsibleSection(title: group.repoName,
+                           icon: "folder",
+                           isExpanded: Binding(
+                               get: { storeSectionExpanded[group.id] ?? true },
+                               set: { storeSectionExpanded[group.id] = $0 })) {
+            VStack(alignment: .leading, spacing: 0) {
+                if let service = group.service, service.port != nil || service.pidFile != nil {
+                    HStack(spacing: 4) {
+                        Circle().fill(group.serviceUp ? Color.green : Color.red)
+                            .frame(width: 6, height: 6)
+                        Text(group.serviceUp ? Strings.repoStoresServiceUp : Strings.repoStoresServiceDown)
+                            .font(.system(size: 8))
+                            .foregroundColor(group.serviceUp ? .green : .red)
+                        if let uptime = group.serviceUptimeSeconds {
+                            Text("· \(Strings.dbUptime(uptime))")
+                                .font(.system(size: 8)).foregroundColor(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 4)
+                }
+                ForEach(group.stores) { state in
+                    repoStoreRow(state)
+                }
+            }
+        }
+    }
+
+    private func repoStoreRow(_ state: RepoStoreState) -> some View {
+        let descriptor = state.descriptor
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                storeMonogram(descriptor.kind)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(descriptor.label)
+                        .font(.system(size: 10, weight: .semibold))
+                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        if descriptor.kind == .remote {
+                            Text(Strings.storeRemoteHint)
+                                .font(.system(size: 8)).foregroundColor(.secondary)
+                        } else {
+                            Circle()
+                                .fill(state.exists ? Color.green : missingIsExpected(descriptor) ? Color.secondary : Color.red)
+                                .frame(width: 6, height: 6)
+                            Text(state.exists ? storeStatusText(state) : Strings.storeMissing)
+                                .font(.system(size: 8))
+                                .foregroundColor(state.exists ? .secondary : (missingIsExpected(descriptor) ? .secondary : .red))
+                            if state.inUse {
+                                Text("· \(Strings.storeInUse)")
+                                    .font(.system(size: 8)).foregroundColor(.orange)
+                            }
+                        }
+                        Text("· \(Strings.storeKindName(descriptor.kind.rawValue))")
+                            .font(.system(size: 8)).foregroundColor(.secondary)
+                        if descriptor.sensitive {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 7)).foregroundColor(.secondary)
+                        }
+                    }
+                    Text(descriptor.source == .manifest ? descriptor.relPath : "\(descriptor.relPath) · \(Strings.storeSourceName(descriptor.source.rawValue))")
+                        .font(.system(size: 7, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+                Spacer()
+                if state.working {
+                    ProgressView().controlSize(.mini)
+                } else if descriptor.kind != .remote {
+                    localDBActionButton(Strings.storeActionCounts,
+                                        state.countsExpanded ? "chevron.up" : "chevron.down",
+                                        color: .teal, disabled: false) {
+                        stats.repoStores.toggleCounts(state)
+                    }
+                    localDBActionButton(Strings.storeActionBackup, "arrow.down.doc",
+                                        color: .purple, disabled: false) {
+                        beginStoreConfirm(state)
+                    }
+                    localDBActionButton(Strings.storeActionReveal, "folder",
+                                        color: .secondary, disabled: false) {
+                        stats.repoStores.reveal(state)
+                    }
+                }
+            }
+            if let err = state.error {
+                Text(err)
+                    .font(.system(size: 8)).foregroundColor(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+            if state.countsExpanded {
+                storeCountsList(state)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+    }
+
+    private func storeCountsList(_ state: RepoStoreState) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if state.countsLoading && state.counts.isEmpty {
+                HStack(spacing: 4) {
+                    ProgressView().controlSize(.mini)
+                    Text("…").font(.caption2).foregroundColor(.secondary)
+                }
+            } else if state.counts.isEmpty {
+                Text(Strings.dbDatabasesEmpty)
+                    .font(.caption2).foregroundColor(.secondary)
+            } else {
+                ForEach(state.counts) { count in
+                    HStack(spacing: 5) {
+                        Text(count.label)
+                            .font(.system(size: 8, design: .monospaced))
+                            .foregroundColor(count.isWarning ? .orange : .secondary)
+                            .lineLimit(1)
+                        Spacer()
+                        Text(count.value)
+                            .font(.system(size: 8, design: .monospaced))
+                            .foregroundColor(count.isWarning ? .orange : .primary)
+                    }
+                    .textSelection(.enabled)
+                }
+            }
+            if state.descriptor.sensitive {
+                Text(Strings.repoStoresSensitiveNote)
+                    .font(.system(size: 7)).foregroundColor(.secondary)
+            }
+        }
+        .padding(.leading, 22)
+        .padding(.top, 1)
+    }
+
+    private func storeStatusText(_ state: RepoStoreState) -> String {
+        guard let size = state.sizeBytes else { return Strings.storeMissing }
+        var text = RepoDataStoreManager.formatBytes(size)
+        if let modified = state.modifiedAt {
+            let f = DateFormatter()
+            f.dateFormat = "MM-dd HH:mm"
+            text += " · \(f.string(from: modified))"
+        }
+        return text
+    }
+
+    /// JSONL 队列 / JSON 状态文件都是按需创建的 —— 尚未出现不算异常，用灰色而非红色。
+    private func missingIsExpected(_ descriptor: RepoStoreDescriptor) -> Bool {
+        descriptor.kind == .jsonl || descriptor.kind == .jsonState
+    }
+
+    private func storeMonogram(_ kind: RepoStoreKind) -> some View {
+        let brand = storeBrand(kind)
+        return Text(Strings.storeKindShort(kind.rawValue))
+            .font(.system(size: 7, weight: .bold))
+            .foregroundColor(brand.0)
+            .frame(width: 17, height: 17)
+            .background(brand.1)
+            .clipShape(Circle())
+    }
+
+    private func storeBrand(_ kind: RepoStoreKind) -> (Color, Color) {
+        switch kind {
+        case .sqlite: return (.white, Color(red: 0.13, green: 0.45, blue: 0.70))
+        case .chroma: return (.white, Color(red: 0.55, green: 0.35, blue: 0.10))
+        case .jsonl: return (.white, Color(red: 0.22, green: 0.50, blue: 0.28))
+        case .jsonState: return (.white, Color(red: 0.42, green: 0.42, blue: 0.45))
+        case .remote: return (.white, Color(red: 0.20, green: 0.40, blue: 0.60))
+        }
+    }
+
+    @MainActor
+    private func beginStoreConfirm(_ state: RepoStoreState) {
+        storeConfirmRequest = StoreConfirmRequest(storeID: state.id,
+                                                 label: state.descriptor.label,
+                                                 repoName: state.descriptor.repoName)
+        showStoreConfirm = true
+    }
+
+    @MainActor
+    private func performStore(_ req: StoreConfirmRequest) {
+        guard let state = stats.repoStores.store(req.storeID) else { return }
+        stats.repoStores.backup(state)
     }
 
     private func localDBRow(_ state: LocalDBServiceState) -> some View {
@@ -3980,9 +4284,35 @@ struct StatsPopoverView: View {
                 }
             }
             if let err = state.error {
-                Text(err)
-                    .font(.system(size: 8)).foregroundColor(.orange)
-                    .lineLimit(3)
+                VStack(alignment: .leading, spacing: 3) {
+                    // 完整显示（含修复命令），可选中复制。
+                    Text(err)
+                        .font(.system(size: 8)).foregroundColor(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                    HStack(spacing: 4) {
+                        if case .untrustedTap? = state.failure {
+                            localDBActionButton(Strings.dbTrustTap, "checkmark.shield.fill",
+                                                color: .blue, disabled: state.working) {
+                                stats.localDBs.trustTap(state.id)
+                            }
+                            .help(Strings.dbTrustTapHint)
+                        }
+                        if state.retryableAction != nil {
+                            localDBActionButton(Strings.dbRetry, "arrow.clockwise",
+                                                color: .blue, disabled: state.working) {
+                                stats.localDBs.retryLastAction(state.id)
+                            }
+                            .help(Strings.dbRetryHint)
+                        }
+                        localDBActionButton(Strings.dbCopyError, "doc.on.doc",
+                                            color: .secondary, disabled: false) {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(err, forType: .string)
+                        }
+                        .help(Strings.dbCopyHint)
+                    }
+                }
             }
             if state.databasesExpanded {
                 databasesList(state)
@@ -4081,6 +4411,7 @@ struct StatsPopoverView: View {
                 stats.cloudflare.refresh()
                 stats.netlify.refresh()
                 stats.localDBs.refresh()
+                stats.repoStores.refresh()
                 loadUsage()
             }
             iconButton(icon: "square.and.arrow.up", label: Strings.exportUsageButton, color: .teal) {
@@ -4097,6 +4428,7 @@ struct StatsPopoverView: View {
                 stats.cloudflare.refresh()
                 stats.netlify.refresh()
                 stats.localDBs.refresh()
+                stats.repoStores.refresh()
                 loadUsage()
             }
             iconButton(icon: "gearshape", label: Strings.settings, color: .secondary) {
@@ -4302,6 +4634,8 @@ struct StatsPopoverView: View {
         case .tunnelRestored: return "checkmark.circle.fill"
         case .dbDown: return "xmark.octagon.fill"
         case .dbRestored: return "checkmark.seal.fill"
+        case .storeDegraded: return "shippingbox.fill"
+        case .storeRestored: return "checkmark.seal.fill"
         case .netlifyDeployReady: return "checkmark.circle.fill"
         case .netlifyDeployFailed: return "exclamationmark.triangle.fill"
         case .netlifyDeployRolledBack: return "arrow.uturn.backward.circle.fill"
@@ -4313,8 +4647,9 @@ struct StatsPopoverView: View {
     private func alertColor(_ kind: AppAlertKind) -> Color {
         switch kind {
         case .peakStart, .peakSoon, .balanceWarning: return .orange
-        case .peakEnd, .tunnelRestored, .netlifyDeployReady, .netlifyDeployRolledBack, .dbRestored: return .green
-        case .tunnelDown, .lowBalance, .netlifyDeployFailed, .dbDown: return .red
+        case .peakEnd, .tunnelRestored, .netlifyDeployReady, .netlifyDeployRolledBack, .dbRestored,
+             .storeRestored: return .green
+        case .tunnelDown, .lowBalance, .netlifyDeployFailed, .dbDown, .storeDegraded: return .red
         }
     }
 

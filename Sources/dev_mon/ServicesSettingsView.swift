@@ -27,6 +27,8 @@ struct ServicesSettingsView: View {
             Divider().padding(.horizontal, 16)
             LocalDBsSettingsView(stats: stats)
             Divider().padding(.horizontal, 16)
+            RepoStoresSettingsView(stats: stats)
+            Divider().padding(.horizontal, 16)
             SyncSettingsView(stats: stats)
             Spacer()
         }
@@ -700,6 +702,127 @@ private struct LocalDBsSettingsView: View {
             }
 
             Text(Strings.localDBsSettingsNote)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(20)
+    }
+}
+
+// MARK: - Repo Data Stores Settings
+
+private struct RepoStoresSettingsView: View {
+    let stats: DeepSeekStats
+
+    @State private var storeEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.repoStoresEnabled)
+    @State private var storeNotify: Bool = (UserDefaults.standard.object(forKey: Strings.Keys.repoStoresNotifyEnabled) as? Bool) ?? true
+    @State private var rootsText: String = UserDefaults.standard.string(forKey: Strings.Keys.repoStoresRoots)
+        ?? RepoDataStoreManager.defaultRootValue
+    @State private var depth: Int = {
+        let v = UserDefaults.standard.integer(forKey: Strings.Keys.repoStoresDepth)
+        return v >= 1 ? min(v, 6) : 3
+    }()
+    @State private var showDetails: Bool = (UserDefaults.standard.object(forKey: Strings.Keys.repoStoresShowDetails) as? Bool) ?? false
+    @State private var includeRemote: Bool = (UserDefaults.standard.object(forKey: Strings.Keys.repoStoresIncludeRemote) as? Bool) ?? true
+    @State private var isScanning = false
+
+    private var mgr: RepoDataStoreManager { stats.repoStores }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "shippingbox")
+                    .foregroundColor(.indigo)
+                Text(Strings.repoStoresSection).font(.body).bold()
+                Spacer()
+            }
+
+            Toggle(isOn: $storeEnabled) {
+                Text(Strings.repoStoresToggle).font(.callout)
+            }
+            .toggleStyle(.switch)
+            .onChange(of: storeEnabled) { _, newVal in
+                mgr.enabled = newVal
+                if newVal { mgr.startAutoRefresh(); mgr.refresh() }
+            }
+
+            Text(Strings.repoStoresRootsLabel).font(.caption).foregroundColor(.secondary)
+            HStack(spacing: 8) {
+                TextField("", text: $rootsText)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                    .onChange(of: rootsText) { _, newVal in mgr.setRootsRaw(newVal) }
+                Button {
+                    rootsText = RepoDataStoreManager.defaultRootValue
+                    mgr.setRootsRaw(rootsText)
+                } label: {
+                    Text(Strings.repoStoresResetRoots).font(.caption)
+                }
+                .buttonStyle(.bordered)
+            }
+
+            HStack(spacing: 8) {
+                Text(Strings.repoStoresDepthLabel).font(.caption).foregroundColor(.secondary)
+                Stepper(value: $depth, in: 1...6) {
+                    Text("\(depth)").font(.system(.caption, design: .monospaced))
+                }
+                .onChange(of: depth) { _, newVal in mgr.setMaxDepth(newVal) }
+                Spacer()
+            }
+
+            Toggle(isOn: $showDetails) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(Strings.repoStoresShowDetailsLabel).font(.callout)
+                    Text(Strings.repoStoresShowDetailsHint).font(.caption2).foregroundColor(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+            .onChange(of: showDetails) { _, newVal in
+                UserDefaults.standard.set(newVal, forKey: Strings.Keys.repoStoresShowDetails)
+            }
+
+            Toggle(isOn: $includeRemote) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(Strings.repoStoresIncludeRemoteLabel).font(.callout)
+                    Text(Strings.repoStoresIncludeRemoteHint).font(.caption2).foregroundColor(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+            .onChange(of: includeRemote) { _, newVal in
+                UserDefaults.standard.set(newVal, forKey: Strings.Keys.repoStoresIncludeRemote)
+                mgr.refresh()
+            }
+
+            Toggle(isOn: $storeNotify) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(Strings.repoStoresNotifyLabel).font(.callout)
+                    Text(Strings.repoStoresNotifyHint).font(.caption2).foregroundColor(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+            .onChange(of: storeNotify) { _, newVal in
+                UserDefaults.standard.set(newVal, forKey: Strings.Keys.repoStoresNotifyEnabled)
+            }
+
+            Button {
+                isScanning = true
+                Task {
+                    await mgr.scanNow()
+                    isScanning = false
+                }
+            } label: {
+                Text(isScanning ? Strings.repoStoresScanBusy : Strings.repoStoresScanAction)
+                    .font(.caption)
+            }
+            .buttonStyle(.bordered)
+            .disabled(isScanning || !storeEnabled)
+
+            if storeEnabled, let msg = mgr.actionMessage {
+                Text(msg).font(.caption2).foregroundColor(mgr.actionSuccess ? .green : .orange)
+            }
+
+            Text(Strings.repoStoresSettingsNote)
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

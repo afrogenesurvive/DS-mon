@@ -7,6 +7,40 @@ enum ProcessRunner {
         var data = Data()
     }
 
+    /// 可执行文件搜索路径。GUI 应用从 Finder 启动时 PATH 只有
+    /// `/usr/bin:/bin:/usr/sbin:/sbin`，Homebrew 不在其中 —— 于是
+    /// `which brew` / `which mongosh` 全部失败（即使终端里能用）。
+    static let searchPaths: [String] = [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ]
+
+    /// 继承父进程环境，并把 `searchPaths` 前置到 PATH（保留原有尾部、去重）。
+    static func environment() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        let inherited = (env["PATH"] ?? "").split(separator: ":").map(String.init)
+        var seen = Set<String>()
+        let merged = (searchPaths + inherited).filter { seen.insert($0).inserted }
+        env["PATH"] = merged.joined(separator: ":")
+        return env
+    }
+
+    /// 按候选绝对路径依次查找可执行文件，找不到再回退到 `which`。
+    /// （已知路径优先，避免依赖容易缺失的 PATH。）
+    static func firstExecutable(_ candidates: [String], fallbackName: String? = nil) -> String? {
+        for c in candidates where FileManager.default.isExecutableFile(atPath: c) {
+            return c
+        }
+        if let name = fallbackName, let found = which(name) { return found }
+        return nil
+    }
+
     /// 同步运行 `launchPath`，最多等 `timeout` 秒（超时会 terminate）。
     /// 返回终止码 + stdout/stderr 文本。stdout/stderr 并行读取，避免管道缓冲死锁。
     @discardableResult
@@ -16,6 +50,7 @@ enum ProcessRunner {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: launchPath)
         p.arguments = args
+        p.environment = environment()
 
         let out = Pipe()
         let err = Pipe()
@@ -87,16 +122,12 @@ enum ProcessRunner {
 
     /// 解析 cloudflared 二进制路径（已知 Homebrew/usr/local 路径优先，再走 which）。
     static func cloudflaredPath() -> String? {
-        let candidates = [
+        firstExecutable([
             "/opt/homebrew/bin/cloudflared",
             "/usr/local/bin/cloudflared",
             "/opt/local/bin/cloudflared",
             "/usr/bin/cloudflared",
-        ]
-        for c in candidates where FileManager.default.isExecutableFile(atPath: c) {
-            return c
-        }
-        return which("cloudflared")
+        ], fallbackName: "cloudflared")
     }
 
     /// 以管理员权限运行命令（弹出 macOS 密码框）。

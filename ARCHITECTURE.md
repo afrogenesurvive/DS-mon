@@ -342,6 +342,9 @@ DevMonApp.swift
 ├── DeepSeekStats.swift  (统一数据模型，含 gitHub + aws 属性)
 │   ├── GitHubUsageTracker.swift  ─── GitHub Billing API
 │   ├── AWSUsageTracker.swift     ─── EC2 API + SigV4Signer
+│   ├── LocalDBManager.swift      ─── brew services + mongosh/mysql/cypher-shell
+│   │   └── PortProbe.swift       ─── lsof / ps etime（与 RepoDataStoreManager 共用）
+│   ├── RepoDataStoreManager.swift ── devmon.json / .env / 目录扫描（只读）
 │   ├── Provider.swift
 │   └── ProviderManager.swift ────── SecureStore (AES-GCM)
 │
