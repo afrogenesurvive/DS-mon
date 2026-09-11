@@ -57,3 +57,35 @@ struct CollapsibleSection<Content: View>: View {
         }
     }
 }
+
+/// 「全部展开 / 全部收起」按钮组。
+///
+/// 放在含多个可折叠区段的页面标题行右侧，一次性展开或收起该页所有区段。
+struct SectionExpandControls: View {
+    var iconSize: CGFloat = 10
+    var spacing: CGFloat = 8
+    let expand: () -> Void
+    let collapse: () -> Void
+
+    @State private var hovered: String?
+
+    var body: some View {
+        HStack(spacing: spacing) {
+            button("rectangle.expand.vertical", Strings.sectionsExpandAll, expand)
+            button("rectangle.compress.vertical", Strings.sectionsCollapseAll, collapse)
+        }
+    }
+
+    private func button(_ symbol: String, _ help: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: iconSize, weight: .medium))
+                .foregroundColor(hovered == symbol ? .primary : .secondary)
+                .frame(width: iconSize + 6, height: iconSize + 6)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 ? symbol : (hovered == symbol ? nil : hovered) }
+        .help(help)
+    }
+}

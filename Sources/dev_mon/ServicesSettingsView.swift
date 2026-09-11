@@ -25,6 +25,14 @@ struct ServicesSettingsView: View {
                 set: { sectionExpanded[key] = $0 })
     }
 
+    /// 服务页的 8 个区段一起展开 / 收起。
+    private func setAllSections(_ expanded: Bool) {
+        for key in ["proxy", "github", "aws", "cloudflare", "netlify",
+                    "localDBs", "repoStores", "sync"] {
+            sectionExpanded[key] = expanded
+        }
+    }
+
     /// 统一的可折叠服务区段（标题栏由 CollapsibleSection 绘制，子视图隐藏自己的表头）。
     private func serviceSection<Content: View>(_ key: String, title: String, icon: String,
                                                accessory: AnyView? = nil,
@@ -51,6 +59,14 @@ struct ServicesSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Spacer()
+                SectionExpandControls(iconSize: 12,
+                                      expand: { setAllSections(true) },
+                                      collapse: { setAllSections(false) })
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 10)
             serviceSection("proxy", title: Strings.proxySection, icon: "network",
                            accessory: proxyStatusAccessory) {
                 proxySection

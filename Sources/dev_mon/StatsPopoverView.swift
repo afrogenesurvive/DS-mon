@@ -1172,9 +1172,19 @@ struct StatsPopoverView: View {
             subTabButton(Strings.usageTitle, tag: 0)
             subTabButton(Strings.sourceUsageTitle, tag: 1)
             Spacer()
+            SectionExpandControls(expand: { setAllUsageSections(true) },
+                                  collapse: { setAllUsageSections(false) })
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 4)
+    }
+
+    /// Usage 页（含两个子页签）的全部可折叠区段：Account + 用量统计 + 请求历史 + 来源用量。
+    private func setAllUsageSections(_ expanded: Bool) {
+        showAccountSection = expanded
+        showUsageStatsSection = expanded
+        showUsageListSection = expanded
+        showSourceUsageSection = expanded
     }
 
     private func subTabButton(_ title: String, tag: Int) -> some View {
@@ -1686,6 +1696,11 @@ struct StatsPopoverView: View {
                 .padding(.vertical, 14)
             } else if let det {
                 let repoKey = repo.id
+                HStack(spacing: 6) {
+                    Spacer()
+                    SectionExpandControls(expand: { setAllGHSections(repoKey, true) },
+                                          collapse: { setAllGHSections(repoKey, false) })
+                }
                 ghCollapsibleSection(title: Strings.githubCommitsSection,
                                      icon: "clock.arrow.circlepath",
                                      expanded: ghSectionBinding(repoKey, kind: "commits")) {
@@ -1730,6 +1745,13 @@ struct StatsPopoverView: View {
             get: { ghSectionExpanded[key, default: true] },
             set: { ghSectionExpanded[key] = $0 }
         )
+    }
+
+    /// 当前仓库详情里的三个区段（提交 / 分支 / 发布）一起展开或收起。
+    private func setAllGHSections(_ repoID: String, _ expanded: Bool) {
+        for kind in ["commits", "branches", "releases"] {
+            ghSectionExpanded["\(repoID)|\(kind)"] = expanded
+        }
     }
 
     @ViewBuilder
@@ -3979,9 +4001,18 @@ struct StatsPopoverView: View {
             }
             Text(String(format: "%@ %@", Strings.netlifyLastUpdate, stats.localDBs.lastUpdate))
                 .font(.system(size: 8)).foregroundColor(.secondary)
+            SectionExpandControls(expand: { setAllDatabaseLists(true) },
+                                  collapse: { setAllDatabaseLists(false) })
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
+    }
+
+    /// 本地数据库子页签：展开 / 收起每个服务的库列表（复用 toggleDatabases 的拉取逻辑）。
+    private func setAllDatabaseLists(_ expanded: Bool) {
+        for state in stats.localDBs.services where state.databasesExpanded != expanded {
+            stats.localDBs.toggleDatabases(state.id)
+        }
     }
 
     private var localDBsUnconfiguredState: some View {
@@ -4015,6 +4046,10 @@ struct StatsPopoverView: View {
                     }
                     Text(String(format: "%@ %@", Strings.netlifyLastUpdate, stats.repoStores.lastUpdate))
                         .font(.system(size: 8)).foregroundColor(.secondary)
+                    if !stats.repoStores.groups.isEmpty {
+                        SectionExpandControls(expand: { setAllStoreSections(true) },
+                                              collapse: { setAllStoreSections(false) })
+                    }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
@@ -4065,7 +4100,7 @@ struct StatsPopoverView: View {
         }
     }
 
-    /// 一个仓库分组（可折叠）。组头显示仓库名 + 服务状态。
+    /// 仓库分组（可折叠）。组头显示仓库名 + 服务状态。
     private func repoStoreSection(_ group: RepoStoreGroup) -> some View {
         CollapsibleSection(title: group.repoName,
                            icon: "folder",
@@ -4235,6 +4270,13 @@ struct StatsPopoverView: View {
         case .jsonl: return (.white, Color(red: 0.22, green: 0.50, blue: 0.28))
         case .jsonState: return (.white, Color(red: 0.42, green: 0.42, blue: 0.45))
         case .remote: return (.white, Color(red: 0.20, green: 0.40, blue: 0.60))
+        }
+    }
+
+    /// 仓库数据存储子页签：全部仓库分组一起展开 / 收起。
+    private func setAllStoreSections(_ expanded: Bool) {
+        for group in stats.repoStores.groups {
+            storeSectionExpanded[group.id] = expanded
         }
     }
 

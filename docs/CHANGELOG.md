@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.2-1] — 2026-09-10
+
+### Added
+
+- **「全部展开 / 全部收起」按钮**：所有含多个可折叠区段的页面都加了这两个图标按钮，一键展开或收起该页全部区段 ——
+  - **Usage 页**（含 Account + 用量统计 + 请求历史 + 来源用量，覆盖两个子页签）：按钮位于 **Usage / Source Usage** 切换行右侧；
+  - **GitHub → Repositories**：位于所选仓库详情的提交 / 分支 / 发布三个区段上方，作用于当前仓库；
+  - **Databases → Local**：位于页头，一次性展开 / 收起每个服务的 **库列表**（复用原有的拉取逻辑，展开时会各发一次实时查询）；
+  - **Databases → Repo**：位于页头，一次性展开 / 收起所有仓库分组（无分组时隐藏）；
+  - **Settings → 服务**：位于页签顶部右侧，一次性展开 / 收起全部 8 个服务区段。
+- **`SectionExpandControls`**：`CollapsibleSection.swift` 中新增的可复用按钮组（`iconSize` / `spacing` / `expand` / `collapse`），图标为 `rectangle.expand.vertical` / `rectangle.compress.vertical`，悬停高亮 + 本地化 tooltip；新增字符串 `sectionsExpandAll` / `sectionsCollapseAll`。
+
+### Notes
+
+- Netlify 页签只有一个可折叠区段（Deploys 列表），其表头本身即为开关，故未重复添加。
+
 ## [0.3.1-3] — 2026-09-10
 
 ### Added

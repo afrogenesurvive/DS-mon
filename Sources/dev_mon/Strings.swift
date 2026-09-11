@@ -184,6 +184,9 @@ enum Strings {
     static var alertsTabTooltip: String { isZH ? "通知" : "Notifications" }
     static var alertsEmpty: String { isZH ? "暂无通知" : "No notifications yet" }
     static var alertsClearAll: String { isZH ? "清空" : "Clear" }
+    /// 可折叠区段：全部展开 / 全部收起
+    static var sectionsExpandAll: String { isZH ? "全部展开" : "Expand all" }
+    static var sectionsCollapseAll: String { isZH ? "全部收起" : "Collapse all" }
     static var peakSoonNotifyTitle: String { isZH ? "DeepSeek 高峰即将开始" : "DeepSeek peak starting soon" }
     static var peakSoonNotifyBody: String { isZH ? "约 10 分钟后进入高峰计费（价格为低谷 2 倍），大型任务建议错峰。" : "Peak pricing (~2× off-peak) starts in ~10 min — consider queuing heavy jobs now." }
     static var tunnelDownNotifyLabel: String { isZH ? "隧道断开通知" : "Tunnel Down Alert" }
