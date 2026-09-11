@@ -4636,6 +4636,7 @@ struct StatsPopoverView: View {
         case .dbRestored: return "checkmark.seal.fill"
         case .storeDegraded: return "shippingbox.fill"
         case .storeRestored: return "checkmark.seal.fill"
+        case .awsInstanceLongRunning: return "clock.badge.exclamationmark"
         case .netlifyDeployReady: return "checkmark.circle.fill"
         case .netlifyDeployFailed: return "exclamationmark.triangle.fill"
         case .netlifyDeployRolledBack: return "arrow.uturn.backward.circle.fill"
@@ -4650,6 +4651,7 @@ struct StatsPopoverView: View {
         case .peakEnd, .tunnelRestored, .netlifyDeployReady, .netlifyDeployRolledBack, .dbRestored,
              .storeRestored: return .green
         case .tunnelDown, .lowBalance, .netlifyDeployFailed, .dbDown, .storeDegraded: return .red
+        case .awsInstanceLongRunning: return .orange
         }
     }
 

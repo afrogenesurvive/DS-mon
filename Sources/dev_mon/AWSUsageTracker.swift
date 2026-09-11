@@ -532,6 +532,10 @@ final class AWSUsageTracker {
 
         instances = parseInstances(from: xml).sorted { $0.instanceId < $1.instanceId }
 
+        // Continuously-running warning: evaluate every refresh so an instance left on
+        // alerts after the threshold and repeats while it stays up.
+        InstanceRunWatch.shared.evaluate(instances)
+
         let now = Date()
         let monthStart = Calendar.current.date(
             from: Calendar.current.dateComponents([.year, .month], from: now)) ?? now

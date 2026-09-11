@@ -10,6 +10,7 @@ struct ThresholdView: View {
         case provider = "Provider"
         case license  = "许可"
         case services = "服务"
+        case notifications = "通知"
         case about    = "关于"
         case guide    = "指南"
 
@@ -19,6 +20,7 @@ struct ThresholdView: View {
             case .provider: return "cube.fill"
             case .license:  return "key.fill"
             case .services: return "network"
+            case .notifications: return "bell.badge"
             case .about:    return "info.circle"
             case .guide:    return "book"
             }
@@ -30,6 +32,7 @@ struct ThresholdView: View {
             case .provider: return Strings.providerTitle
             case .license:  return Strings.settingsTabLicense
             case .services: return Strings.settingsTabServices
+            case .notifications: return Strings.settingsTabNotifications
             case .about:    return Strings.settingsTabAbout
             case .guide:    return Strings.settingsTabGuide
             }
@@ -76,6 +79,7 @@ struct ThresholdView: View {
                     case .provider: ProviderSettingsView(stats: stats)
                     case .license:  LicenseSettingsView()
                     case .services: ServicesSettingsView(stats: stats)
+                    case .notifications: NotificationsSettingsView()
                     case .about:    AboutSettingsView()
                     case .guide:    EmptyView()
                     }

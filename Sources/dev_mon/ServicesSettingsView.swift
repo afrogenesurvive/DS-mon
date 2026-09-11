@@ -13,43 +13,76 @@ struct ServicesSettingsView: View {
     @State private var proxyRunning: Bool = ProxyServer.shared.isRunning
     @State private var proxyError: String? = ProxyServer.shared.listenerError
 
+    /// 各区段的展开状态。带实时状态的服务默认展开，其余收起 —— 服务页内容太多。
+    @State private var sectionExpanded: [String: Bool] = [
+        "proxy": true,
+        "cloudflare": true,
+        "sync": true,
+    ]
+
+    private func expansion(_ key: String) -> Binding<Bool> {
+        Binding(get: { sectionExpanded[key] ?? false },
+                set: { sectionExpanded[key] = $0 })
+    }
+
+    /// 统一的可折叠服务区段（标题栏由 CollapsibleSection 绘制，子视图隐藏自己的表头）。
+    private func serviceSection<Content: View>(_ key: String, title: String, icon: String,
+                                               accessory: AnyView? = nil,
+                                               @ViewBuilder content: @escaping () -> Content) -> some View {
+        CollapsibleSection(title: title,
+                           icon: icon,
+                           isExpanded: expansion(key),
+                           iconSize: 12,
+                           titleFont: .system(size: 13, weight: .semibold),
+                           horizontalPadding: 20,
+                           accessory: accessory) {
+            content()
+        }
+    }
+
+    private var proxyStatusAccessory: AnyView {
+        AnyView(HStack(spacing: 4) {
+            Circle().fill(proxyRunning ? Color.green : Color.red).frame(width: 6, height: 6)
+            Text(proxyRunning ? Strings.proxyRunning : Strings.proxyStopped)
+                .font(.caption2)
+                .foregroundColor(proxyRunning ? .green : .red)
+        })
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            proxySection
-            Divider().padding(.horizontal, 16)
-            GitHubSettingsView(stats: stats)
-            Divider().padding(.horizontal, 16)
-            AWSSettingsView(stats: stats)
-            Divider().padding(.horizontal, 16)
-            CloudflareSettingsView(stats: stats)
-            Divider().padding(.horizontal, 16)
-            NetlifySettingsView(stats: stats)
-            Divider().padding(.horizontal, 16)
-            LocalDBsSettingsView(stats: stats)
-            Divider().padding(.horizontal, 16)
-            RepoStoresSettingsView(stats: stats)
-            Divider().padding(.horizontal, 16)
-            SyncSettingsView(stats: stats)
+            serviceSection("proxy", title: Strings.proxySection, icon: "network",
+                           accessory: proxyStatusAccessory) {
+                proxySection
+            }
+            serviceSection("github", title: Strings.githubSection,
+                           icon: "chevron.left.forwardslash.chevron.right") {
+                GitHubSettingsView(stats: stats, embedded: true)
+            }
+            serviceSection("aws", title: Strings.awsSection, icon: "cloud.fill") {
+                AWSSettingsView(stats: stats, embedded: true)
+            }
+            serviceSection("cloudflare", title: Strings.cloudflareSection, icon: "cloud.bolt.fill") {
+                CloudflareSettingsView(stats: stats, embedded: true)
+            }
+            serviceSection("netlify", title: Strings.netlifySection, icon: "diamond.fill") {
+                NetlifySettingsView(stats: stats, embedded: true)
+            }
+            serviceSection("localDBs", title: Strings.localDBsSection, icon: "cylinder.split.1x2") {
+                LocalDBsSettingsView(stats: stats, embedded: true)
+            }
+            serviceSection("repoStores", title: Strings.repoStoresSection, icon: "shippingbox") {
+                RepoStoresSettingsView(stats: stats, embedded: true)
+            }
+            serviceSection("sync", title: Strings.syncSection, icon: "arrow.triangle.2.circlepath") {
+                SyncSettingsView(stats: stats, embedded: true)
+            }
             Spacer()
         }
     }
 
     private var proxySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Image(systemName: "network")
-                    .foregroundColor(.blue)
-                Text(Strings.proxySection)
-                    .font(.body).bold()
-                Spacer()
-                HStack(spacing: 4) {
-                    Circle().fill(proxyRunning ? Color.green : Color.red).frame(width: 6, height: 6)
-                    Text(proxyRunning ? Strings.proxyRunning : Strings.proxyStopped)
-                        .font(.caption)
-                        .foregroundColor(proxyRunning ? .green : .red)
-                }
-            }
-
             HStack {
                 Toggle(isOn: $proxyEnabled) {
                     Text(Strings.proxyToggle).font(.callout)
@@ -87,7 +120,9 @@ struct ServicesSettingsView: View {
                 }
             }
         }
-        .padding(20)
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
+        .padding(.bottom, 16)
         .onAppear { proxyError = ProxyServer.shared.listenerError }
     }
 }
@@ -96,6 +131,8 @@ struct ServicesSettingsView: View {
 
 private struct GitHubSettingsView: View {
     let stats: DeepSeekStats
+    /// 作为可折叠区段的内容时，隐藏自身的表头并收紧内边距。
+    var embedded: Bool = false
 
     @State private var githubEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.githubEnabled)
     @State private var githubToken: String = SecureStore.retrieve(key: Strings.Keys.githubToken) ?? ""
@@ -104,12 +141,14 @@ private struct GitHubSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                BrandTabIcon(assetName: "github", symbol: "chevron.left.forwardslash.chevron.right", size: 18)
-                    .foregroundColor(.primary)
-                Text(Strings.githubSection)
-                    .font(.body).bold()
-                Spacer()
+            if !embedded {
+                HStack(spacing: 6) {
+                    BrandTabIcon(assetName: "github", symbol: "chevron.left.forwardslash.chevron.right", size: 18)
+                        .foregroundColor(.primary)
+                    Text(Strings.githubSection)
+                        .font(.body).bold()
+                    Spacer()
+                }
             }
 
             Toggle(isOn: $githubEnabled) {
@@ -175,6 +214,7 @@ private struct GitHubSettingsView: View {
 
 private struct AWSSettingsView: View {
     let stats: DeepSeekStats
+    var embedded: Bool = false
 
     @State private var awsEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.awsEnabled)
     @State private var awsAccessKey: String = SecureStore.retrieve(key: Strings.Keys.awsAccessKey) ?? ""
@@ -191,12 +231,14 @@ private struct AWSSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Image(systemName: "cloud.fill")
-                    .foregroundColor(.orange)
-                Text(Strings.awsSection)
-                    .font(.body).bold()
-                Spacer()
+            if !embedded {
+                HStack(spacing: 6) {
+                    Image(systemName: "cloud.fill")
+                        .foregroundColor(.orange)
+                    Text(Strings.awsSection)
+                        .font(.body).bold()
+                    Spacer()
+                }
             }
 
             Toggle(isOn: $awsEnabled) {
@@ -287,6 +329,7 @@ private struct AWSSettingsView: View {
 
 private struct CloudflareSettingsView: View {
     let stats: DeepSeekStats
+    var embedded: Bool = false
 
     @State private var cfEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.cloudflareEnabled)
     @State private var cfToken: String = SecureStore.retrieve(key: Strings.Keys.cloudflareApiToken) ?? ""
@@ -298,15 +341,17 @@ private struct CloudflareSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Image(systemName: "cloud.bolt.fill")
-                    .foregroundColor(.orange)
-                Text(Strings.cloudflareSection)
-                    .font(.body).bold()
-                Spacer()
-                HStack(spacing: 4) {
-                    Circle().fill(cf.daemonRunning ? Color.green : Color.red).frame(width: 6, height: 6)
-                    Text(daemonStatusText).font(.caption).foregroundColor(cf.daemonRunning ? .green : .red)
+            if !embedded {
+                HStack(spacing: 6) {
+                    Image(systemName: "cloud.bolt.fill")
+                        .foregroundColor(.orange)
+                    Text(Strings.cloudflareSection)
+                        .font(.body).bold()
+                    Spacer()
+                    HStack(spacing: 4) {
+                        Circle().fill(cf.daemonRunning ? Color.green : Color.red).frame(width: 6, height: 6)
+                        Text(daemonStatusText).font(.caption).foregroundColor(cf.daemonRunning ? .green : .red)
+                    }
                 }
             }
 
@@ -466,6 +511,7 @@ private struct CloudflareSettingsView: View {
 
 private struct NetlifySettingsView: View {
     let stats: DeepSeekStats
+    var embedded: Bool = false
 
     @State private var nfEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.netlifyEnabled)
     @State private var nfToken: String = SecureStore.retrieve(key: Strings.Keys.netlifyApiToken) ?? ""
@@ -477,12 +523,14 @@ private struct NetlifySettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                BrandTabIcon(assetName: "netlify", symbol: "diamond", size: 18)
-                    .foregroundColor(.primary)
-                Text(Strings.netlifySection)
-                    .font(.body).bold()
-                Spacer()
+            if !embedded {
+                HStack(spacing: 6) {
+                    BrandTabIcon(assetName: "netlify", symbol: "diamond", size: 18)
+                        .foregroundColor(.primary)
+                    Text(Strings.netlifySection)
+                        .font(.body).bold()
+                    Spacer()
+                }
             }
 
             Toggle(isOn: $nfEnabled) {
@@ -588,6 +636,7 @@ private struct NetlifySettingsView: View {
 
 private struct LocalDBsSettingsView: View {
     let stats: DeepSeekStats
+    var embedded: Bool = false
 
     @State private var dbEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.localDBsEnabled)
     @State private var dbNotify: Bool = (UserDefaults.standard.object(forKey: Strings.Keys.localDBsNotifyEnabled) as? Bool) ?? true
@@ -603,11 +652,13 @@ private struct LocalDBsSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Image(systemName: "cylinder.split.1x2")
-                    .foregroundColor(.teal)
-                Text(Strings.localDBsSection).font(.body).bold()
-                Spacer()
+            if !embedded {
+                HStack(spacing: 6) {
+                    Image(systemName: "cylinder.split.1x2")
+                        .foregroundColor(.teal)
+                    Text(Strings.localDBsSection).font(.body).bold()
+                    Spacer()
+                }
             }
 
             Toggle(isOn: $dbEnabled) {
@@ -714,6 +765,7 @@ private struct LocalDBsSettingsView: View {
 
 private struct RepoStoresSettingsView: View {
     let stats: DeepSeekStats
+    var embedded: Bool = false
 
     @State private var storeEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.repoStoresEnabled)
     @State private var storeNotify: Bool = (UserDefaults.standard.object(forKey: Strings.Keys.repoStoresNotifyEnabled) as? Bool) ?? true
@@ -731,11 +783,13 @@ private struct RepoStoresSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Image(systemName: "shippingbox")
-                    .foregroundColor(.indigo)
-                Text(Strings.repoStoresSection).font(.body).bold()
-                Spacer()
+            if !embedded {
+                HStack(spacing: 6) {
+                    Image(systemName: "shippingbox")
+                        .foregroundColor(.indigo)
+                    Text(Strings.repoStoresSection).font(.body).bold()
+                    Spacer()
+                }
             }
 
             Toggle(isOn: $storeEnabled) {
@@ -833,6 +887,7 @@ private struct RepoStoresSettingsView: View {
 
 private struct SyncSettingsView: View {
     let stats: DeepSeekStats
+    var embedded: Bool = false
 
     @State private var syncEnabled: Bool = SyncManager.shared.config.enabled
     @State private var syncMode: SyncConfig.SyncMode = SyncManager.shared.config.mode
@@ -881,13 +936,15 @@ private struct SyncSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.triangle.2.circlepath").foregroundColor(.teal)
-                Text(Strings.syncSection).font(.body).bold()
-                Spacer()
-                HStack(spacing: 4) {
-                    Circle().fill(syncStatusColor).frame(width: 6, height: 6)
-                    Text(syncStatusText).font(.caption).foregroundColor(syncStatusColor)
+            if !embedded {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.triangle.2.circlepath").foregroundColor(.teal)
+                    Text(Strings.syncSection).font(.body).bold()
+                    Spacer()
+                    HStack(spacing: 4) {
+                        Circle().fill(syncStatusColor).frame(width: 6, height: 6)
+                        Text(syncStatusText).font(.caption).foregroundColor(syncStatusColor)
+                    }
                 }
             }
 

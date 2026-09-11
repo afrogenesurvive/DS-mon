@@ -445,6 +445,8 @@ enum ConfigExporter {
             Strings.Keys.peakNotificationEnabled,
             Strings.Keys.balanceAlertEnabled,
             Strings.Keys.tunnelDownNotificationEnabled,
+            // AWS 实例持续运行提醒（计时起点 aws_instance_run_first_seen 属运行时状态，不导出）
+            Strings.Keys.awsRunNotifyEnabled,
             // Cloudflare 隧道配置
             Strings.Keys.cloudflareEnabled,
             Strings.Keys.cloudflareAccountId,

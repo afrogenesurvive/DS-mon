@@ -14,6 +14,7 @@ enum AppAlertKind: String, Codable {
     case dbRestored         // 本地数据库恢复
     case storeDegraded      // 仓库自带服务停止
     case storeRestored      // 仓库自带服务恢复
+    case awsInstanceLongRunning // EC2 实例持续运行超过阈值
     case netlifyDeployReady // Netlify 部署成功
     case netlifyDeployFailed // Netlify 部署失败
     case netlifyDeployRolledBack // Netlify 回滚成功

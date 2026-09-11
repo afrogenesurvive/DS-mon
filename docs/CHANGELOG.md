@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.1-3] — 2026-09-10
+
+### Added
+
+- **集中式通知设置页（Settings → 通知）**：新增第七个设置页签，把所有可发出的通知做成一张**勾选列表** —— AWS 实例持续运行、余额预警、DeepSeek 高峰切换、Cloudflare 隧道断开、Netlify 部署通知、数据库状态、仓库服务状态。勾选即启用对应的 macOS 系统通知与铃铛条目；使用的是**同一批 UserDefaults 键**，因此与 General / Services 页里的行内开关双向同步（两处任意一处修改都会立即生效）。页内注明「通知历史仅保存在本次运行内存中」。
+- **AWS 实例持续运行提醒**：实例连续运行超过 **30 分钟**时发出铃铛条目 + 系统通知，之后**每 30 分钟重复一次**（不必等下一个整点），实例停止后计时清零、下次启动重新武装。计时起点优先取 EC2 的 `launchTime`，并持久化到 UserDefaults（应用重启后继续计时，且不会被后续刷新覆盖成更短的时间）。阈值与重复间隔为同一常量（30 分钟）。新增 `AppAlertKind.awsInstanceLongRunning`（铃铛图标 `clock.badge.exclamationmark` / 橙色），并在 `AWSUsageTracker` 每次刷新实例后评估。可在设置页关闭。
+
+### Changed
+
+- **Services 设置页改为可折叠区段**：8 个服务（Proxy、GitHub、AWS、Cloudflare、Netlify、Local DBs、Repo Data Stores、Data Sync）各自成为一个可点击展开/收起的区段，解决该页过长的问题。**Proxy / Cloudflare / Data Sync 默认展开**（它们的状态需要一眼可见），其余默认收起。
+- **`CollapsibleSection` 支持样式与附件**：新增 `iconSize` / `titleFont` / `horizontalPadding` / `showsDivider` / `accessory` 参数（全部带默认值，popover 原有调用不受影响）。设置窗口用更大的字号与 20pt 内边距；Proxy 区段把「运行中/已停止」状态放入标题栏附件，**折叠时依然可见**。
+- **导出/导入配置**新增 `aws_instance_running_notification_enabled`（实例计时起点属运行时状态，不导出）。
+
 ## [0.3.1-2] — 2026-09-10
 
 ### Added

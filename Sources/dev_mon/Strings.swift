@@ -100,6 +100,8 @@ enum Strings {
         static let repoStoresDepth = "repo_stores_depth"
         static let repoStoresShowDetails = "repo_stores_show_details"
         static let repoStoresIncludeRemote = "repo_stores_include_remote"
+        /// AWS 实例持续运行提醒（连续运行超阈时通知，之后每 30 分钟重复）
+        static let awsRunNotifyEnabled = "aws_instance_running_notification_enabled"
         static let peakNotificationEnabled = "peak_notification_enabled"
         static let tunnelDownNotificationEnabled = "tunnel_down_notification_enabled"
         static let balanceAlertEnabled = "balance_alert_enabled"
@@ -223,8 +225,35 @@ enum Strings {
     static var settingsTitle: String { isZH ? "设置" : "Settings" }
     static var settingsTabGeneral: String { isZH ? "通用" : "General" }
     static var settingsTabServices: String { isZH ? "服务" : "Services" }
+    static var settingsTabNotifications: String { isZH ? "通知" : "Notifications" }
     static var settingsTabAbout: String { isZH ? "关于" : "About" }
     static var settingsTabGuide: String { isZH ? "指南" : "Guide" }
+
+    // MARK: - Notifications settings tab（通知集中开关）
+
+    static var notificationsSection: String { isZH ? "通知" : "Notifications" }
+    static var notificationsHint: String {
+        isZH ? "勾选启用对应的系统通知与铃铛条目；下方各项与 General / Services 页中的开关是同一个设置。"
+             : "Check an item to enable its macOS notification and bell entry. These are the same settings as the switches on the General / Services tabs."
+    }
+    static var notificationsSessionNote: String {
+        isZH ? "通知历史仅保存在本次运行的内存中，重启应用后清空。"
+             : "Alert history is kept in memory for this session only — it is cleared when the app restarts."
+    }
+    static var notifyPeakHint: String {
+        isZH ? "进入 / 离开 DeepSeek 高峰计费时段时提醒（高峰约为低谷 2 倍）"
+             : "Alert when DeepSeek enters or leaves peak pricing (peak ≈ 2× off-peak)"
+    }
+    static var notifyAWSRunningLabel: String { isZH ? "AWS 实例持续运行提醒" : "AWS instance still running" }
+    static var notifyAWSRunningHint: String {
+        isZH ? "实例连续运行超过 30 分钟时提醒，之后每 30 分钟重复一次（停止后重新计时）"
+             : "Alert once an instance has been running for 30 minutes, then repeat every 30 minutes (re-arms after it stops)"
+    }
+    static var awsRunningTitle: String { isZH ? "EC2 实例仍在运行" : "EC2 instance still running" }
+    static func awsRunningBody(_ name: String, _ instanceId: String, _ elapsed: String) -> String {
+        isZH ? "\(name)（\(instanceId)）已连续运行 \(elapsed) — 记得检查是否需要停止。"
+             : "\(name) (\(instanceId)) has been running for \(elapsed) — remember to stop it if it's no longer needed."
+    }
 
     // Guide (docs/*.md) — 设置窗口里的文档查看页
     static var guideOpenExternal: String { isZH ? "在外部打开" : "Open Externally" }

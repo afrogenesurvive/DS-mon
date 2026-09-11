@@ -1,10 +1,19 @@
 import SwiftUI
 
 /// 可折叠区段：标题栏 + 展开内容，点击标题栏切换展开/收起。
+///
+/// 默认尺寸是 popover 的小号样式；设置窗口通过 `iconSize` / `titleFont` /
+/// `horizontalPadding` 覆盖为常规尺寸。
 struct CollapsibleSection<Content: View>: View {
     let title: String
     let icon: String
     @Binding var isExpanded: Bool
+    var iconSize: CGFloat = 9
+    var titleFont: Font = .system(size: 10, weight: .semibold)
+    var horizontalPadding: CGFloat = 14
+    var showsDivider: Bool = true
+    /// 标题栏右侧的常驻小附件（如运行状态点），折叠时依然可见。
+    var accessory: AnyView? = nil
     @ViewBuilder var content: () -> Content
 
     @State private var hovering = false
@@ -16,19 +25,22 @@ struct CollapsibleSection<Content: View>: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: icon)
-                        .font(.system(size: 9))
+                        .font(.system(size: iconSize))
                         .foregroundColor(.secondary)
-                        .frame(width: 14)
+                        .frame(width: iconSize + 5)
                     Text(title)
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(titleFont)
                         .foregroundColor(.primary)
                     Spacer()
+                    if let accessory {
+                        accessory
+                    }
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 8))
+                        .font(.system(size: max(8, iconSize - 1)))
                         .foregroundColor(.secondary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, horizontalPadding)
                 .padding(.vertical, 6)
                 .background(hovering ? Color.primary.opacity(0.06) : Color.clear)
                 .contentShape(Rectangle())
@@ -38,7 +50,9 @@ struct CollapsibleSection<Content: View>: View {
 
             if isExpanded {
                 content()
-                Divider().padding(.horizontal, 14)
+                if showsDivider {
+                    Divider().padding(.horizontal, horizontalPadding)
+                }
             }
         }
     }
