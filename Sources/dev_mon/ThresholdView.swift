@@ -3,7 +3,21 @@ import SwiftUI
 struct ThresholdView: View {
     let stats: DeepSeekStats
 
-    @State private var selectedTab: SettingsTab = .general
+    @ObservedObject private var uiState = UIStateStore.shared
+
+    /// 设置窗口的当前页签（持久化：按 allCases 序号存储，不受本地化影响）。
+    private var selectedTab: SettingsTab {
+        get {
+            let all = SettingsTab.allCases
+            let idx = uiState.int(UIStateStore.Key.settingsTab)
+            return all.indices.contains(idx) ? all[idx] : .general
+        }
+        nonmutating set {
+            if let idx = SettingsTab.allCases.firstIndex(of: newValue) {
+                uiState.setInt(UIStateStore.Key.settingsTab, newValue: idx)
+            }
+        }
+    }
 
     enum SettingsTab: String, CaseIterable {
         case general  = "通用"

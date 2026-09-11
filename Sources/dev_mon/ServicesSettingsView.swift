@@ -13,24 +13,25 @@ struct ServicesSettingsView: View {
     @State private var proxyRunning: Bool = ProxyServer.shared.isRunning
     @State private var proxyError: String? = ProxyServer.shared.listenerError
 
-    /// 各区段的展开状态。带实时状态的服务默认展开，其余收起 —— 服务页内容太多。
-    @State private var sectionExpanded: [String: Bool] = [
-        "proxy": true,
-        "cloudflare": true,
-        "sync": true,
-    ]
+    /// 各区段的展开状态（持久化到 ui_state_prefs）。带实时状态的服务默认展开，其余收起。
+    @ObservedObject private var uiState = UIStateStore.shared
+
+    private static let defaultExpandedSections: Set<String> = ["proxy", "cloudflare", "sync"]
+    private static let allSectionKeys = ["proxy", "github", "aws", "cloudflare", "netlify",
+                                         "localDBs", "repoStores", "sync"]
 
     private func expansion(_ key: String) -> Binding<Bool> {
-        Binding(get: { sectionExpanded[key] ?? false },
-                set: { sectionExpanded[key] = $0 })
+        uiState.boolBinding(UIStateStore.Key.service(key),
+                            default: Self.defaultExpandedSections.contains(key))
     }
 
     /// 服务页的 8 个区段一起展开 / 收起。
     private func setAllSections(_ expanded: Bool) {
-        for key in ["proxy", "github", "aws", "cloudflare", "netlify",
-                    "localDBs", "repoStores", "sync"] {
-            sectionExpanded[key] = expanded
-        }
+        for key in Self.allSectionKeys { uiState.setBool(UIStateStore.Key.service(key), expanded) }
+    }
+
+    private var allSectionsExpanded: Bool {
+        uiState.allTrue(Self.allSectionKeys.map { UIStateStore.Key.service($0) })
     }
 
     /// 统一的可折叠服务区段（标题栏由 CollapsibleSection 绘制，子视图隐藏自己的表头）。
@@ -62,8 +63,8 @@ struct ServicesSettingsView: View {
             HStack(spacing: 6) {
                 Spacer()
                 SectionExpandControls(iconSize: 12,
-                                      expand: { setAllSections(true) },
-                                      collapse: { setAllSections(false) })
+                                      allExpanded: allSectionsExpanded,
+                                      toggle: { setAllSections(!allSectionsExpanded) })
             }
             .padding(.horizontal, 20)
             .padding(.top, 10)

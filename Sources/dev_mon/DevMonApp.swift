@@ -38,6 +38,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         ProxyServer.shared.stop()
+        // 立即落盘 UI 状态，避免丢掉 300ms 防抖窗口内的页签 / 折叠改动
+        UIStateStore.shared.flush()
         Task { await UsageStore.shared.close() }
     }
 

@@ -84,8 +84,12 @@ private struct SearchableSelector<Item: Identifiable, Row: View>: View {
     let onSelect: (Item) -> Void
     let row: (Item) -> Row
     var maxListHeight: CGFloat = 128
-    /// 结果列表是否展开（与搜索状态无关，均可折叠）
-    @State private var listExpanded = true
+    /// 结果列表是否展开。由调用方持有，以便「全部收起」作用到列表，并跨启动持久化。
+    @Binding var listExpanded: Bool
+    /// 每行左侧是否显示选中圆圈（“挑选一项”的场景；纯列表可关闭）。
+    var showsSelection: Bool = true
+    /// 行尾附件（复制 / 删除等）。渲染为行按钮的**兄弟节点**，不会被行的点击吞掉。
+    var accessory: (Item) -> AnyView = { _ in AnyView(EmptyView()) }
 
     init(items: [Item],
          selectedID: Item.ID?,
@@ -95,6 +99,9 @@ private struct SearchableSelector<Item: Identifiable, Row: View>: View {
          match: @escaping (Item, String) -> Bool,
          onSelect: @escaping (Item) -> Void,
          maxListHeight: CGFloat = 128,
+         listExpanded: Binding<Bool>,
+         showsSelection: Bool = true,
+         accessory: @escaping (Item) -> AnyView = { _ in AnyView(EmptyView()) },
          @ViewBuilder row: @escaping (Item) -> Row) {
         self.items = items
         self.selectedID = selectedID
@@ -104,6 +111,9 @@ private struct SearchableSelector<Item: Identifiable, Row: View>: View {
         self.match = match
         self.onSelect = onSelect
         self.maxListHeight = maxListHeight
+        self._listExpanded = listExpanded
+        self.showsSelection = showsSelection
+        self.accessory = accessory
         self.row = row
     }
 
@@ -176,21 +186,27 @@ private struct SearchableSelector<Item: Identifiable, Row: View>: View {
                             ForEach(filtered) { item in
                                 let isSelected = selectedID.map { $0 == item.id } ?? false
                                 VStack(spacing: 0) {
-                                    Button {
-                                        onSelect(item)
-                                    } label: {
-                                        HStack(spacing: 6) {
-                                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                                .font(.system(size: 8))
-                                                .foregroundColor(isSelected ? Color.blue : Color.secondary.opacity(0.45))
-                                            row(item)
-                                            Spacer(minLength: 0)
+                                    HStack(spacing: 0) {
+                                        Button {
+                                            onSelect(item)
+                                        } label: {
+                                            HStack(spacing: 6) {
+                                                if showsSelection {
+                                                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                                        .font(.system(size: 8))
+                                                        .foregroundColor(isSelected ? Color.blue : Color.secondary.opacity(0.45))
+                                                }
+                                                row(item)
+                                                Spacer(minLength: 0)
+                                            }
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 3)
+                                            .contentShape(Rectangle())
                                         }
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 3)
-                                        .contentShape(Rectangle())
+                                        .buttonStyle(.plain)
+                                        accessory(item)
+                                            .padding(.trailing, 8)
                                     }
-                                    .buttonStyle(.plain)
                                     if item.id != filtered.last?.id {
                                         Divider().padding(.leading, 22)
                                     }
@@ -217,7 +233,15 @@ struct StatsPopoverView: View {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
     }
 
-    @State private var selectedTab: Int = 0
+    /// 跨启动持久化的 UI 状态（页签选择 / 折叠状态 / 图表-列表视图模式）
+    @ObservedObject private var uiState = UIStateStore.shared
+
+    /// 顶部主页签（持久化）
+    private var selectedTab: Int {
+        get { uiState.int(UIStateStore.Key.selectedTab) }
+        nonmutating set { uiState.setInt(UIStateStore.Key.selectedTab, newValue: newValue) }
+    }
+
     /// 弹窗缩放倍数（拖拽右下角把手调整；持久化保存）
     @State private var uiScale: CGFloat = AppConfig.savedPopoverScale()
     /// 拖拽把手起始倍数（nil = 未在拖拽中）
@@ -226,7 +250,10 @@ struct StatsPopoverView: View {
     @State private var licenseFilter: LicenseSeatFilter = .valid
 
     // AWS 页子页签（Overview / Instances）与实例操作状态
-    @State private var awsSubTab = 0
+    private var awsSubTab: Int {
+        get { uiState.int(UIStateStore.Key.awsSubTab) }
+        nonmutating set { uiState.setInt(UIStateStore.Key.awsSubTab, newValue: newValue) }
+    }
     @State private var awsSelectedID: String?
     @State private var awsPending: Set<String> = []
     @State private var awsConfirmRequest: AWSConfirmRequest?
@@ -244,7 +271,10 @@ struct StatsPopoverView: View {
     @State private var awsRuleSaving = false
 
     // Cloudflare 页状态
-    @State private var cloudflareSubTab = 0       // 0 = Overview, 1 = Public Hostnames, 2 = Private IP
+    private var cloudflareSubTab: Int {          // 0 = Overview, 1 = Public Hostnames, 2 = Private IP
+        get { uiState.int(UIStateStore.Key.cloudflareSubTab) }
+        nonmutating set { uiState.setInt(UIStateStore.Key.cloudflareSubTab, newValue: newValue) }
+    }
     @State private var cfConfirmRequest: CFConfirmRequest?
     @State private var showCFConfirm = false
     @State private var showAddHostname = false
@@ -265,23 +295,30 @@ struct StatsPopoverView: View {
     @State private var netlifyCreating = false
 
     // GitHub 页状态（Actions / 仓库 子页签 + 复制反馈）
-    @State private var gitHubSubTab = 0          // 0 = Actions, 1 = Repositories
+    private var gitHubSubTab: Int {              // 0 = Actions, 1 = Repositories
+        get { uiState.int(UIStateStore.Key.githubSubTab) }
+        nonmutating set { uiState.setInt(UIStateStore.Key.githubSubTab, newValue: newValue) }
+    }
     @State private var ghSelectedRepoID: String?
     @State private var ghCopiedValue: String?
     @State private var ghCopyResetTask: Task<Void, Never>?
-    /// GitHub 详情区段折叠状态（repoID|commits/branches/releases → 是否展开）
-    @State private var ghSectionExpanded: [String: Bool] = [:]
 
-    // 选择器搜索框文本（GitHub 仓库 / Netlify 站点 / AWS 实例）
+    // 选择器搜索框文本（GitHub 仓库 / Netlify 站点 / AWS 实例 / Cloudflare 主机名）
     @State private var ghSearchText = ""
     @State private var netlifySearchText = ""
     @State private var awsInstanceSearchText = ""
-    /// Netlify 部署历史是否展开
-    @State private var netlifyDeploysExpanded = true
+    @State private var cfHostnameSearchText = ""
+    /// Netlify 部署历史是否展开（持久化）
+    private var netlifyDeploysExpanded: Bool {
+        get { uiState.bool(UIStateStore.Key.netlifyDeploys) }
+        nonmutating set { uiState.setBool(UIStateStore.Key.netlifyDeploys, newValue) }
+    }
 
-    // 数据库页子页签（0 = 本地数据库, 1 = 仓库数据存储）+ 仓库分组折叠状态
-    @State private var dbSubTab = 0
-    @State private var storeSectionExpanded: [String: Bool] = [:]
+    // 数据库页子页签（0 = 本地数据库, 1 = 仓库数据存储）
+    private var dbSubTab: Int {
+        get { uiState.int(UIStateStore.Key.dbSubTab) }
+        nonmutating set { uiState.setInt(UIStateStore.Key.dbSubTab, newValue: newValue) }
+    }
     @State private var storeConfirmRequest: StoreConfirmRequest?
     @State private var showStoreConfirm = false
 
@@ -293,11 +330,15 @@ struct StatsPopoverView: View {
     @State private var cfCopiedValue: String?
     @State private var cfCopyResetTask: Task<Void, Never>?
 
-    // 折叠区段状态（DeepSeek 页）
-    @State private var showAccountSection = true    // 余额/充值/提示行
-    @State private var showUsageStatsSection = true // 用量统计
-    @State private var showUsageListSection = true  // 请求列表/图表
-    @State private var showSourceUsageSection = true // 来源用量（图表/列表）
+    // 折叠区段状态（DeepSeek 页）已改为持久化，见下方 usageSectionKeys
+
+    /// Usage 页的四个可折叠区段（Account / 用量统计 / 请求列表 / 来源用量）。
+    private static let usageSectionKeys = [
+        UIStateStore.Key.usageAccount,
+        UIStateStore.Key.usageStats,
+        UIStateStore.Key.usageList,
+        UIStateStore.Key.usageSource,
+    ]
 
     var body: some View {
         popoverContent
@@ -728,12 +769,24 @@ struct StatsPopoverView: View {
     @State private var usagePeriod: Int = 0  // 0=today, 1=week, 2=month
     @State private var usageData: AggregatedUsage?
     @State private var chartData: [TokenBar] = []
-    @State private var showChart = true
+    /// 请求列表 ↔ 图表（持久化）
+    private var showChart: Bool {
+        get { uiState.bool(UIStateStore.Key.usageChart) }
+        nonmutating set { uiState.setBool(UIStateStore.Key.usageChart, newValue) }
+    }
 
     // Source Usage section state
-    @State private var usageSubTab = 0           // 0 = Usage Stats, 1 = Source Usage
+    /// 来源用量子页签（持久化：0 = Usage Stats, 1 = Source Usage）
+    private var usageSubTab: Int {
+        get { uiState.int(UIStateStore.Key.usageSubTab) }
+        nonmutating set { uiState.setInt(UIStateStore.Key.usageSubTab, newValue: newValue) }
+    }
     @State private var sourcePeriod = 0          // 0=today, 1=week, 2=month
-    @State private var sourceShowChart = true
+    /// 来源用量列表 ↔ 图表（持久化）
+    private var sourceShowChart: Bool {
+        get { uiState.bool(UIStateStore.Key.sourceChart) }
+        nonmutating set { uiState.setBool(UIStateStore.Key.sourceChart, newValue) }
+    }
     @State private var sourceMode = 0            // 0 = aggregate, 1 = individual
     @State private var selectedSource = ""       // "" = all sources
     @State private var sourceData: [SourceUsage] = []
@@ -746,11 +799,11 @@ struct StatsPopoverView: View {
     private var usageSection: some View {
         VStack(spacing: 0) {
             CollapsibleSection(title: Strings.usageTitle, icon: "brain.head.profile",
-                               isExpanded: $showUsageStatsSection) {
+                               isExpanded: uiState.boolBinding(UIStateStore.Key.usageStats)) {
                 usageStatsContent
             }
             CollapsibleSection(title: Strings.requestHistoryTitle, icon: "chart.bar",
-                               isExpanded: $showUsageListSection) {
+                               isExpanded: uiState.boolBinding(UIStateStore.Key.usageList)) {
                 usageListContent
             }
         }
@@ -932,7 +985,7 @@ struct StatsPopoverView: View {
     private var sourceUsageSection: some View {
         VStack(spacing: 0) {
             CollapsibleSection(title: Strings.sourceUsageTitle, icon: "network",
-                               isExpanded: $showSourceUsageSection) {
+                               isExpanded: uiState.boolBinding(UIStateStore.Key.usageSource)) {
                 VStack(spacing: 8) {
                     sourceToolbar
                     if sourceMode == 0 {
@@ -1172,19 +1225,21 @@ struct StatsPopoverView: View {
             subTabButton(Strings.usageTitle, tag: 0)
             subTabButton(Strings.sourceUsageTitle, tag: 1)
             Spacer()
-            SectionExpandControls(expand: { setAllUsageSections(true) },
-                                  collapse: { setAllUsageSections(false) })
+            SectionExpandControls(allExpanded: allUsageSectionsExpanded,
+                                  toggle: { setAllUsageSections(!allUsageSectionsExpanded) })
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 4)
     }
 
+    /// Usage 页（含两个子页签）是否已全部展开。
+    private var allUsageSectionsExpanded: Bool {
+        uiState.allTrue(Self.usageSectionKeys)
+    }
+
     /// Usage 页（含两个子页签）的全部可折叠区段：Account + 用量统计 + 请求历史 + 来源用量。
     private func setAllUsageSections(_ expanded: Bool) {
-        showAccountSection = expanded
-        showUsageStatsSection = expanded
-        showUsageListSection = expanded
-        showSourceUsageSection = expanded
+        for key in Self.usageSectionKeys { uiState.setBool(key, expanded) }
     }
 
     private func subTabButton(_ title: String, tag: Int) -> some View {
@@ -1287,7 +1342,7 @@ struct StatsPopoverView: View {
     private var deepSeekTabContent: some View {
         VStack(spacing: 0) {
             CollapsibleSection(title: Strings.accountSectionTitle, icon: "wallet.pass.fill",
-                               isExpanded: $showAccountSection) {
+                               isExpanded: uiState.boolBinding(UIStateStore.Key.usageAccount)) {
                 balanceSection
                 Divider().padding(.horizontal, 14)
                 infoSection
@@ -1459,10 +1514,29 @@ struct StatsPopoverView: View {
             githubSubTabButton(Strings.githubSubTabActions, tag: 0)
             githubSubTabButton(Strings.githubSubTabRepos, tag: 1)
             Spacer()
+            // 仓库列表 / 仓库信息 / 提交 / 分支 / 发布 一起展开或收起（仅仓库子页签有意义）
+            if gitHubSubTab == 1 {
+                SectionExpandControls(allExpanded: allGHSectionsExpanded,
+                                      toggle: { setAllGHSections(!allGHSectionsExpanded) })
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 4)
     }
+
+    /// 仓库子页签当前的可折叠作用域：仓库列表 + （选中的）仓库信息 + 提交 / 分支 / 发布。
+    private var ghSectionKeys: [String] {
+        var keys = [UIStateStore.Key.ghRepoList]
+        if let repo = selectedGHRepo {
+            keys.append(UIStateStore.Key.ghInfo(repo.id))
+            for kind in ["commits", "branches", "releases"] {
+                keys.append(UIStateStore.Key.ghSection(kind, repo.id))
+            }
+        }
+        return keys
+    }
+
+    private var allGHSectionsExpanded: Bool { uiState.allTrue(ghSectionKeys) }
 
     private func githubSubTabButton(_ title: String, tag: Int) -> some View {
         let active = gitHubSubTab == tag
@@ -1601,7 +1675,8 @@ struct StatsPopoverView: View {
                 },
                 onSelect: { repo in
                     ghSelectedRepoID = repo.id
-                }
+                },
+                listExpanded: uiState.boolBinding(UIStateStore.Key.ghRepoList)
             ) { repo in
                 HStack(spacing: 6) {
                     Image(systemName: repo.isPrivate ? "lock.fill" : "globe")
@@ -1666,23 +1741,31 @@ struct StatsPopoverView: View {
                 githubOpenIcon(URL(string: repo.htmlURL), size: 9)
                 githubCopyButton(repo.fullName, size: 9)
             }
-            if let d = repo.desc, !d.isEmpty {
-                Text(d).font(.caption2).foregroundColor(.secondary).lineLimit(2)
-            }
-            HStack(spacing: 6) {
-                Text(Strings.githubVisibilityLabel).font(.system(size: 9)).foregroundColor(.secondary)
-                Spacer()
-                Text(repo.isPrivate ? Strings.githubPrivateLabel : Strings.githubPublicLabel)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(repo.isPrivate ? .orange : .green)
-            }
-            HStack(spacing: 6) {
-                Text(Strings.githubCreatedLabel).font(.system(size: 9)).foregroundColor(.secondary)
-                Spacer()
-                Text(Self.ghDateText(repo.createdAt))
-                    .font(.system(size: 9))
-                    .foregroundColor(.primary)
-                    .textSelection(.enabled)
+
+            // 仓库基本信息（描述 / 可见性 / 创建时间）——独立可折叠
+            disclosureSection(title: Strings.githubInfoSection,
+                              icon: "info.circle",
+                              expanded: uiState.boolBinding(UIStateStore.Key.ghInfo(repo.id))) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let d = repo.desc, !d.isEmpty {
+                        Text(d).font(.caption2).foregroundColor(.secondary).lineLimit(2)
+                    }
+                    HStack(spacing: 6) {
+                        Text(Strings.githubVisibilityLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                        Spacer()
+                        Text(repo.isPrivate ? Strings.githubPrivateLabel : Strings.githubPublicLabel)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(repo.isPrivate ? .orange : .green)
+                    }
+                    HStack(spacing: 6) {
+                        Text(Strings.githubCreatedLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                        Spacer()
+                        Text(Self.ghDateText(repo.createdAt))
+                            .font(.system(size: 9))
+                            .foregroundColor(.primary)
+                            .textSelection(.enabled)
+                    }
+                }
             }
             Divider().padding(.vertical, 2)
 
@@ -1695,25 +1778,19 @@ struct StatsPopoverView: View {
                 }
                 .padding(.vertical, 14)
             } else if let det {
-                let repoKey = repo.id
-                HStack(spacing: 6) {
-                    Spacer()
-                    SectionExpandControls(expand: { setAllGHSections(repoKey, true) },
-                                          collapse: { setAllGHSections(repoKey, false) })
-                }
-                ghCollapsibleSection(title: Strings.githubCommitsSection,
-                                     icon: "clock.arrow.circlepath",
-                                     expanded: ghSectionBinding(repoKey, kind: "commits")) {
+                disclosureSection(title: Strings.githubCommitsSection,
+                                  icon: "clock.arrow.circlepath",
+                                  expanded: uiState.boolBinding(UIStateStore.Key.ghSection("commits", repo.id))) {
                     if det.commits.isEmpty {
                         ghEmptyLine(Strings.githubNoCommits)
                     } else {
                         ForEach(det.commits) { c in ghCommitRow(c) }
                     }
                 }
-                ghCollapsibleSection(title: Strings.githubBranchesSection,
-                                     icon: "arrow.branch",
-                                     expanded: ghSectionBinding(repoKey, kind: "branches"),
-                                     count: det.branches.count) {
+                disclosureSection(title: Strings.githubBranchesSection,
+                                  icon: "arrow.branch",
+                                  expanded: uiState.boolBinding(UIStateStore.Key.ghSection("branches", repo.id)),
+                                  count: det.branches.count) {
                     if det.branches.isEmpty {
                         ghEmptyLine(Strings.githubNoBranches)
                     } else {
@@ -1723,9 +1800,9 @@ struct StatsPopoverView: View {
                         }
                     }
                 }
-                ghCollapsibleSection(title: Strings.githubReleasesSection,
-                                     icon: "tag",
-                                     expanded: ghSectionBinding(repoKey, kind: "releases")) {
+                disclosureSection(title: Strings.githubReleasesSection,
+                                  icon: "tag",
+                                  expanded: uiState.boolBinding(UIStateStore.Key.ghSection("releases", repo.id))) {
                     if det.releases.isEmpty {
                         ghEmptyLine(Strings.githubNoReleases)
                     } else {
@@ -1737,28 +1814,23 @@ struct StatsPopoverView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - GitHub 详情折叠区段（提交 / 分支 / 发布）
+    // MARK: - GitHub 详情折叠区段（仓库信息 / 提交 / 分支 / 发布）
 
-    private func ghSectionBinding(_ repoID: String, kind: String) -> Binding<Bool> {
-        let key = "\(repoID)|\(kind)"
-        return Binding(
-            get: { ghSectionExpanded[key, default: true] },
-            set: { ghSectionExpanded[key] = $0 }
-        )
-    }
-
-    /// 当前仓库详情里的三个区段（提交 / 分支 / 发布）一起展开或收起。
-    private func setAllGHSections(_ repoID: String, _ expanded: Bool) {
+    /// 仓库子页签：仓库列表 + 仓库信息 + 提交 / 分支 / 发布 一起展开或收起（持久化）。
+    private func setAllGHSections(_ expanded: Bool) {
+        uiState.setBool(UIStateStore.Key.ghRepoList, expanded)
+        guard let repo = selectedGHRepo else { return }
+        uiState.setBool(UIStateStore.Key.ghInfo(repo.id), expanded)
         for kind in ["commits", "branches", "releases"] {
-            ghSectionExpanded["\(repoID)|\(kind)"] = expanded
+            uiState.setBool(UIStateStore.Key.ghSection(kind, repo.id), expanded)
         }
     }
 
     @ViewBuilder
-    private func ghCollapsibleSection<Content: View>(title: String, icon: String,
-                                                     expanded: Binding<Bool>,
-                                                     count: Int? = nil,
-                                                     @ViewBuilder content: () -> Content) -> some View {
+    private func disclosureSection<Content: View>(title: String, icon: String,
+                                                  expanded: Binding<Bool>,
+                                                  count: Int? = nil,
+                                                  @ViewBuilder content: () -> Content) -> some View {
         Button {
             withAnimation(.easeInOut(duration: 0.18)) { expanded.wrappedValue.toggle() }
         } label: {
@@ -2051,9 +2123,26 @@ struct StatsPopoverView: View {
             awsSubTabButton(Strings.awsSubTabOverview, tag: 0)
             awsSubTabButton(Strings.awsSubTabInstances, tag: 1)
             Spacer()
+            // 实例列表 + 实例详情 一起展开或收起（仅 Instances 子页签有意义）
+            if awsSubTab == 1 {
+                SectionExpandControls(allExpanded: allAWSSectionsExpanded,
+                                      toggle: { setAllAWSSections(!allAWSSectionsExpanded) })
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 4)
+    }
+
+    /// Instances 子页签的两个可折叠区段。
+    private static let awsSectionKeys = [
+        UIStateStore.Key.awsInstanceList,
+        UIStateStore.Key.awsInstanceDetail,
+    ]
+
+    private var allAWSSectionsExpanded: Bool { uiState.allTrue(Self.awsSectionKeys) }
+
+    private func setAllAWSSections(_ expanded: Bool) {
+        for key in Self.awsSectionKeys { uiState.setBool(key, expanded) }
     }
 
     private func awsSubTabButton(_ title: String, tag: Int) -> some View {
@@ -2101,7 +2190,8 @@ struct StatsPopoverView: View {
                     },
                     onSelect: { inst in
                         awsSelectedID = inst.instanceId
-                    }
+                    },
+                    listExpanded: uiState.boolBinding(UIStateStore.Key.awsInstanceList)
                 ) { inst in
                     HStack(spacing: 6) {
                         Circle().fill(awsStateColor(inst.state)).frame(width: 6, height: 6)
@@ -2126,7 +2216,7 @@ struct StatsPopoverView: View {
                 }
 
                 if let sel = stats.aws.instances.first(where: { $0.instanceId == awsSelectedID }) {
-                    awsInstanceDetail(sel)
+                    awsInstanceDetailSection(sel)
                 } else {
                     VStack(spacing: 6) {
                         Spacer()
@@ -2146,22 +2236,46 @@ struct StatsPopoverView: View {
         .onChange(of: stats.aws.instances) { _, _ in ensureAWSSelection() }
     }
 
-    private func awsInstanceDetail(_ inst: AWSInstance) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
+    /// 实例详情区段：折叠时只保留标题行（实例 ID + 名称 + 状态），展开后渲染完整详情。
+    private func awsInstanceDetailSection(_ inst: AWSInstance) -> some View {
+        let expanded = uiState.bool(UIStateStore.Key.awsInstanceDetail)
+        return VStack(spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    uiState.toggle(UIStateStore.Key.awsInstanceDetail)
+                }
+            } label: {
                 HStack(spacing: 6) {
                     Circle().fill(awsStateColor(inst.state)).frame(width: 8, height: 8)
                     Text(inst.instanceId)
                         .font(.system(size: 11, design: .monospaced).weight(.semibold))
-                        .textSelection(.enabled)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
+                        .lineLimit(1).minimumScaleFactor(0.6)
+                    if let name = inst.name, !name.isEmpty {
+                        Text(name).font(.system(size: 10)).foregroundColor(.secondary)
+                            .lineLimit(1).truncationMode(.tail)
+                    }
                     Spacer()
                     awsStateBadge(inst.state)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
-                if let name = inst.name, !name.isEmpty {
-                    Text(name).font(.caption).foregroundColor(.secondary)
-                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if expanded {
+                awsInstanceDetail(inst)
+            }
+        }
+    }
+
+    private func awsInstanceDetail(_ inst: AWSInstance) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
                 awsInfoRow(Strings.awsInstTypeLabel, value: inst.instanceType)
                 awsInfoRow(Strings.awsStateLabel, value: awsStateText(inst.state))
                 if let launch = inst.launchTime {
@@ -2836,7 +2950,7 @@ struct StatsPopoverView: View {
                 if cloudflareSubTab == 0 {
                     ScrollView { cloudflareOverviewView.padding(14) }
                 } else if cloudflareSubTab == 1 {
-                    ScrollView { cloudflareHostnamesView.padding(14) }
+                    ScrollView { cloudflareHostnamesView }
                 } else {
                     ScrollView { cloudflareRoutesView.padding(14) }
                 }
@@ -2968,6 +3082,8 @@ struct StatsPopoverView: View {
                 }
                 .buttonStyle(.plain)
             }
+            .padding(.horizontal, 14)
+            .padding(.top, 14)
 
             if showAddHostname {
                 VStack(alignment: .leading, spacing: 6) {
@@ -2991,6 +3107,7 @@ struct StatsPopoverView: View {
                                   || stats.cloudflare.isWorking)
                     }
                 }
+                .padding(.horizontal, 14)
             }
 
             if stats.cloudflare.ingress.isEmpty {
@@ -3000,35 +3117,45 @@ struct StatsPopoverView: View {
                         .font(.system(size: 9)).foregroundColor(.secondary)
                     Spacer()
                 }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 14)
             } else {
-                ForEach(stats.cloudflare.ingress) { rule in
-                    HStack(spacing: 6) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(rule.hostname)
-                                .font(.system(size: 9, design: .monospaced))
-                                .lineLimit(1).truncationMode(.middle)
-                                .textSelection(.enabled)
-                            Text(rule.service)
-                                .font(.system(size: 8))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1).truncationMode(.middle)
-                        }
-                        Spacer()
-                        cfCopyButton(rule.hostname)
-                        Button {
-                            cfConfirmRequest = CFConfirmRequest(kind: .removeHostname(rule.hostname))
-                            showCFConfirm = true
-                        } label: {
-                            Image(systemName: "trash")
-                                .font(.system(size: 9)).foregroundColor(.red)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(stats.cloudflare.isWorking)
+                // 与 AWS 实例 / Netlify 站点一致的可搜索列表（复制 / 删除为行尾附件）
+                SearchableSelector(
+                    items: stats.cloudflare.ingress,
+                    selectedID: nil,
+                    searchText: $cfHostnameSearchText,
+                    placeholder: Strings.cloudflareSearchPlaceholder,
+                    noMatchesText: Strings.searchNoMatches,
+                    match: { rule, q in
+                        rule.hostname.localizedCaseInsensitiveContains(q)
+                            || rule.service.localizedCaseInsensitiveContains(q)
+                    },
+                    onSelect: { _ in },
+                    listExpanded: uiState.boolBinding(UIStateStore.Key.cfHostnameList),
+                    showsSelection: false,
+                    accessory: { rule in
+                        AnyView(HStack(spacing: 6) {
+                            cfCopyButton(rule.hostname)
+                            cfDeleteButton(tooltip: Strings.cloudflareRemoveAction) {
+                                cfConfirmRequest = CFConfirmRequest(kind: .removeHostname(rule.hostname))
+                                showCFConfirm = true
+                            }
+                        })
                     }
-                    if rule.hostname != stats.cloudflare.ingress.last?.hostname {
-                        Divider().padding(.leading, 8)
+                ) { rule in
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(rule.hostname)
+                            .font(.system(size: 9, design: .monospaced))
+                            .lineLimit(1).truncationMode(.middle)
+                            .textSelection(.enabled)
+                        Text(rule.service)
+                            .font(.system(size: 8))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
                     }
                 }
+                .padding(.bottom, 12)
             }
         }
     }
@@ -3280,6 +3407,15 @@ struct StatsPopoverView: View {
 
     private var netlifyProjectsView: some View {
         VStack(spacing: 0) {
+            // 站点列表 / 项目信息 / 构建设置 / 部署历史 一起展开或收起
+            HStack(spacing: 6) {
+                Spacer()
+                SectionExpandControls(allExpanded: allNetlifySectionsExpanded,
+                                      toggle: { setAllNetlifySections(!allNetlifySectionsExpanded) })
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 4)
+
             HStack(spacing: 6) {
                 Image(systemName: "person.2.fill")
                     .font(.system(size: 8)).foregroundColor(.secondary).frame(width: 14)
@@ -3319,7 +3455,8 @@ struct StatsPopoverView: View {
                 },
                 onSelect: { site in
                     Task { await stats.netlify.selectSite(site.id) }
-                }
+                },
+                listExpanded: uiState.boolBinding(UIStateStore.Key.netlifySiteList)
             ) { site in
                 HStack(spacing: 6) {
                     Image(systemName: "globe")
@@ -3352,9 +3489,20 @@ struct StatsPopoverView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { ensureNetlifySelection() }
         .onChange(of: stats.netlify.sites) { _, _ in ensureNetlifySelection() }
-        .onChange(of: stats.netlify.selectedSiteID) { _, _ in
-            netlifyDeploysExpanded = true
-        }
+    }
+
+    /// Netlify 页的四个可折叠区段。
+    private static let netlifySectionKeys = [
+        UIStateStore.Key.netlifySiteList,
+        UIStateStore.Key.netlifyBasic,
+        UIStateStore.Key.netlifyBuild,
+        UIStateStore.Key.netlifyDeploys,
+    ]
+
+    private var allNetlifySectionsExpanded: Bool { uiState.allTrue(Self.netlifySectionKeys) }
+
+    private func setAllNetlifySections(_ expanded: Bool) {
+        for key in Self.netlifySectionKeys { uiState.setBool(key, expanded) }
     }
 
     @MainActor
@@ -3368,90 +3516,99 @@ struct StatsPopoverView: View {
     private func netlifySiteDetail(_ site: NetlifySite) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
-                // 头部：站点名 + Live / 已锁定徽标
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(site.publishedDeployID != nil ? Color.green : Color.gray)
-                        .frame(width: 8, height: 8)
-                    Text(site.name)
-                        .font(.system(size: 11, design: .monospaced).weight(.semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                        .textSelection(.enabled)
-                    Spacer()
-                    if site.publishedDeployID != nil {
-                        Text(Strings.netlifyLiveBadge)
-                            .font(.system(size: 8))
-                            .foregroundColor(.green)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.green.opacity(0.12))
-                            .cornerRadius(6)
+                // 项目信息（站点名 / Live 徽标 / 动作按钮 / 信息行）——独立可折叠
+                disclosureSection(title: Strings.netlifyBasicHeader,
+                                  icon: "square.text.square",
+                                  expanded: uiState.boolBinding(UIStateStore.Key.netlifyBasic)) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        // 头部：站点名 + Live / 已锁定徽标
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(site.publishedDeployID != nil ? Color.green : Color.gray)
+                                .frame(width: 8, height: 8)
+                            Text(site.name)
+                                .font(.system(size: 11, design: .monospaced).weight(.semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6)
+                                .textSelection(.enabled)
+                            Spacer()
+                            if site.publishedDeployID != nil {
+                                Text(Strings.netlifyLiveBadge)
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.green)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.green.opacity(0.12))
+                                    .cornerRadius(6)
+                            }
+                        }
+
+                        // 动作行
+                        HStack(spacing: 6) {
+                            netlifyActionButton(Strings.netlifyTriggerAction, "arrow.up.circle.fill", color: .green,
+                                                disabled: stats.netlify.isWorking) {
+                                beginNetlifyConfirm(.trigger, site: site)
+                            }
+                            netlifyActionButton(Strings.netlifyTriggerClearAction, "flame.fill", color: .orange,
+                                                disabled: stats.netlify.isWorking) {
+                                beginNetlifyConfirm(.triggerClearCache, site: site)
+                            }
+                            netlifyActionButton(Strings.netlifyDeployFolderAction, "folder.badge.gearshape", color: .blue,
+                                                disabled: stats.netlify.isWorking) {
+                                netlifyDeployFolder(for: site)
+                            }
+                            Spacer()
+                        }
+                        HStack(spacing: 6) {
+                            netlifyActionButton(Strings.netlifyOpenSiteAction, "safari", color: .teal,
+                                                disabled: false) {
+                                if let url = netlifySiteURL(site) { NSWorkspace.shared.open(url) }
+                            }
+                            netlifyActionButton(Strings.netlifyOpenAdminAction, "arrow.up.right.square", color: .teal,
+                                                disabled: false) {
+                                if let url = netlifyAdminURL(site) { NSWorkspace.shared.open(url) }
+                            }
+                            Spacer()
+                        }
+
+                        // 站点信息行（均可复制 / 打开）
+                        netlifyInfoRow(Strings.netlifyProjectIDLabel, value: site.id, copy: site.id)
+                        if let d = site.customDomain, !d.isEmpty {
+                            netlifyInfoRow(Strings.netlifyCustomDomainLabel, value: d, copy: d)
+                        }
+                        if let u = site.url, !u.isEmpty {
+                            netlifyInfoRow(Strings.netlifyMainURLLabel, value: u, copy: u,
+                                           openURL: netlifySiteURL(site))
+                        }
+                        if let a = site.adminURL, !a.isEmpty {
+                            netlifyInfoRow(Strings.netlifyAdminLabel, value: a, copy: a,
+                                           openURL: netlifyAdminURL(site))
+                        }
+                        if let pid = site.publishedDeployID {
+                            netlifyInfoRow(Strings.netlifyPublishedDeployLabel, value: pid, copy: pid)
+                        }
                     }
                 }
 
-                // 动作行
-                HStack(spacing: 6) {
-                    netlifyActionButton(Strings.netlifyTriggerAction, "arrow.up.circle.fill", color: .green,
-                                        disabled: stats.netlify.isWorking) {
-                        beginNetlifyConfirm(.trigger, site: site)
-                    }
-                    netlifyActionButton(Strings.netlifyTriggerClearAction, "flame.fill", color: .orange,
-                                        disabled: stats.netlify.isWorking) {
-                        beginNetlifyConfirm(.triggerClearCache, site: site)
-                    }
-                    netlifyActionButton(Strings.netlifyDeployFolderAction, "folder.badge.gearshape", color: .blue,
-                                        disabled: stats.netlify.isWorking) {
-                        netlifyDeployFolder(for: site)
-                    }
-                    Spacer()
-                }
-                HStack(spacing: 6) {
-                    netlifyActionButton(Strings.netlifyOpenSiteAction, "safari", color: .teal,
-                                        disabled: false) {
-                        if let url = netlifySiteURL(site) { NSWorkspace.shared.open(url) }
-                    }
-                    netlifyActionButton(Strings.netlifyOpenAdminAction, "arrow.up.right.square", color: .teal,
-                                        disabled: false) {
-                        if let url = netlifyAdminURL(site) { NSWorkspace.shared.open(url) }
-                    }
-                    Spacer()
-                }
-
-                // 站点信息行（均可复制 / 打开）
-                netlifyInfoRow(Strings.netlifyProjectIDLabel, value: site.id, copy: site.id)
-                if let d = site.customDomain, !d.isEmpty {
-                    netlifyInfoRow(Strings.netlifyCustomDomainLabel, value: d, copy: d)
-                }
-                if let u = site.url, !u.isEmpty {
-                    netlifyInfoRow(Strings.netlifyMainURLLabel, value: u, copy: u,
-                                   openURL: netlifySiteURL(site))
-                }
-                if let a = site.adminURL, !a.isEmpty {
-                    netlifyInfoRow(Strings.netlifyAdminLabel, value: a, copy: a,
-                                   openURL: netlifyAdminURL(site))
-                }
-                if let pid = site.publishedDeployID {
-                    netlifyInfoRow(Strings.netlifyPublishedDeployLabel, value: pid, copy: pid)
-                }
-
-                // 构建设置
+                // 构建设置（独立可折叠）
                 if site.isGitLinked {
-                    Divider().padding(.vertical, 2)
-                    Text(Strings.netlifyBuildHeader)
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(.secondary)
-                    if let r = site.repoURL, !r.isEmpty {
-                        netlifyInfoRow(Strings.netlifyRepoLabel, value: r, copy: r)
-                    }
-                    if let b = site.repoBranch, !b.isEmpty {
-                        netlifyInfoRow(Strings.netlifyBranchLabel, value: b, copy: b)
-                    }
-                    if let c = site.buildCommand, !c.isEmpty {
-                        netlifyInfoRow(Strings.netlifyBuildCmdLabel, value: c, copy: c)
-                    }
-                    if let d = site.publishDir, !d.isEmpty {
-                        netlifyInfoRow(Strings.netlifyPublishDirLabel, value: d, copy: d)
+                    disclosureSection(title: Strings.netlifyBuildHeader,
+                                      icon: "hammer",
+                                      expanded: uiState.boolBinding(UIStateStore.Key.netlifyBuild)) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if let r = site.repoURL, !r.isEmpty {
+                                netlifyInfoRow(Strings.netlifyRepoLabel, value: r, copy: r)
+                            }
+                            if let b = site.repoBranch, !b.isEmpty {
+                                netlifyInfoRow(Strings.netlifyBranchLabel, value: b, copy: b)
+                            }
+                            if let c = site.buildCommand, !c.isEmpty {
+                                netlifyInfoRow(Strings.netlifyBuildCmdLabel, value: c, copy: c)
+                            }
+                            if let d = site.publishDir, !d.isEmpty {
+                                netlifyInfoRow(Strings.netlifyPublishDirLabel, value: d, copy: d)
+                            }
+                        }
                     }
                 }
 
@@ -3961,6 +4118,7 @@ struct StatsPopoverView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { restoreDatabaseLists() }
     }
 
     /// 数据库页内子页签：本地数据库 / 仓库数据存储。
@@ -4001,17 +4159,46 @@ struct StatsPopoverView: View {
             }
             Text(String(format: "%@ %@", Strings.netlifyLastUpdate, stats.localDBs.lastUpdate))
                 .font(.system(size: 8)).foregroundColor(.secondary)
-            SectionExpandControls(expand: { setAllDatabaseLists(true) },
-                                  collapse: { setAllDatabaseLists(false) })
+            SectionExpandControls(allExpanded: allDatabaseListsExpanded,
+                                  toggle: { setAllDatabaseLists(!allDatabaseListsExpanded) })
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
     }
 
-    /// 本地数据库子页签：展开 / 收起每个服务的库列表（复用 toggleDatabases 的拉取逻辑）。
+    /// 本地数据库页三个库列表是否已全部展开。
+    private var allDatabaseListsExpanded: Bool {
+        uiState.allTrue(LocalDBID.allCases.map { UIStateStore.Key.localDB($0.rawValue) })
+    }
+
+    /// 展开 / 收起每个服务的库列表（复用 toggleDatabases 的拉取逻辑），状态写入 ui_state_prefs。
     private func setAllDatabaseLists(_ expanded: Bool) {
+        for id in LocalDBID.allCases { uiState.setBool(UIStateStore.Key.localDB(id.rawValue), expanded) }
         for state in stats.localDBs.services where state.databasesExpanded != expanded {
             stats.localDBs.toggleDatabases(state.id)
+        }
+    }
+
+    /// 某个数据库的库列表是否展开（以持久化状态为准）。
+    private func dbListExpanded(_ id: LocalDBID) -> Bool {
+        uiState.bool(UIStateStore.Key.localDB(id.rawValue), default: false)
+    }
+
+    /// 单个数据库的库列表展开 / 收起。
+    private func toggleDatabaseList(_ id: LocalDBID) {
+        let next = !dbListExpanded(id)
+        uiState.setBool(UIStateStore.Key.localDB(id.rawValue), next)
+        if let state = stats.localDBs.services.first(where: { $0.id == id }),
+           state.databasesExpanded != next {
+            stats.localDBs.toggleDatabases(id)
+        }
+    }
+
+    /// 把持久化的展开状态同步给数据库管理器（进入本页时调用；展开会触发一次实时查询）。
+    private func restoreDatabaseLists() {
+        for id in LocalDBID.allCases
+        where stats.localDBs.services.contains(where: { $0.id == id && $0.databasesExpanded != dbListExpanded(id) }) {
+            stats.localDBs.toggleDatabases(id)
         }
     }
 
@@ -4047,8 +4234,8 @@ struct StatsPopoverView: View {
                     Text(String(format: "%@ %@", Strings.netlifyLastUpdate, stats.repoStores.lastUpdate))
                         .font(.system(size: 8)).foregroundColor(.secondary)
                     if !stats.repoStores.groups.isEmpty {
-                        SectionExpandControls(expand: { setAllStoreSections(true) },
-                                              collapse: { setAllStoreSections(false) })
+                        SectionExpandControls(allExpanded: allStoreSectionsExpanded,
+                                              toggle: { setAllStoreSections(!allStoreSectionsExpanded) })
                     }
                 }
                 .padding(.horizontal, 14)
@@ -4104,9 +4291,7 @@ struct StatsPopoverView: View {
     private func repoStoreSection(_ group: RepoStoreGroup) -> some View {
         CollapsibleSection(title: group.repoName,
                            icon: "folder",
-                           isExpanded: Binding(
-                               get: { storeSectionExpanded[group.id] ?? true },
-                               set: { storeSectionExpanded[group.id] = $0 })) {
+                           isExpanded: uiState.boolBinding(UIStateStore.Key.repoStore(group.id))) {
             VStack(alignment: .leading, spacing: 0) {
                 if let service = group.service, service.port != nil || service.pidFile != nil {
                     HStack(spacing: 4) {
@@ -4273,11 +4458,16 @@ struct StatsPopoverView: View {
         }
     }
 
-    /// 仓库数据存储子页签：全部仓库分组一起展开 / 收起。
+    /// 仓库数据存储子页签：全部仓库分组一起展开 / 收起（持久化）。
     private func setAllStoreSections(_ expanded: Bool) {
         for group in stats.repoStores.groups {
-            storeSectionExpanded[group.id] = expanded
+            uiState.setBool(UIStateStore.Key.repoStore(group.id), expanded)
         }
+    }
+
+    /// 当前所有仓库分组是否已全部展开。
+    private var allStoreSectionsExpanded: Bool {
+        uiState.allTrue(stats.repoStores.groups.map { UIStateStore.Key.repoStore($0.id) })
     }
 
     @MainActor
@@ -4320,9 +4510,9 @@ struct StatsPopoverView: View {
                                         disabled: !state.running) { stats.localDBs.stop(state.id) }
                 }
                 localDBActionButton(Strings.dbDbsAction,
-                                    state.databasesExpanded ? "chevron.up" : "chevron.down",
+                                    dbListExpanded(state.id) ? "chevron.up" : "chevron.down",
                                     color: .teal, disabled: false) {
-                    stats.localDBs.toggleDatabases(state.id)
+                    toggleDatabaseList(state.id)
                 }
             }
             if let err = state.error {
@@ -4356,7 +4546,7 @@ struct StatsPopoverView: View {
                     }
                 }
             }
-            if state.databasesExpanded {
+            if dbListExpanded(state.id) {
                 databasesList(state)
             }
         }
@@ -4721,6 +4911,17 @@ struct StatsPopoverView: View {
         .buttonStyle(.plain)
         .modifier(HoverTooltip(text: copied ? Strings.cloudflareCopied : Strings.cloudflareCopyAction,
                                position: .below))
+        .disabled(stats.cloudflare.isWorking)
+    }
+
+    /// Cloudflare 行尾删除按钮（公开主机名 / 私有 IP 路由共用）。
+    private func cfDeleteButton(tooltip: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "trash")
+                .font(.system(size: 9)).foregroundColor(.red)
+        }
+        .buttonStyle(.plain)
+        .modifier(HoverTooltip(text: tooltip, position: .below))
         .disabled(stats.cloudflare.isWorking)
     }
 }

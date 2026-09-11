@@ -14,6 +14,8 @@ struct UsageExportPayload: Codable {
     let breakdowns: Breakdowns
     let providers: [ProviderExport]
     let bySource: [SourceUsageExport]
+    /// 按本地仓库聚合（usage_log.repo）
+    let byRepo: [RepoUsageExport]
     let records: [UsageRecord]
     let cloud: CloudUsageExport?
 }
@@ -123,11 +125,203 @@ struct TokenBarExport: Codable {
     }
 }
 
-// MARK: - Cloud (AWS / GitHub) Snapshot Export
+// MARK: - Cloud (AWS / GitHub / Cloudflare / Netlify / 本地服务) Snapshot Export
 
 struct CloudUsageExport: Codable {
     let aws: AWSExport?
     let gitHub: GitHubExport?
+    // 新增（后向兼容：旧文件解码时缺省为 nil）
+    let cloudflare: CloudflareExport?
+    let netlify: NetlifyExport?
+    let localDBs: LocalDBsExport?
+    let repoStores: RepoStoresExport?
+}
+
+// MARK: Cloudflare
+
+struct CloudflareExport: Codable {
+    let enabled: Bool
+    let daemonState: String
+    let daemonRunning: Bool
+    let tunnelID: String?
+    let tunnelName: String?
+    let tunnelStatus: String?
+    let connectorCount: Int?
+    let publicHostnames: [CFHostnameExport]
+    let ipRoutes: [CFIPRouteExport]
+    let lastUpdate: String
+
+    @MainActor
+    init(_ cf: CloudflareTunnelManager) {
+        enabled = cf.isEnabled
+        switch cf.daemonState {
+        case .running: daemonState = "running"
+        case .installed: daemonState = "installed"
+        case .notInstalled: daemonState = "notInstalled"
+        }
+        daemonRunning = cf.daemonRunning
+        tunnelID = cf.selectedTunnel?.id
+        tunnelName = cf.selectedTunnel?.name
+        tunnelStatus = cf.selectedTunnel?.status
+        connectorCount = cf.selectedTunnel?.connectorCount
+        publicHostnames = cf.ingress.map {
+            CFHostnameExport(hostname: $0.hostname, path: $0.path, service: $0.service)
+        }
+        ipRoutes = cf.ipRoutes.map { CFIPRouteExport(network: $0.network, comment: $0.comment) }
+        lastUpdate = cf.lastUpdate
+    }
+}
+
+struct CFHostnameExport: Codable {
+    let hostname: String
+    let path: String?
+    let service: String
+}
+
+struct CFIPRouteExport: Codable {
+    let network: String
+    let comment: String?
+}
+
+// MARK: Netlify
+
+struct NetlifyExport: Codable {
+    let enabled: Bool
+    let accountName: String?
+    let selectedSiteID: String?
+    let siteCount: Int
+    let sites: [NetlifySiteExport]
+    /// 选中站点的最近 10 条部署
+    let deploys: [NetlifyDeployExport]
+    let lastUpdate: String
+
+    @MainActor
+    init(_ nf: NetlifyManager) {
+        enabled = nf.isEnabled
+        accountName = nf.selectedAccount?.name ?? nf.accountName
+        selectedSiteID = nf.selectedSiteID
+        siteCount = nf.sites.count
+        sites = nf.sites.map {
+            NetlifySiteExport(id: $0.id, slug: $0.name, customDomain: $0.customDomain,
+                              url: $0.url, adminURL: $0.adminURL, state: $0.state,
+                              createdAt: $0.createdAt, publishedDeployID: $0.publishedDeployID,
+                              repoURL: $0.repoURL, repoBranch: $0.repoBranch,
+                              buildCommand: $0.buildCommand, publishDir: $0.publishDir)
+        }
+        deploys = nf.deploys.prefix(10).map {
+            NetlifyDeployExport(id: $0.id, state: $0.state, context: $0.context, branch: $0.branch,
+                                title: $0.title, createdAt: $0.createdAt,
+                                errorMessage: $0.errorMessage, locked: $0.locked, url: $0.url)
+        }
+        lastUpdate = nf.lastUpdate
+    }
+}
+
+struct NetlifySiteExport: Codable {
+    let id: String
+    let slug: String
+    let customDomain: String?
+    let url: String?
+    let adminURL: String?
+    let state: String?
+    let createdAt: Date?
+    let publishedDeployID: String?
+    let repoURL: String?
+    let repoBranch: String?
+    let buildCommand: String?
+    let publishDir: String?
+}
+
+struct NetlifyDeployExport: Codable {
+    let id: String
+    let state: String
+    let context: String?
+    let branch: String?
+    let title: String?
+    let createdAt: Date?
+    let errorMessage: String?
+    let locked: Bool
+    let url: String?
+}
+
+// MARK: 本地数据库 / 仓库数据存储
+
+struct LocalDBsExport: Codable {
+    let enabled: Bool
+    let databases: [LocalDBExport]
+
+    @MainActor
+    init(_ db: LocalDBManager) {
+        enabled = db.isEnabled
+        databases = db.services.map {
+            LocalDBExport(id: $0.id.rawValue, running: $0.running,
+                          uptimeSeconds: $0.uptimeSeconds,
+                          databaseCount: $0.databases.count, error: $0.error)
+        }
+    }
+}
+
+struct LocalDBExport: Codable {
+    let id: String
+    let running: Bool
+    let uptimeSeconds: Int?
+    let databaseCount: Int
+    let error: String?
+}
+
+struct RepoStoresExport: Codable {
+    let enabled: Bool
+    let roots: [String]
+    let repoCount: Int
+    let storeCount: Int
+    let repos: [RepoStoreGroupExport]
+    let lastUpdate: String
+
+    @MainActor
+    init(_ rs: RepoDataStoreManager) {
+        enabled = rs.isEnabled
+        roots = rs.roots
+        let groups: [RepoStoreGroupExport] = rs.groups.map { g in
+            RepoStoreGroupExport(repoName: g.repoName, serviceUp: g.serviceUp,
+                                 stores: g.stores.map { s in
+                RepoStoreExport(label: s.descriptor.label,
+                                kind: s.descriptor.kind.rawValue,
+                                source: s.descriptor.source.rawValue,
+                                relPath: s.descriptor.relPath,
+                                sizeBytes: s.sizeBytes,
+                                sensitive: s.descriptor.sensitive)
+            })
+        }
+        repos = groups
+        repoCount = groups.count
+        storeCount = groups.reduce(0) { $0 + $1.stores.count }
+        lastUpdate = rs.lastUpdate
+    }
+}
+
+struct RepoStoreGroupExport: Codable {
+    let repoName: String
+    let serviceUp: Bool
+    let stores: [RepoStoreExport]
+}
+
+struct RepoStoreExport: Codable {
+    let label: String
+    let kind: String
+    let source: String
+    let relPath: String
+    let sizeBytes: Int64?
+    let sensitive: Bool
+}
+
+/// 按本地仓库聚合的用量（usage_log.repo）。
+struct RepoUsageExport: Codable {
+    let repo: String
+    let requestCount: Int
+    let totalTokens: Int
+    let cachedTokens: Int
+    let totalCost: Double
+    let lastTimestamp: Date
 }
 
 struct AWSExport: Codable {
@@ -300,17 +494,46 @@ enum UsageExporter {
         }
 
         let cloud: CloudUsageExport? = {
-            let aws = AppDelegate.sharedStats.aws
-            let gh = AppDelegate.sharedStats.gitHub
+            let s = AppDelegate.sharedStats
             return CloudUsageExport(
-                aws: AWSExport(status: aws.status, billing: aws.billing, lastUpdate: aws.lastUpdate),
-                gitHub: GitHubExport(gh.usage, lastUpdate: gh.lastUpdate)
+                aws: AWSExport(status: s.aws.status, billing: s.aws.billing, lastUpdate: s.aws.lastUpdate),
+                gitHub: GitHubExport(s.gitHub.usage, lastUpdate: s.gitHub.lastUpdate),
+                cloudflare: CloudflareExport(s.cloudflare),
+                netlify: NetlifyExport(s.netlify),
+                localDBs: LocalDBsExport(s.localDBs),
+                repoStores: RepoStoresExport(s.repoStores)
             )
+        }()
+
+        // 按本地仓库聚合（usage_log.repo；未标注仓库的请求不计入）
+        let byRepo: [RepoUsageExport] = {
+            var agg: [String: (count: Int, total: Int, cached: Int, cost: Double, last: Date)] = [:]
+            for r in allRecords {
+                guard let repo = r.repo, !repo.isEmpty else { continue }
+                let pricing = ModelPricing.forModel(r.model, providerId: r.providerId)
+                let cost = ModelPricing.computeCost(promptTokens: r.promptTokens,
+                                                    completionTokens: r.completionTokens,
+                                                    cachedTokens: r.cachedTokens,
+                                                    pricing: pricing, providerId: r.providerId)
+                var entry = agg[repo] ?? (0, 0, 0, 0, Date.distantPast)
+                entry.count += 1
+                entry.total += r.totalTokens
+                entry.cached += r.cachedTokens
+                entry.cost += cost
+                if r.timestamp > entry.last { entry.last = r.timestamp }
+                agg[repo] = entry
+            }
+            return agg.map {
+                RepoUsageExport(repo: $0.key, requestCount: $0.value.count, totalTokens: $0.value.total,
+                                cachedTokens: $0.value.cached, totalCost: $0.value.cost,
+                                lastTimestamp: $0.value.last)
+            }
+            .sorted { $0.totalCost > $1.totalCost }
         }()
 
         return UsageExportPayload(
             format: "dev-mon-usage-export",
-            formatVersion: 2,
+            formatVersion: 3,
             exportedAt: Date(),
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev",
             summary: PeriodSummary(today: today, week: week, month: month, allTime: allTime),
@@ -322,6 +545,7 @@ enum UsageExporter {
                                    monthByWeek: monthWeeks.map(TokenBarExport.init)),
             providers: providers,
             bySource: bySource.map(SourceUsageExport.init),
+            byRepo: byRepo,
             records: allRecords,
             cloud: cloud
         )
@@ -410,7 +634,8 @@ struct ConfigPayload: Codable {
 enum ConfigExporter {
 
     private static let formatName = "dev_mon_config"
-    private static let formatVersion = 1
+    /// v2: 补上 Data Sync（sync_config）、许可检查来源、弹窗缩放与 UI 状态（ui.*）
+    private static let formatVersion = 2
 
     // 需要导出的非密钥 UserDefaults 键
     @MainActor private static var settingsKeys: [String] {
@@ -426,16 +651,20 @@ enum ConfigExporter {
             Strings.Keys.showBalance,
             Strings.Keys.menuBarTextDisplay,
             Strings.Keys.modelPricingOverrides,
-            Strings.Keys.syncEnabled,
-            Strings.Keys.syncMode,
-            Strings.Keys.syncListenPort,
-            Strings.Keys.syncTargetAddress,
-            Strings.Keys.syncInterval,
+            // Data Sync 配置实际存于一个 JSON blob（sync_config）——必须导出它，
+            // 否则另一台机器导入后同步设置会全部丢失。
+            SyncConfig.storageKey,
+            // 同步游标（上次推送时间）：一并导出，避免还原后重复推送历史。
+            "lastPushTimestamp",
             Strings.Keys.seatRegistry,
             Strings.Keys.seatRegistryFilePath,
+            // 许可检查来源（seats.json 路径）
+            SeatRegistry.checkSourceKey,
             Strings.Keys.defaultProviderId,
             Strings.Keys.menuBarColor,
             Strings.Keys.currencySymbol,
+            // 弹窗缩放倍数（导出后另一台机器保持同样的弹窗大小）
+            AppConfig.popoverScaleKey,
             Strings.Keys.githubUsername,
             Strings.Keys.githubEnabled,
             Strings.Keys.awsRegion,
@@ -545,6 +774,11 @@ enum ConfigExporter {
             }
         }
 
+        // UI 状态（页签 / 折叠 / 图表-列表模式）——扁平化为 ui.<key> 存储
+        for (key, value) in UIStateStore.shared.exportedValues {
+            settings[key] = value
+        }
+
         // Provider API keys（解密后导出，含 OpenAI/Anthropic 管理密钥）
         var providerApiKeys: [String: String] = [:]
         for p in ProviderManager.shared.providers {
@@ -605,6 +839,8 @@ enum ConfigExporter {
     @MainActor static func apply(_ payload: ConfigPayload) {
         let ud = UserDefaults.standard
         for (key, value) in payload.settings {
+            // UI 状态键（ui.<key>）直接交给 UIStateStore
+            if UIStateStore.shared.importValue(key, value) { continue }
             switch value {
             case .string(let s): ud.set(s, forKey: key)
             case .number(let n): ud.set(n, forKey: key)
@@ -625,6 +861,14 @@ enum ConfigExporter {
         if case .string(let id)? = payload.settings[Strings.Keys.defaultProviderId], !id.isEmpty {
             ProviderManager.shared.setDefaultProvider(id: id)
         }
+
+        // Data Sync 配置存于 sync_config blob：重新加载并按新配置重启
+        SyncManager.shared.config = SyncConfig.load()
+        SyncManager.shared.start()
+
+        // 弹窗缩放：让窗口按导入的倍数调整大小
+        NotificationCenter.default.post(name: .popoverResizeRequested,
+                                        object: NSNumber(value: Double(AppConfig.savedPopoverScale())))
 
         // 通知各组件重新加载
         NotificationCenter.default.post(name: .providerChanged, object: nil)

@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.3.3-1] — 2026-09-11
+
+### Changed
+
+- **「全部展开 / 全部收起」由两个图标改为一个状态感知图标**：作用域内还有区段收起时显示「全部展开」，全部展开后显示「全部收起」，点击把作用域内所有区段切到相反状态，tooltip 与图标同步变化（`SectionExpandControls(allExpanded:toggle:)`）。8 处调用点（Usage、GitHub、AWS、Netlify、Databases 本地、Databases 仓库、Settings 服务、Settings Provider）全部更新。
+- **GitHub 页**：展开/收起按钮移到 **Actions / Repositories** 子页签行右侧（仅仓库子页签显示）；**仓库列表**与**仓库信息**（描述 / 可见性 / 创建时间）也纳入折叠范围 —— 一次点击同时收起/展开 仓库列表 + 仓库信息 + 提交 / 分支 / 发布。
+- **AWS 页**：展开/收起按钮进入 **Overview / Instances** 子页签行（仅 Instances 显示）；**实例详情**变为可折叠区段（折叠时保留实例 ID / 名称 / 状态徽标标题行），一次点击同时切换实例列表与详情。
+- **Netlify 页**：新增**独立的展开/收起按钮行**（位于团队名之上）；**项目信息**（站点名 / Live 徽标 / 动作按钮 / ID 与 URL）与**构建设置**（仅 git 关联站点）各自独立可折叠，加上原有的部署历史 —— 按钮一次性切换 站点列表 + 项目信息 + 构建设置 + 部署历史。
+- **Cloudflare 页**：**公开主机名**列表改为与 AWS 实例 / Netlify 站点一致的**可搜索列表**（按主机名或本地服务过滤，✕ 清除，结果列表可折叠，每行保留复制 / 删除）。按需求**本页不添加全局展开/收起按钮**。
+- **Settings → Provider**：每个提供商区段改为**可折叠**（标题为 `<提供商> API Key`），展开/收起按钮位于 **Provider** 标题行（**?** 按钮旁）；**Balance Alert** 区块保持常显。
+
+### Added
+
+- **UI 状态持久化（`UIStateStore` + `ui_state_prefs.json`）**：主页签 / 子页签选择、每个区段的折叠状态、图表 ↔ 列表模式（Usage 与 Source Usage）写入 `~/Library/Application Support/dev_mon/ui_state_prefs.json`（非隔离 + 锁 + `@unchecked Sendable`，300ms 防抖保存，退出时 `flush()` 立即落盘），**重启应用后保持一致**。设置窗口的页签与 8 个服务区段的折叠状态同样持久化 —— 此前每次重开设置窗口都会重置。本地数据库三个「库列表」的展开状态也一并持久化（进入页面时按需要补拉一次实时查询）。
+- **导出/导入配置新增 `ui.*` 扁平化条目**：UI 状态随配置迁移（配置格式版本 1 → 2）。
+- `SearchableSelector` 增强：展开状态改由调用方持有（可被「全部收起」作用到并持久化）、新增 `showsSelection: false`（非「选择一项」型列表）与 `accessory`（行尾复制/删除按钮与行按钮**平级**渲染，不会被行的点击吞掉）。
+
+### Fixed
+
+- **导出配置丢失 Data Sync 的全部设置**：`sync_enabled` / `sync_mode` / `sync_listen_port` / `sync_target_address` / `sync_interval` 这 5 个键从未真正写入 UserDefaults —— 同步配置整体存于 `sync_config` JSON blob，所以导出的配置里同步设置**永远是空的**、导入也恢复不了。现在直接导出 `sync_config`，导入后重新加载并按新配置重启同步。
+- **导出配置遗漏**：补上 **许可检查来源**（`license_check_source`，seats.json 路径）、**弹窗缩放倍数**（`popover_ui_scale`，导入后窗口立即按新倍数调整大小）与**同步游标**（`lastPushTimestamp`，避免还原后重复推送历史）。
+- **导出用量数据遗漏**：`cloud` 段此前只有 AWS 与 GitHub，现补上 **Cloudflare**（守护状态 / 隧道健康 / 公开主机名 / 私有 IP 路由）、**Netlify**（账户 / 站点 / 最近 10 条部署）、**本地数据库**（状态 / 运行时长 / 库数量 / 错误）与**仓库数据存储**（分组、类型 / 来源 / 相对路径 / 大小 / 敏感标记）快照；并新增按本地仓库聚合的 **`byRepo`** 段（来自 `usage_log.repo`）。用量格式版本 2 → 3（新增字段均为可选，旧文件仍可解析）。
+- 底部操作栏导出按钮的 tooltip 由「导出」改为 **「导出数据 / Export Data」**，与「导出配置」区分。
+
+### Notes
+
+- `docs/ui-guide.md`、`docs/settings-guide.md` 已同步更新（`docs/` 除 CHANGELOG 外为本地文件，不入库）。
+
 ## [0.3.2-1] — 2026-09-10
 
 ### Added

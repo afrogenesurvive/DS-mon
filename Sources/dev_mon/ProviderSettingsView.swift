@@ -7,12 +7,18 @@ struct ProviderSettingsView: View {
     @State private var showBaseURLHelp = false
     @State private var showAPIKeys: [String: Bool] = [:]
 
+    /// 提供商区段折叠状态（跨启动持久化）
+    @ObservedObject private var uiState = UIStateStore.shared
+
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            HStack {
+            HStack(spacing: 8) {
                 Label(Strings.providerTitle, systemImage: "cube.fill")
                     .font(.body).bold()
                 Spacer()
+                SectionExpandControls(iconSize: 12,
+                                      allExpanded: allProvidersExpanded,
+                                      toggle: { setAllProviders(!allProvidersExpanded) })
                 Button(action: { showBaseURLHelp.toggle() }) {
                     Image(systemName: "questionmark.circle")
                         .font(.body)
@@ -26,82 +32,7 @@ struct ProviderSettingsView: View {
             .padding(.top, 20)
 
             ForEach(ProviderManager.shared.providers, id: \.id) { provider in
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "key.fill")
-                            .foregroundColor(.accentColor)
-                        Text("\(provider.name) API Key")
-                            .font(.body).bold()
-                    }
-
-                    HStack(spacing: 8) {
-                        Group {
-                            if showAPIKeys[provider.id] ?? false {
-                                TextField("sk-...", text: Binding(
-                                    get: { ProviderManager.shared.apiKey(for: provider.id) },
-                                    set: { newValue in
-                                        ProviderManager.shared.saveAPIKey(newValue, for: provider.id)
-                                        stats.refresh()
-                                    }
-                                ))
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(.body, design: .monospaced))
-                            } else {
-                                SecureField("sk-...", text: Binding(
-                                    get: { ProviderManager.shared.apiKey(for: provider.id) },
-                                    set: { newValue in
-                                        ProviderManager.shared.saveAPIKey(newValue, for: provider.id)
-                                        stats.refresh()
-                                    }
-                                ))
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(.body, design: .monospaced))
-                            }
-                        }
-                        Button {
-                            showAPIKeys[provider.id] = !(showAPIKeys[provider.id] ?? false)
-                        } label: {
-                            Image(systemName: (showAPIKeys[provider.id] ?? false) ? "eye.slash" : "eye")
-                        }
-                        .buttonStyle(.bordered)
-                        .help(Strings.revealHint)
-                    }
-
-                    Text(Strings.apiKeyHint(provider.name))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    if provider.isSpendBased {
-                        Divider()
-                        HStack(spacing: 8) {
-                            Text(Strings.monthlyBudgetLabel).font(.caption).foregroundColor(.secondary)
-                            TextField("0", value: Binding(
-                                get: { stats.manualBudget(for: provider.id) },
-                                set: { stats.setManualBudget($0, for: provider.id) }
-                            ), format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(.caption, design: .monospaced))
-                        }
-                        Text(Strings.monthlyBudgetHint).font(.caption2).foregroundColor(.secondary)
-                    }
-
-                    if provider.id == "zai" {
-                        Divider()
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(Strings.endpointLabel).font(.caption).foregroundColor(.secondary)
-                            Picker("", selection: Binding(
-                                get: { ZAIEndpoint.current },
-                                set: { ZAIEndpoint.set($0); stats.refresh() }
-                            )) {
-                                Text(Strings.endpointCoding).tag(ZAIEndpoint.coding)
-                                Text(Strings.endpointStandard).tag(ZAIEndpoint.standard)
-                            }
-                            .pickerStyle(.segmented)
-                            .labelsHidden()
-                            Text(Strings.endpointHint).font(.caption2).foregroundColor(.secondary)
-                        }
-                    }
-                }
+                providerSection(provider)
 
                 if provider.id != ProviderManager.shared.providers.last?.id {
                     Divider()
@@ -115,6 +46,100 @@ struct ProviderSettingsView: View {
             Spacer()
         }
         .padding(.horizontal, 24)
+    }
+
+    // MARK: - 提供商区段
+
+    /// 全部提供商区段是否都已展开。
+    private var allProvidersExpanded: Bool {
+        uiState.allTrue(ProviderManager.shared.providers.map { UIStateStore.Key.provider($0.id) })
+    }
+
+    /// 全部提供商区段一起展开 / 收起。
+    private func setAllProviders(_ expanded: Bool) {
+        for p in ProviderManager.shared.providers {
+            uiState.setBool(UIStateStore.Key.provider(p.id), expanded)
+        }
+    }
+
+    /// 单个提供商区段（可折叠；展开状态跨启动持久化）。
+    private func providerSection(_ provider: any Provider) -> some View {
+        CollapsibleSection(title: "\(provider.name) API Key",
+                           icon: "key.fill",
+                           isExpanded: uiState.boolBinding(UIStateStore.Key.provider(provider.id)),
+                           iconSize: 12,
+                           titleFont: .system(size: 13, weight: .semibold),
+                           horizontalPadding: 0,
+                           showsDivider: false) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Group {
+                        if showAPIKeys[provider.id] ?? false {
+                            TextField("sk-...", text: apiKeyBinding(provider))
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.body, design: .monospaced))
+                        } else {
+                            SecureField("sk-...", text: apiKeyBinding(provider))
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.body, design: .monospaced))
+                        }
+                    }
+                    Button {
+                        showAPIKeys[provider.id] = !(showAPIKeys[provider.id] ?? false)
+                    } label: {
+                        Image(systemName: (showAPIKeys[provider.id] ?? false) ? "eye.slash" : "eye")
+                    }
+                    .buttonStyle(.bordered)
+                    .help(Strings.revealHint)
+                }
+
+                Text(Strings.apiKeyHint(provider.name))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                if provider.isSpendBased {
+                    Divider()
+                    HStack(spacing: 8) {
+                        Text(Strings.monthlyBudgetLabel).font(.caption).foregroundColor(.secondary)
+                        TextField("0", value: Binding(
+                            get: { stats.manualBudget(for: provider.id) },
+                            set: { stats.setManualBudget($0, for: provider.id) }
+                        ), format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.caption, design: .monospaced))
+                    }
+                    Text(Strings.monthlyBudgetHint).font(.caption2).foregroundColor(.secondary)
+                }
+
+                if provider.id == "zai" {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(Strings.endpointLabel).font(.caption).foregroundColor(.secondary)
+                        Picker("", selection: Binding(
+                            get: { ZAIEndpoint.current },
+                            set: { ZAIEndpoint.set($0); stats.refresh() }
+                        )) {
+                            Text(Strings.endpointCoding).tag(ZAIEndpoint.coding)
+                            Text(Strings.endpointStandard).tag(ZAIEndpoint.standard)
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        Text(Strings.endpointHint).font(.caption2).foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding(.top, 2)
+            .padding(.bottom, 4)
+        }
+    }
+
+    /// 提供商 API Key 的双向绑定（写入后刷新统计）。
+    private func apiKeyBinding(_ provider: any Provider) -> Binding<String> {
+        Binding(get: { ProviderManager.shared.apiKey(for: provider.id) },
+                set: { newValue in
+                    ProviderManager.shared.saveAPIKey(newValue, for: provider.id)
+                    stats.refresh()
+                })
     }
 }
 

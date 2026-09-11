@@ -371,7 +371,7 @@ enum Strings {
     static var exportUsageTitle: String { isZH ? "导出用量数据" : "Export Usage Data" }
     static var exportUsageSave: String { isZH ? "导出" : "Export" }
     static var exportUsageHelp: String { isZH ? "导出全部用量数据（JSON）" : "Export all usage data (JSON)" }
-    static var exportUsageButton: String { isZH ? "导出" : "Export" }
+    static var exportUsageButton: String { isZH ? "导出数据" : "Export Data" }
     static var revealHint: String { isZH ? "显示/隐藏" : "Show / hide" }
 
     // Usage stats
@@ -546,6 +546,7 @@ enum Strings {
     static var githubSubTabRepos: String { isZH ? "仓库" : "Repositories" }
     static var githubRepoListLabel: String { isZH ? "仓库" : "Repositories" }
     static var githubSearchPlaceholder: String { isZH ? "搜索仓库…" : "Search repositories…" }
+    static var githubInfoSection: String { isZH ? "仓库信息" : "Repository info" }
     static var githubNoSelectionHint: String { isZH ? "选择一个仓库" : "Select a repository" }
     static var githubNotConfigured: String { isZH ? "请先在 设置→服务 配置 GitHub" : "Configure GitHub in Settings → Services" }
     static var githubNoRepos: String { isZH ? "没有可见的仓库" : "No repositories found" }
@@ -703,6 +704,7 @@ enum Strings {
     static var cloudflareSubTabHostnames: String { isZH ? "公开主机名" : "Public Hostnames" }
     static var cloudflareSubTabRoutes: String { isZH ? "私有 IP 路由" : "Private IP Routes" }
     static var cloudflareHostnamesEmpty: String { isZH ? "暂无公开主机名" : "No public hostnames" }
+    static var cloudflareSearchPlaceholder: String { isZH ? "搜索主机名…" : "Search hostnames…" }
     static var cloudflareRoutesEmpty: String { isZH ? "暂无私有 IP 路由" : "No private IP routes" }
     static var cloudflareCopyAction: String { isZH ? "复制" : "Copy" }
     static var cloudflareCopied: String { isZH ? "已复制" : "Copied" }
@@ -736,6 +738,7 @@ enum Strings {
     // —— Netlify 站点与部署 ——
     static var netlifyConfigHint: String { isZH ? "Settings → Services → Netlify 配置" : "Settings → Services → Netlify to configure" }
     static var netlifySiteSection: String { isZH ? "站点" : "Site" }
+    static var netlifyBasicHeader: String { isZH ? "项目信息" : "Project info" }
     static var netlifySearchPlaceholder: String { isZH ? "搜索站点…" : "Search sites…" }
     static var netlifySitesEmpty: String { isZH ? "该账户暂无站点" : "No sites in this account" }
     static var netlifyNoSelectionHint: String { isZH ? "选择一个站点" : "Select a site" }
