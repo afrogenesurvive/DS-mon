@@ -323,9 +323,14 @@ struct StatsPopoverView: View {
     @State private var showStoreConfirm = false
 
     // 通知中心 UI（popover 横幅 + 「通知」页）
+    /// 通知页签索引（主页签）
+    private static let alertsTabIndex = 5
     @State private var recentAlerts: [AppAlert] = []
     @State private var currentBanner: AppAlert?
     @State private var bannerDismissTask: Task<Void, Never>?
+    /// 弹窗当前是否可见（由 StatusBarController 广播）：判定「用户是否真的在看通知页」。
+    /// 必须用这个而不是只看 selectedTab —— 弹窗 orderOut 后视图仍存活、通知接收器照常收货。
+    @State private var popoverVisible = false
     // Cloudflare 复制反馈（短暂显示勾选）
     @State private var cfCopiedValue: String?
     @State private var cfCopyResetTask: Task<Void, Never>?
@@ -428,7 +433,7 @@ struct StatsPopoverView: View {
                     }
             } else if selectedTab == 7 {
                 localDBsTabContent
-            } else if selectedTab == 5 {
+            } else if selectedTab == Self.alertsTabIndex {
                 ScrollView { alertsTabContent.padding(14) }
             } else if selectedTab == 2 {
                 // GitHub 页自行管理布局：页内子页签（Actions / 仓库）+ 独立滚动
@@ -452,11 +457,24 @@ struct StatsPopoverView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .appAlertDidFire)) { note in
             guard let alert = note.object as? AppAlert else { return }
+            // 正在看通知页时，新到的通知直接视为已读（否则菜单栏红点会一直亮着）。
+            if popoverVisible, selectedTab == Self.alertsTabIndex {
+                AppAlertCenter.markAllRead()
+            }
             recentAlerts = AppAlertCenter.recent
             showBanner(alert)
         }
         .onReceive(NotificationCenter.default.publisher(for: .appAlertDidUpdate)) { _ in
             recentAlerts = AppAlertCenter.recent
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .popoverVisibilityDidChange)) { note in
+            let visible = (note.object as? NSNumber)?.boolValue ?? false
+            popoverVisible = visible
+            // 打开弹窗时正好停在通知页 → 视为已查看，菜单栏红点随之清除。
+            if visible, selectedTab == Self.alertsTabIndex {
+                AppAlertCenter.markAllRead()
+                recentAlerts = AppAlertCenter.recent
+            }
         }
         .onChange(of: stats.providerID) { _, _ in loadUsage(); loadSourceUsage(); loadSourceOptions() }
         .alert(Strings.awsConfirmTitle, isPresented: $showAwsConfirm, presenting: awsConfirmRequest) { req in
@@ -1462,9 +1480,10 @@ struct StatsPopoverView: View {
 
     private func licenseRow(_ seat: SeatRecord) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: seat.revoked ? "xmark.circle.fill" : "checkmark.circle.fill")
+            Image(systemName: seat.revoked ? "xmark.circle.fill"
+                              : (seat.isExpired ? "clock.badge.exclamationmark.fill" : "checkmark.circle.fill"))
                 .font(.system(size: 10))
-                .foregroundColor(seat.revoked ? .red : .green)
+                .foregroundColor(seat.revoked ? .red : (seat.isExpired ? .orange : .green))
                 .frame(width: 14)
             VStack(alignment: .leading, spacing: 2) {
                 Text(seat.sub)
@@ -1475,12 +1494,24 @@ struct StatsPopoverView: View {
                     Text("kid: \(seat.kid.isEmpty ? "—" : seat.kid)")
                         .font(.system(size: 7))
                         .foregroundColor(.secondary)
+                    Text("\(Strings.licenseIssuedAtLabel): \(Strings.licenseIssuedOn(seat.issuedAt))")
+                        .font(.system(size: 7))
+                        .foregroundColor(.secondary)
                     Text(Strings.licenseCountdown(seat.exp))
                         .font(.system(size: 7))
                         .foregroundColor(seat.revoked ? .red : .secondary)
                 }
             }
             Spacer()
+            if let name = seat.registryName, !name.isEmpty {
+                Text(name)
+                    .font(.system(size: 7))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(Color.gray.opacity(0.14))
+                    .cornerRadius(3)
+            }
             Text(seat.revoked ? Strings.licenseRevokedBadge : Strings.licenseActiveBadge)
                 .font(.system(size: 7, weight: .semibold))
                 .foregroundColor(seat.revoked ? .red : .green)
@@ -4752,10 +4783,10 @@ struct StatsPopoverView: View {
     }
 
     private var alertsTabButton: some View {
-        let active = selectedTab == 5
+        let active = selectedTab == Self.alertsTabIndex
         let unread = recentAlerts.filter { $0.isUnread }.count
         return Button(action: {
-            selectedTab = 5
+            selectedTab = Self.alertsTabIndex
             AppAlertCenter.markAllRead()
             recentAlerts = AppAlertCenter.recent
         }) {

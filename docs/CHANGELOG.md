@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.4-1] — 2026-09-11
+
+### Added
+
+- **菜单栏未读通知徽标**：只要存在未读通知，菜单栏项**内容最左侧（leading 槽位）**就显示一个**红底白字的未读数字胶囊**（超过 9 条显示 `9+`），图标 / 指示灯条 / 文字芯片整体右移让位。与 DeepSeek **高峰/低谷状态点**刻意区分：状态点在**文字右上角**、贴顶、**黄（高峰）/ 绿（低谷）**、带白色描边；未读徽标在**最左侧**、垂直居中、**红**底白字、**无**描边 —— 位置、颜色、描边三者都不同，两者同时显示也不会混淆。徽标尺寸/宽度算法集中在 `StatusBarView`（`unreadBadgeText` / `unreadBadgeWidth` / `unreadBadgeGutter`），`StatusBarController.applyLabel` 直接复用同一套计算预留 `statusItem` 宽度，避免绘制与布局两处漂移。
+
+### Changed
+
+- **菜单栏红点只在「通知页真的被查看」时清除**：除原有的「点击通知页签 → `markAllRead()`」外，新增 `popoverVisibilityDidChange` 弹窗可见性广播（`StatusBarController.togglePopover` / `closePopover` 发出，object 为 `NSNumber(Bool)`）—— 重新打开弹窗时若正好停在通知页，同样视为已读并立即清除红点。
+- **修正潜在误标已读**：`NSHostingView` 在弹窗 `orderOut` 后依然存活、`.onReceive` 照常收货，所以「弹窗关闭但页签仍停在通知页」时新到的通知会被静默标记已读（红点永远不亮）。现在 `StatsPopoverView` 用 `popoverVisible` 门控：仅当弹窗可见且当前就在通知页时才自动已读。
+- `StatsPopoverView` 中三处硬编码的通知页签索引 `5` 收敛为 `Self.alertsTabIndex`。
+- **设置 → 许可改为多注册表结构**：席位现在按「注册表 ▸ 密钥环 ▸ 密钥」三级折叠浏览（展开状态持久化），弹窗许可页签的席位行补充**签发日期**与**注册表名称**，已过期席位单独用橙色标记。
+
 ## [0.3.3-1] — 2026-09-11
 
 ### Changed

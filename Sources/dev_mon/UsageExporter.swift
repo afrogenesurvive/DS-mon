@@ -657,9 +657,13 @@ enum ConfigExporter {
             // 同步游标（上次推送时间）：一并导出，避免还原后重复推送历史。
             "lastPushTimestamp",
             Strings.Keys.seatRegistry,
+            // 新版多注册表结构（RegistryBundle）
+            SeatRegistry.storageKey,
             Strings.Keys.seatRegistryFilePath,
-            // 许可检查来源（seats.json 路径）
+            // 许可检查来源（devmon.json 路径）
             SeatRegistry.checkSourceKey,
+            // 密钥管理器仓库路径（签发 / 吊销工具位置）
+            KeyManager.toolPathKey,
             Strings.Keys.defaultProviderId,
             Strings.Keys.menuBarColor,
             Strings.Keys.currencySymbol,

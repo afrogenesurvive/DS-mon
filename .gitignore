@@ -44,3 +44,11 @@ homebrew-tap/
 
 # --- Afrogene (test app usage tracking plans) ---
 afrogene/
+
+# --- Key material (NEVER in this public repo) ---
+# Key management lives in the separate private `personal_key_manager` repo;
+# DS-mon only reads its exported metadata. Never commit a key, a key ring or
+# a key-store directory here.
+dev-keys/
+keyrings/
+personal_key_manager/

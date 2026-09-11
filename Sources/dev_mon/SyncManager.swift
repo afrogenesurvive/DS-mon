@@ -324,9 +324,11 @@ final class SyncManager: @unchecked Sendable {
                 }
 
                 let status = SeatRegistry.shared.status(for: req.sub)
+                let record = SeatRegistry.shared.seat(for: req.sub)
                 let revoked = status?.revoked ?? false
                 let exp = status?.exp ?? 0
-                syncLog("[Sync] Server: /license/check sub=\(req.sub) revoked=\(revoked) exp=\(exp)")
+                let registryId = status?.registryId
+                syncLog("[Sync] Server: /license/check sub=\(req.sub) revoked=\(revoked) exp=\(exp) registry=\(registryId ?? "-")")
 
                 struct LicenseCheckResponse: Codable {
                     let ok: Bool
@@ -337,13 +339,16 @@ final class SyncManager: @unchecked Sendable {
                     struct Seat: Codable {
                         let sub: String
                         let kid: String
+                        let registryId: String?
+                        let issuedAt: String?
                     }
                 }
                 let resp = LicenseCheckResponse(
                     ok: true,
                     revoked: revoked,
                     exp: exp,
-                    seat: .init(sub: req.sub, kid: req.kid),
+                    seat: .init(sub: req.sub, kid: req.kid,
+                                registryId: registryId, issuedAt: record?.issuedAt),
                     checkedAt: ISO8601DateFormatter().string(from: Date())
                 )
                 guard let data = try? JSONEncoder().encode(resp) else {

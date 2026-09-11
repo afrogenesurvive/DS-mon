@@ -120,14 +120,22 @@ class StatusBarController: NSObject, NSWindowDelegate {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             startEventMonitor()
+            // 广播弹窗可见状态：StatsPopoverView 用它判定「当前是否正在看通知页」。
+            NotificationCenter.default.post(name: .popoverVisibilityDidChange,
+                                            object: NSNumber(value: true))
         }
     }
 
     func closePopover() {
+        let wasVisible = popoverWindow?.isVisible ?? false
         popoverWindow?.orderOut(nil)
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
             eventMonitor = nil
+        }
+        if wasVisible {
+            NotificationCenter.default.post(name: .popoverVisibilityDidChange,
+                                            object: NSNumber(value: false))
         }
     }
 
@@ -217,6 +225,10 @@ class StatusBarController: NSObject, NSWindowDelegate {
         let isDeepSeek = s.providerID == "deepseek"
         statusView?.isPeakHour = (isDeepSeek && showPeakDot) ? DeepSeekPricing.isPeak() : nil
 
+        // 未读通知徽标：只要存在未读通知就点亮（与高峰/低谷点相互独立）。
+        // 已读由「通知页被查看」驱动（见 StatsPopoverView / AppAlertCenter.markAllRead）。
+        statusView?.unreadAlertCount = AppAlertCenter.unreadCount
+
         // 高峰/低谷切换检测（运行中）：写入 popover 通知页/横幅；系统通知由 PeakNotifier 调度。
         if isDeepSeek, PeakNotifier.enabled {
             let peakNow = DeepSeekPricing.isPeak()
@@ -267,6 +279,7 @@ class StatusBarController: NSObject, NSWindowDelegate {
         let textMode = UserDefaults.standard.string(forKey: Strings.Keys.menuBarTextDisplay) ?? "balance"
 
         var w: CGFloat = showIcon ? 21 : 2  // leftX
+        w += StatusBarView.unreadBadgeGutter(statusView?.unreadAlertCount ?? 0)  // 未读通知徽标槽位
         if showIndicator {
             w += 23  // leadingGap + 3bars + 2columnGaps + border + padding
         }

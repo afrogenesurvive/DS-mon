@@ -12,6 +12,8 @@ extension Notification.Name {
     static let seatRegistryChanged = Notification.Name("seatRegistryChanged")
     static let peakSettingsDidChange = Notification.Name("peakSettingsDidChange")
     static let popoverResizeRequested = Notification.Name("popoverResizeRequested")
+    /// 弹窗显示/隐藏（object 为 NSNumber(Bool)）：用于「正在看通知页」的已读判定。
+    static let popoverVisibilityDidChange = Notification.Name("popoverVisibilityDidChange")
     static let appAlertDidFire = Notification.Name("appAlertDidFire")
     static let appAlertDidUpdate = Notification.Name("appAlertDidUpdate")
     static let appearanceDidChange = Notification.Name("appearanceDidChange")
@@ -327,11 +329,11 @@ enum Strings {
 
     // License
     static var settingsTabLicense: String { isZH ? "许可" : "License" }
-    static var licenseSection: String { isZH ? "席位注册表（吊销授权）" : "Seat Registry (revocation)" }
+    static var licenseSection: String { isZH ? "许可注册表" : "License Registries" }
     static func licenseSeatCount(_ n: Int) -> String {
         isZH ? "共 \(n) 个席位" : "\(n) seats"
     }
-    static var licenseNoSeats: String { isZH ? "暂无席位。请通过“检查许可”从 seats.json 导入。" : "No seats. Import via \"Check Licenses\" from seats.json." }
+    static var licenseNoSeats: String { isZH ? "暂无席位。请通过“检查许可”从 devmon.json 导入。" : "No seats. Import via \"Check Licenses\" from devmon.json." }
     static var licenseUnlimited: String { isZH ? "不限" : "Unlimited" }
     /// 剩余有效期：dd:hh:mm:ss（exp<=0 显示不限；已过期显示“已过期”）
     static func licenseCountdown(_ exp: Int) -> String {
@@ -345,11 +347,11 @@ enum Strings {
         return String(format: "%02d:%02d:%02d:%02d", days, hours, minutes, secs)
     }
     static var licenseFileLabel: String { isZH ? "注册表文件" : "Registry File" }
-    static var licenseFileHint: String { isZH ? "可选 JSON 文件路径（[{sub,kid,exp,revoked}]）。文件优先于内嵌列表。" : "Optional JSON file path ([{sub,kid,exp,revoked}]). File takes precedence over the inline list." }
+    static var licenseFileHint: String { isZH ? "可选的镜像文件路径：把整套注册表导出到别处，或从别处读回。密钥管理器的导出目录永远不会被写入。" : "Optional mirror file: export the whole registry set elsewhere, or read it back. The key manager's export directory is never written to." }
     static var licenseTabTitle: String { isZH ? "许可" : "License" }
     static var licenseActiveBadge: String { isZH ? "正常" : "Active" }
     static var licenseRevokedBadge: String { isZH ? "已吊销" : "Revoked" }
-    static var licensePopoverManageHint: String { isZH ? "DS-mon 为吊销授权权威；席位在 设置 → 许可 中管理" : "DS-mon is the revocation authority; manage seats in Settings → License" }
+    static var licensePopoverManageHint: String { isZH ? "DS-mon 为吊销授权权威；注册表 / 密钥环 / 密钥在 设置 → 许可 中管理" : "DS-mon is the revocation authority; manage registries, rings and keys in Settings → License" }
     static var licenseCheckTitle: String { isZH ? "检查许可" : "Check Licenses" }
     static var licenseCheckButton: String { isZH ? "检查许可" : "Check Licenses" }
     static var licenseSourceLabel: String { isZH ? "来源文件" : "Source File" }
@@ -363,9 +365,122 @@ enum Strings {
     static var licenseFilterRevoked: String { isZH ? "已吊销" : "Revoked" }
     static var licenseFilterExpired: String { isZH ? "已过期" : "Expired" }
     static var licenseCheckIntervalLabel: String { isZH ? "自动检查间隔（小时）" : "Auto-check interval (h)" }
-    static var licenseCheckIntervalHint: String { isZH ? "每 N 小时自动读取 seats.json，另有手动“检查许可”按钮" : "Re-checks seats.json every N hours, in addition to the manual Check button" }
+    static var licenseCheckIntervalHint: String { isZH ? "每 N 小时自动读取 devmon.json，另有手动“检查许可”按钮" : "Re-checks devmon.json every N hours, in addition to the manual Check button" }
     static func licenseNoFilteredSeats(_ label: String) -> String {
         isZH ? "暂无\(label)席位" : "No \(label) seats"
+    }
+
+    // MARK: License — 多注册表（personal_key_manager）
+
+    static var licenseRegistryLabel: String { isZH ? "注册表" : "Registry" }
+    static func licenseRegistryCount(_ n: Int) -> String {
+        isZH ? "共 \(n) 个注册表" : "\(n) registries"
+    }
+    static var licenseRingLabel: String { isZH ? "密钥环" : "Key ring" }
+    static func licenseRingCount(_ n: Int) -> String { isZH ? "\(n) 个密钥环" : "\(n) rings" }
+    static var licenseNoRegistries: String {
+        isZH ? "暂无注册表。请先在密钥管理器中创建，或点击“检查许可”导入。"
+             : "No registries. Create one in the key manager, or click \"Check Licenses\" to import."
+    }
+    static var licenseRingRetiredBadge: String { isZH ? "已退役" : "Retired" }
+    static func licenseRingRetires(_ date: String) -> String { isZH ? "退役 \(date)" : "retires \(date)" }
+    static var licenseIssuedAtLabel: String { isZH ? "签发" : "Issued" }
+    /// 把 ISO-8601 签发时间压成 yyyy-MM-dd；缺失或无法解析时返回占位符。
+    static func licenseIssuedOn(_ iso: String?) -> String {
+        guard let iso, iso.count >= 10 else { return "—" }
+        return String(iso.prefix(10))
+    }
+    static var licenseKeysLabel: String { isZH ? "密钥" : "Keys" }
+
+    // MARK: License — 签发 / 吊销
+
+    static var licenseIssueAction: String { isZH ? "签发密钥" : "Issue Key" }
+    static var licenseIssueTitle: String { isZH ? "签发新密钥" : "Issue New Key" }
+    static var licenseIssueSubLabel: String { isZH ? "席位标识（sub）" : "Seat id (sub)" }
+    static var licenseIssueSubPlaceholder: String { "name@example.com" }
+    static var licenseIssueExpLabel: String { isZH ? "有效期" : "Expires" }
+    static var licenseIssueExpPlaceholder: String { "2027-12-31" }
+    static var licenseIssueUnlimited: String { isZH ? "不限" : "Unlimited" }
+    static var licenseIssueConfirm: String { isZH ? "签发" : "Issue" }
+    static var licenseIssueCancel: String { isZH ? "取消" : "Cancel" }
+    static func licenseIssueBusy(_ sub: String) -> String { isZH ? "正在签发 \(sub)…" : "Issuing \(sub)…" }
+    static var licenseIssueDone: String { isZH ? "密钥已签发" : "Key issued" }
+    static var licenseIssueCopyHint: String {
+        isZH ? "这是唯一一次显示完整密钥。请立即复制并交给席位使用者——关闭后无法再次查看。"
+             : "This is the only time the full key is shown. Copy it now — it cannot be viewed again."
+    }
+    static var licenseIssueCopy: String { isZH ? "复制密钥" : "Copy Key" }
+    static var licenseIssueCopied: String { isZH ? "已复制" : "Copied" }
+    static var licenseIssueClose: String { isZH ? "完成" : "Done" }
+    static var licenseIssueFailed: String { isZH ? "签发失败" : "Issue failed" }
+
+    static var licenseRevokeAction: String { isZH ? "吊销" : "Revoke" }
+    static func licenseRevokeConfirmTitle(_ sub: String) -> String {
+        isZH ? "吊销席位“\(sub)”？" : "Revoke seat \"\(sub)\"?"
+    }
+    static var licenseRevokeConfirmHint: String {
+        isZH ? "该席位的密钥会立即失效，用它加密的配置将无法再读取。密钥文件会被归档（不删除），之后可以恢复。"
+             : "The key stops working immediately and any config stored under it becomes unreadable. The key file is archived (not deleted), so this can be undone."
+    }
+    static var licenseRevokeReasonLabel: String { isZH ? "原因（可选）" : "Reason (optional)" }
+    static var licenseRevokeConfirm: String { isZH ? "吊销" : "Revoke" }
+    static var licenseRevokeCancel: String { isZH ? "取消" : "Cancel" }
+    static func licenseRevokeBusy(_ sub: String) -> String { isZH ? "正在吊销 \(sub)…" : "Revoking \(sub)…" }
+    static func licenseRevokeDone(_ sub: String, _ blocked: Int) -> String {
+        isZH ? "已吊销 \(sub)，共 \(blocked) 个席位被阻止" : "Revoked \(sub) — \(blocked) seat(s) blocked"
+    }
+    static var licenseRevokeFailed: String { isZH ? "吊销失败" : "Revoke failed" }
+
+    // MARK: License — 密钥管理器工具
+
+    static var licenseToolSection: String { isZH ? "密钥管理器" : "Key Manager" }
+    static var licenseToolPathLabel: String { isZH ? "仓库路径" : "Repository path" }
+    static var licenseToolPathHint: String {
+        isZH ? "personal_key_manager 仓库位置。签发/吊销通过它的 pkm CLI 执行，DS-mon 不持有主私钥。"
+             : "Location of the personal_key_manager repo. Issue/revoke run through its pkm CLI; DS-mon never holds a master key."
+    }
+    static var licenseReadOnlyBadge: String { isZH ? "只读" : "Read-only" }
+    static func licenseToolMissing(_ path: String) -> String {
+        isZH ? "未找到密钥管理器：\(path)（本机为只读模式）" : "Key manager not found: \(path) (read-only on this machine)"
+    }
+    static var licenseNodeMissing: String {
+        isZH ? "未找到 node（已尝试 nvm / Homebrew / 系统路径）——无法签发或吊销"
+             : "node not found (tried nvm, Homebrew and system paths) — cannot issue or revoke"
+    }
+    static var licenseIssueDecodeFailed: String { isZH ? "无法解析 pkm 的签发结果" : "Could not parse the pkm issue result" }
+    static var licenseRevokeDecodeFailed: String { isZH ? "无法解析 pkm 的吊销结果" : "Could not parse the pkm revoke result" }
+
+    // MARK: License — 来源读取错误
+
+    static func licenseSourceUnreadable(_ path: String) -> String {
+        isZH ? "无法读取文件：\(path)" : "Cannot read file: \(path)"
+    }
+    static var licenseSourceUnparsable: String {
+        isZH ? "无法解析该文件（应为 devmon.json 或 seats.json）" : "Cannot parse the file (expected devmon.json or seats.json)"
+    }
+
+    // MARK: License — 导出包签名
+
+    static var licenseSignatureUnknown: String { isZH ? "签名未检查" : "Signature unchecked" }
+    static var licenseSignatureAbsent: String {
+        isZH ? "未签名（无 .sig 文件）—— 数据可用但无法验证"
+             : "Unsigned (no .sig file) — usable but unverifiable"
+    }
+    static var licenseSignatureMalformed: String { isZH ? "签名文件格式不正确" : "Signature file is malformed" }
+    static var licenseSignatureRequired: String {
+        isZH ? "这是 bundle 格式但缺少 .sig 签名文件 —— 已拒绝导入。请在密钥管理器中运行 `pkm export` 重新签名。"
+             : "Bundle format with no .sig file — import refused. Run `pkm export` in the key manager to re-sign."
+    }
+    static func licenseSignatureInvalid(_ kid: String?) -> String {
+        let suffix = kid.map { isZH ? "（kid \($0)）" : " (kid \($0))" } ?? ""
+        return isZH ? "签名不匹配\(suffix)" : "Signature does not match\(suffix)"
+    }
+    static func licenseSignatureValid(_ kid: String) -> String {
+        isZH ? "签名有效（kid \(kid)）" : "Signature valid (kid \(kid))"
+    }
+    static func licenseSignatureRefused(_ why: String) -> String {
+        isZH ? "已拒绝导入：\(why) —— 席位表保持上一次的已知良好状态"
+             : "Import refused: \(why) — the seat registry keeps its last known-good state"
     }
     static var usageTabTitle: String { isZH ? "AI 用量" : "AI Usage" }
     static var exportUsageTitle: String { isZH ? "导出用量数据" : "Export Usage Data" }

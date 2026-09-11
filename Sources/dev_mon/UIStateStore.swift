@@ -62,6 +62,12 @@ final class UIStateStore: ObservableObject, @unchecked Sendable {
 
         /// Export Config 中 UI 状态键的前缀
         static let exportPrefix = "ui."
+
+        // 许可页（设置 → 许可）：注册表 ▸ 密钥环 ▸ 密钥 三级折叠状态
+        static func licenseRegistry(_ id: String) -> String { "license.registry.\(id)" }
+        static func licenseRing(_ registryId: String, _ kid: String) -> String {
+            "license.ring.\(registryId).\(kid)"
+        }
     }
 
     private struct Payload: Codable {

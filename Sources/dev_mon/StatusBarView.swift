@@ -30,6 +30,12 @@ class StatusBarView: NSView {
     var isPeakHour: Bool?
     /// 菜单栏 "Peak" 文字芯片内容（DeepSeek：当前窗口 + 距下次切换倒计时）；非 DeepSeek 或未启用时为空。
     var peakText: String = ""
+    /// 未读通知数：> 0 时在内容最左侧（leading 槽位）绘制红色数字徽标。
+    /// 与高峰/低谷点区分：徽标在**左**、垂直居中、红底白字、**无**描边；
+    /// 状态点在**右**、贴顶、黄/绿、白色描边。
+    var unreadAlertCount: Int = 0 {
+        didSet { if oldValue != unreadAlertCount { needsDisplay = true } }
+    }
 
     // MARK: 数据
     private var balanceRatio: Double = 0
@@ -50,6 +56,38 @@ class StatusBarView: NSView {
     private let barGap: CGFloat = 0.333
     private let columnGap: CGFloat = 1.0
     private let leadingGap: CGFloat = 1
+
+    // MARK: - 未读通知徽标
+
+    // 尺寸算法放在这里并提供 static 接口，StatusBarController 预留宽度时直接复用，
+    // 避免「绘制」与「宽度计算」两处各写一份而漂移。
+
+    /// 徽标数字字体：等宽数字，位数变化时宽度不抖动。
+    private static let badgeFont = NSFont.monospacedDigitSystemFont(ofSize: 8, weight: .bold)
+    /// 徽标高度（视图高 18，垂直居中）。
+    private static let badgeHeight: CGFloat = 11
+    /// 徽标内左右内边距。
+    private static let badgeHPad: CGFloat = 3.5
+    /// 徽标与右侧内容之间的间距。
+    private static let badgeGap: CGFloat = 3
+
+    /// 徽标文本：超过 9 条显示 "9+"（菜单栏空间有限）。
+    static func unreadBadgeText(_ count: Int) -> String {
+        count > 9 ? "9+" : "\(max(count, 0))"
+    }
+
+    /// 徽标自身宽度；count <= 0 时为 0。
+    static func unreadBadgeWidth(_ count: Int) -> CGFloat {
+        guard count > 0 else { return 0 }
+        let text = unreadBadgeText(count) as NSString
+        return ceil(text.size(withAttributes: [.font: badgeFont]).width + badgeHPad * 2)
+    }
+
+    /// 徽标占用的 leading 槽位总宽（含与内容的间距）；0 = 不占位。
+    static func unreadBadgeGutter(_ count: Int) -> CGFloat {
+        guard count > 0 else { return 0 }
+        return unreadBadgeWidth(count) + badgeGap
+    }
 
     /// 指示器区域总宽度（不含左右边距）
 
@@ -104,8 +142,16 @@ class StatusBarView: NSView {
         
 
 
-        let leftX: CGFloat = showIcon ? 21 : 2
+        // 内容基础起点：有图标时为 21（图标 x=1 宽 18 → maxX 19，再留 2pt），否则贴最左侧。
+        let baseX: CGFloat = showIcon ? 21 : 2
+        // 未读通知徽标占用 leading 槽位，内容整体右移，避免与图标 / 文字重叠。
+        let leftX: CGFloat = baseX + Self.unreadBadgeGutter(unreadAlertCount)
         var cursorX = leftX
+
+        // ── 未读通知徽标（红底白字胶囊，垂直居中）──
+        if unreadAlertCount > 0 {
+            drawUnreadBadge(ctx: ctx, x: baseX + 1, barH: barH)
+        }
 
         // ── 三个指示灯条 ──
         if showIndicator {
@@ -241,6 +287,31 @@ class StatusBarView: NSView {
                 drawPeakDot(ctx: ctx, peak: peak, dotRect: dotRect)
             }
         }
+    }
+
+    /// 未读通知徽标：红底白字胶囊，垂直居中。
+    /// 颜色（红 / 黄绿）、位置（左 / 右）、描边（无 / 有白描边）与高峰/低谷点都不同，不会混淆。
+    private func drawUnreadBadge(ctx: CGContext, x: CGFloat, barH: CGFloat) {
+        let label = Self.unreadBadgeText(unreadAlertCount) as NSString
+        let attr: [NSAttributedString.Key: Any] = [.font: Self.badgeFont, .foregroundColor: NSColor.white]
+        let textSize = label.size(withAttributes: attr)
+        let h = Self.badgeHeight
+        let w = Self.unreadBadgeWidth(unreadAlertCount)
+        let rect = CGRect(x: x, y: (barH - h) / 2, width: w, height: h)
+        let path = CGPath(roundedRect: rect, cornerWidth: h / 2, cornerHeight: h / 2, transform: nil)
+
+        ctx.setFillColor(NSColor.systemRed.cgColor)
+        ctx.addPath(path)
+        ctx.fillPath()
+
+        // 数字裁剪在胶囊内并居中绘制。
+        ctx.saveGState()
+        ctx.addPath(path)
+        ctx.clip()
+        label.draw(at: NSPoint(x: rect.midX - textSize.width / 2,
+                               y: rect.midY - textSize.height / 2),
+                   withAttributes: attr)
+        ctx.restoreGState()
     }
 
     /// 高峰/低谷点：黄色 = 高峰；绿色 = 低谷。白色描边提升在深浅色菜单栏下的对比度。
