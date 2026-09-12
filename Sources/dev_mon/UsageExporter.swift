@@ -662,6 +662,8 @@ enum ConfigExporter {
             Strings.Keys.seatRegistryFilePath,
             // 许可检查来源（devmon.json 路径）
             SeatRegistry.checkSourceKey,
+            // 许可检查来源列表（多来源：合并 bundle + 每个注册表的导出）
+            SeatRegistry.checkSourcesKey,
             // 密钥管理器仓库路径（签发 / 吊销工具位置）
             KeyManager.toolPathKey,
             Strings.Keys.defaultProviderId,
@@ -675,6 +677,7 @@ enum ConfigExporter {
             Strings.Keys.awsEnabled,
             Strings.Keys.awsMaxCredits,
             Strings.Keys.showPeakDot,
+            Strings.Keys.showUnreadDot,
             Strings.Keys.peakNotificationEnabled,
             Strings.Keys.balanceAlertEnabled,
             Strings.Keys.tunnelDownNotificationEnabled,

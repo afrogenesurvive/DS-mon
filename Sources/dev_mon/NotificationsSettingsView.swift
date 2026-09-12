@@ -76,6 +76,25 @@ struct NotificationsSettingsView: View {
 
             Divider()
 
+            VStack(alignment: .leading, spacing: 6) {
+                Button {
+                    AppAlertCenter.fire(.test,
+                                        title: Strings.alertTestTitle,
+                                        body: Strings.alertTestBody)
+                } label: {
+                    Label(Strings.notificationsSendTestLabel, systemImage: "bell.badge")
+                        .font(.callout)
+                }
+                .buttonStyle(.bordered)
+
+                Text(Strings.notificationsSendTestHint)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider()
+
             Text(Strings.notificationsSessionNote)
                 .font(.caption2)
                 .foregroundColor(.secondary)

@@ -1,5 +1,12 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
+
+/// 编辑中的一行许可来源（本地 id 用于 ForEach，避免删除行时错位）。
+private struct SourceRow: Identifiable, Equatable {
+    let id = UUID()
+    var path: String
+}
 
 /// 许可设置：注册表 ▸ 密钥环 ▸ 密钥 三级折叠树，并支持签发 / 吊销。
 ///
@@ -11,7 +18,12 @@ struct LicenseSettingsView: View {
 
     @State private var registries: [LicenseRegistry] = SeatRegistry.shared.registries
     @State private var filePath: String = SeatRegistry.shared.registryFilePath
-    @State private var licenseSourcePath: String = SeatRegistry.defaultLicensesSourceURL.path
+    /// 编辑中的来源行（有序，每行一个文件）。
+    @State private var sourceRows: [SourceRow] = SeatRegistry.shared.checkSources.map { SourceRow(path: $0) }
+    /// 各来源最近一次导入的快照（签名 / 注册表与席位数量 / 错误）。
+    @State private var sourceSnapshots: [SeatRegistry.SourceSnapshot] = SeatRegistry.shared.sourceSnapshots
+    /// 镜像路径不可用时的原因（例如指向密钥管理器仓库内）。
+    @State private var mirrorProblem: String? = SeatRegistry.shared.mirrorPathProblem(SeatRegistry.shared.registryFilePath)
     @State private var checkIntervalHours: Double = SeatRegistry.shared.checkIntervalHours
     @State private var toolPath: String = KeyManager.toolRoot
     @State private var writable: Bool = KeyManager.isWritable()
@@ -353,20 +365,55 @@ struct LicenseSettingsView: View {
 
     private var sourceSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Text(Strings.licenseSourceLabel)
                     .font(.caption).foregroundColor(.secondary)
-                TextField("~/…/export/devmon.json", text: $licenseSourcePath)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.caption, design: .monospaced))
-                    .onChange(of: licenseSourcePath) { _, newVal in
-                        UserDefaults.standard.set(newVal, forKey: SeatRegistry.checkSourceKey)
-                    }
+                Text(Strings.licenseSourceCount(sourceRows.count))
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button {
+                    sourceRows.append(SourceRow(path: ""))
+                } label: {
+                    Label(Strings.licenseSourceAdd, systemImage: "plus.circle")
+                        .font(.caption2)
+                }
+                .buttonStyle(.plain)
+                .disabled(sourceRows.count >= Self.maxSourceCount)
             }
+
+            ForEach($sourceRows) { $row in
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        TextField("~/…/export/devmon.json", text: $row.path)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.caption, design: .monospaced))
+                            .onChange(of: row.path) { _, _ in commitSources(check: false) }
+                            .onSubmit { commitSources() }
+                        Button(Strings.licenseChooseFile) { chooseSourceFile(for: row.id) }
+                            .font(.caption2)
+                            .buttonStyle(.bordered)
+                        if sourceRows.count > 1 {
+                            Button {
+                                removeSource(row.id)
+                            } label: {
+                                Image(systemName: "minus.circle").font(.caption2)
+                            }
+                            .buttonStyle(.plain)
+                            .help(Strings.licenseSourceRemove)
+                        }
+                    }
+                    sourceStatusRow(path: row.path)
+                }
+            }
+
+            Text(Strings.licenseSourcesHint)
+                .font(.caption2).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             signatureRow
 
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Text(Strings.licenseFileLabel)
                     .font(.caption).foregroundColor(.secondary)
                 TextField("~/path/to/mirror.json", text: $filePath)
@@ -374,9 +421,18 @@ struct LicenseSettingsView: View {
                     .font(.system(.caption, design: .monospaced))
                     .onChange(of: filePath) { _, newVal in
                         SeatRegistry.shared.setFilePath(newVal)
+                        mirrorProblem = SeatRegistry.shared.mirrorPathProblem(newVal)
                         reload()
                     }
+                Button(Strings.licenseChooseFile) { chooseMirrorFile() }
+                    .font(.caption2)
+                    .buttonStyle(.bordered)
             }
+
+            if let mirrorProblem {
+                messageRow(mirrorProblem, color: .orange, icon: "exclamationmark.triangle.fill")
+            }
+
             Text(Strings.licenseFileHint)
                 .font(.caption2).foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -431,6 +487,9 @@ struct LicenseSettingsView: View {
                         UserDefaults.standard.set(newVal, forKey: KeyManager.toolPathKey)
                         refreshToolState()
                     }
+                Button(Strings.licenseChooseFolder) { chooseToolFolder() }
+                    .font(.caption2)
+                    .buttonStyle(.bordered)
             }
             Text(Strings.licenseToolPathHint)
                 .font(.caption2).foregroundColor(.secondary)
@@ -450,6 +509,150 @@ struct LicenseSettingsView: View {
         registries = SeatRegistry.shared.registries
         checkIntervalHours = SeatRegistry.shared.checkIntervalHours
         signature = SeatRegistry.shared.signatureVerdict
+        sourceSnapshots = SeatRegistry.shared.sourceSnapshots
+    }
+
+    // MARK: - 来源列表（多来源）
+
+    /// 来源行数上限（菜单栏/设置窗口里再多也没意义了）。
+    private static let maxSourceCount = 8
+
+    /// 把编辑中的来源列表写入 SeatRegistry。
+    /// - Parameter check: 是否立即重新读取（逐字编辑时传 false，避免每敲一个字就读盘）。
+    private func commitSources(check: Bool = true) {
+        SeatRegistry.shared.setCheckSources(sourceRows.map(\.path), check: check)
+        if check { reload() }
+    }
+
+    private func removeSource(_ id: UUID) {
+        sourceRows.removeAll { $0.id == id }
+        commitSources()
+    }
+
+    /// 单个来源的状态行：签名结论 + 注册表/席位数量，或错误原因。
+    @ViewBuilder
+    private func sourceStatusRow(path: String) -> some View {
+        if let snap = snapshot(for: path) {
+            HStack(spacing: 4) {
+                Image(systemName: sourceIcon(snap))
+                    .font(.system(size: 9))
+                    .foregroundColor(sourceColor(snap))
+                Text(sourceSummary(snap))
+                    .font(.system(size: 9))
+                    .foregroundColor(snap.error == nil ? .secondary : .red)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 2)
+        }
+    }
+
+    /// 路径对应的快照（按展开后的路径匹配，与 SeatRegistry 的规范化保持一致）。
+    private func snapshot(for path: String) -> SeatRegistry.SourceSnapshot? {
+        guard let normalized = SeatRegistry.normalizeSources([path]).first else { return nil }
+        return sourceSnapshots.first { $0.path == normalized }
+    }
+
+    private func sourceIcon(_ snap: SeatRegistry.SourceSnapshot) -> String {
+        if snap.error != nil { return "exclamationmark.triangle.fill" }
+        switch snap.signatureCode {
+        case .valid:   return "checkmark.seal.fill"
+        case .absent:  return "exclamationmark.triangle.fill"
+        case .invalid: return "xmark.seal.fill"
+        case .unknown: return "questionmark.circle"
+        }
+    }
+
+    private func sourceColor(_ snap: SeatRegistry.SourceSnapshot) -> Color {
+        if snap.error != nil { return .red }
+        switch snap.signatureCode {
+        case .valid:   return .green
+        case .absent:  return .orange
+        case .invalid: return .red
+        case .unknown: return .secondary
+        }
+    }
+
+    private func sourceSummary(_ snap: SeatRegistry.SourceSnapshot) -> String {
+        if let error = snap.error { return error }
+        return Strings.licenseSourceSummary(registries: snap.registryCount,
+                                           seats: snap.seatCount,
+                                           updatedAt: snap.updatedAt)
+    }
+
+    // MARK: - 文件选择器
+
+    /// 打开来源选择器时的默认目录：当前第一行的目录，否则密钥管理器的导出目录。
+    private var defaultSourceDirectory: URL? {
+        if let first = sourceRows.first?.path.trimmingCharacters(in: .whitespaces), !first.isEmpty {
+            return URL(fileURLWithPath: (first as NSString).expandingTildeInPath).deletingLastPathComponent()
+        }
+        return URL(fileURLWithPath: KeyManager.exportPath).deletingLastPathComponent()
+    }
+
+    /// 为某一行选择来源文件（JSON）。
+    @MainActor
+    private func chooseSourceFile(for id: UUID) {
+        let panel = NSOpenPanel()
+        panel.title = Strings.licenseSourceAdd
+        panel.message = Strings.licenseSourcesHint
+        panel.prompt = Strings.licenseChooseFile
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.json]
+        panel.directoryURL = defaultSourceDirectory
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in
+                guard let index = sourceRows.firstIndex(where: { $0.id == id }) else { return }
+                sourceRows[index].path = url.path
+                commitSources()
+            }
+        }
+    }
+
+    /// 选择注册表镜像文件（应用会向它写入合并后的席位表）。
+    @MainActor
+    private func chooseMirrorFile() {
+        let panel = NSSavePanel()
+        panel.title = Strings.licenseFileLabel
+        panel.message = Strings.licenseFileHint
+        panel.prompt = Strings.licenseChooseFile
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = filePath.isEmpty
+            ? "devmon-mirror.json"
+            : URL(fileURLWithPath: (filePath as NSString).expandingTildeInPath).lastPathComponent
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in
+                filePath = url.path
+                SeatRegistry.shared.setFilePath(url.path)
+                mirrorProblem = SeatRegistry.shared.mirrorPathProblem(url.path)
+                reload()
+            }
+        }
+    }
+
+    /// 选择密钥管理器仓库目录。
+    @MainActor
+    private func chooseToolFolder() {
+        let panel = NSOpenPanel()
+        panel.title = Strings.licenseToolPathLabel
+        panel.message = Strings.licenseToolPathHint
+        panel.prompt = Strings.licenseChooseFolder
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in
+                toolPath = url.path
+                UserDefaults.standard.set(url.path, forKey: KeyManager.toolPathKey)
+                refreshToolState()
+            }
+        }
     }
 
     // MARK: - 签名状态
@@ -501,14 +704,15 @@ struct LicenseSettingsView: View {
     }
 
     private func checkLicenses() {
-        let url = URL(fileURLWithPath: (licenseSourcePath as NSString).expandingTildeInPath)
-        let result = SeatRegistry.shared.checkLicenses(from: url)
+        // 先把编辑中的来源列表落盘（不触发额外检查），再用它同步执行一次检查。
+        SeatRegistry.shared.setCheckSources(sourceRows.map(\.path), check: false)
+        let result = SeatRegistry.shared.checkLicenses()
         reload()
         if let err = result.error {
             checkError = err
             checkResult = nil
         } else {
-            checkResult = Strings.licenseCheckResult(result.imported, result.updatedAt)
+            checkResult = Strings.licenseCheckResultSources(result.imported, result.sources, result.updatedAt)
             checkError = nil
         }
     }

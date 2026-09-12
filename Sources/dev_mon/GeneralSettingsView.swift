@@ -59,6 +59,7 @@ struct GeneralSettingsView: View {
     @AppStorage(Strings.Keys.appTheme) var appTheme: String = Theme.system.rawValue
     @AppStorage(Strings.Keys.currencySymbol) var currencySymbol: String = "¥"
     @AppStorage(Strings.Keys.showPeakDot) var showPeakDot: Bool = false
+    @AppStorage(Strings.Keys.showUnreadDot) var showUnreadDot: Bool = true
     @AppStorage(Strings.Keys.peakNotificationEnabled) var peakNotificationEnabled: Bool = false
     @AppStorage(Strings.Keys.balanceAlertEnabled) var balanceAlertEnabled: Bool = false
 
@@ -117,6 +118,17 @@ struct GeneralSettingsView: View {
                 .toggleStyle(.switch)
                 .onChange(of: showPeakDot) {
                     NotificationCenter.default.post(name: .peakSettingsDidChange, object: nil)
+                }
+
+                Toggle(isOn: $showUnreadDot) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "circlebadge.fill").font(.caption)
+                        Text(Strings.unreadDotLabel)
+                    }
+                }
+                .toggleStyle(.switch)
+                .onChange(of: showUnreadDot) {
+                    NotificationCenter.default.post(name: .unreadDotDidChange, object: nil)
                 }
 
                 Toggle(isOn: $peakNotificationEnabled) {

@@ -20,6 +20,7 @@ enum AppAlertKind: String, Codable {
     case netlifyDeployRolledBack // Netlify 回滚成功
     case balanceWarning     // 余额进入预警区间
     case lowBalance         // 余额不足
+    case test               // 测试通知（设置 → 通知「发送测试通知」）
 }
 
 /// 一条通知记录。同时驱动：系统通知（可选）+ popover 横幅 + 「通知」页历史列表。

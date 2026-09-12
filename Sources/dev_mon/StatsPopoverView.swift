@@ -4905,6 +4905,7 @@ struct StatsPopoverView: View {
         case .netlifyDeployRolledBack: return "arrow.uturn.backward.circle.fill"
         case .lowBalance: return "exclamationmark.circle.fill"
         case .balanceWarning: return "exclamationmark.triangle.fill"
+        case .test: return "bell.badge.fill"
         }
     }
 
@@ -4915,6 +4916,7 @@ struct StatsPopoverView: View {
              .storeRestored: return .green
         case .tunnelDown, .lowBalance, .netlifyDeployFailed, .dbDown, .storeDegraded: return .red
         case .awsInstanceLongRunning: return .orange
+        case .test: return .purple
         }
     }
 

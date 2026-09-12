@@ -48,6 +48,7 @@ class StatusBarController: NSObject, NSWindowDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(menuBarColorChanged), name: .menuBarColorDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(currencyChanged), name: .currencyDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(peakSettingsChanged), name: .peakSettingsDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(unreadDotChanged), name: .unreadDotDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(popoverResizeRequested(_:)), name: .popoverResizeRequested, object: nil)
 
         let scale = AppConfig.savedPopoverScale()
@@ -277,8 +278,11 @@ class StatusBarController: NSObject, NSWindowDelegate {
         let showIcon = UserDefaults.standard.object(forKey: Strings.Keys.showMenuIcon) as? Bool ?? false
         let showIndicator = UserDefaults.standard.object(forKey: Strings.Keys.showIndicator) as? Bool ?? false
         let textMode = UserDefaults.standard.string(forKey: Strings.Keys.menuBarTextDisplay) ?? "balance"
+        // 未读红点开关（默认开）：写入视图，宽度计算与绘制共用视图上的同一個判定。
+        statusView?.showUnreadDot = UserDefaults.standard.object(forKey: Strings.Keys.showUnreadDot) as? Bool ?? true
 
         var w: CGFloat = showIcon ? 21 : 2  // leftX
+        w += StatusBarView.unreadDotGutter(statusView?.isUnreadDotOn ?? false)   // 未读红点槽位
         w += StatusBarView.unreadBadgeGutter(statusView?.unreadAlertCount ?? 0)  // 未读通知徽标槽位
         if showIndicator {
             w += 23  // leadingGap + 3bars + 2columnGaps + border + padding
@@ -346,6 +350,12 @@ class StatusBarController: NSObject, NSWindowDelegate {
     }
 
     @objc private func peakSettingsChanged() {
+        updateLabel()
+    }
+
+    /// 未读红点开关变化：即使用 stats 尚未就绪也要立即反映开关状态。
+    @objc private func unreadDotChanged() {
+        statusView?.showUnreadDot = UserDefaults.standard.object(forKey: Strings.Keys.showUnreadDot) as? Bool ?? true
         updateLabel()
     }
 

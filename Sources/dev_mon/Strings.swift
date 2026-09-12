@@ -11,6 +11,7 @@ extension Notification.Name {
     static let providerChanged = Notification.Name("providerChanged")
     static let seatRegistryChanged = Notification.Name("seatRegistryChanged")
     static let peakSettingsDidChange = Notification.Name("peakSettingsDidChange")
+    static let unreadDotDidChange = Notification.Name("unreadDotDidChange")
     static let popoverResizeRequested = Notification.Name("popoverResizeRequested")
     /// 弹窗显示/隐藏（object 为 NSNumber(Bool)）：用于「正在看通知页」的已读判定。
     static let popoverVisibilityDidChange = Notification.Name("popoverVisibilityDidChange")
@@ -95,6 +96,7 @@ enum Strings {
         static let localDBsNeo4jUser = "local_dbs_neo4j_user"
         static let localDBsNeo4jPassword = "local_dbs_neo4j_password"
         static let showPeakDot = "show_peak_dot"
+        static let showUnreadDot = "show_unread_dot"
         // Repo Data Stores（仓库数据存储）
         static let repoStoresEnabled = "repo_stores_enabled"
         static let repoStoresNotifyEnabled = "repo_stores_notification_enabled"
@@ -175,6 +177,7 @@ enum Strings {
     static var peakMenuActive: String { isZH ? "高峰剩 %@" : "Peak %@ left" }
     static var peakMenuPending: String { isZH ? "%@ 后高峰" : "Peak in %@" }
     static var peakDotLabel: String { isZH ? "高峰/低谷状态点" : "Peak Status Dot" }
+    static var unreadDotLabel: String { isZH ? "未读通知红点" : "Unread Notification Dot" }
     static var peakNotifyLabel: String { isZH ? "高峰/低谷切换通知" : "Peak Transition Notification" }
     static var peakNotifyTitle: String { isZH ? "DeepSeek 高峰时段开始" : "DeepSeek Peak started" }
     static var peakNotifyBody: String { isZH ? "高峰计费已开始（价格为低谷的 2 倍）" : "Peak pricing is now active (2× off-peak)." }
@@ -244,6 +247,16 @@ enum Strings {
     static var notificationsSessionNote: String {
         isZH ? "通知历史仅保存在本次运行的内存中，重启应用后清空。"
              : "Alert history is kept in memory for this session only — it is cleared when the app restarts."
+    }
+    static var notificationsSendTestLabel: String { isZH ? "发送测试通知" : "Send Test Alert" }
+    static var notificationsSendTestHint: String {
+        isZH ? "立即发出一条测试通知，用来验证系统通知、铃铛条目与菜单栏未读红点（红点 + 数字徽标）。"
+             : "Fires one test alert so you can verify the macOS notification, the bell entry and the menu-bar unread dot (dot + count capsule)."
+    }
+    static var alertTestTitle: String { isZH ? "测试通知" : "Test Notification" }
+    static var alertTestBody: String {
+        isZH ? "这是一条测试通知 —— 菜单栏应出现未读红点，铃铛页应出现未读条目。"
+             : "This is a test alert — the menu bar should show the unread dot and the bell tab should list it as unread."
     }
     static var notifyPeakHint: String {
         isZH ? "进入 / 离开 DeepSeek 高峰计费时段时提醒（高峰约为低谷 2 倍）"
@@ -354,7 +367,36 @@ enum Strings {
     static var licensePopoverManageHint: String { isZH ? "DS-mon 为吊销授权权威；注册表 / 密钥环 / 密钥在 设置 → 许可 中管理" : "DS-mon is the revocation authority; manage registries, rings and keys in Settings → License" }
     static var licenseCheckTitle: String { isZH ? "检查许可" : "Check Licenses" }
     static var licenseCheckButton: String { isZH ? "检查许可" : "Check Licenses" }
-    static var licenseSourceLabel: String { isZH ? "来源文件" : "Source File" }
+    static var licenseSourceLabel: String { isZH ? "来源文件" : "Source Files" }
+    static var licenseSourceAdd: String { isZH ? "添加来源" : "Add Source" }
+    static var licenseSourceRemove: String { isZH ? "移除来源" : "Remove Source" }
+    static func licenseSourceCount(_ n: Int) -> String {
+        isZH ? "\(n) 个来源" : "\(n) source" + (n == 1 ? "" : "s")
+    }
+    static var licenseSourcesHint: String {
+        isZH ? "可以添加多个文件：合并 bundle（export/devmon.json，含全部注册表）与单个注册表的导出（export/<registry>.json）会按**注册表 id** 合并 —— 以后新增的注册表只要出现在任一来源里就会显示，不会覆盖已有注册表。bundle 必须带 .sig 签名，否则整份被拒绝。"
+             : "Add more than one file: the combined bundle (export/devmon.json, every registry) and per-registry exports (export/<registry>.json) are merged **by registry id** — a registry added later appears as soon as any source contains it, without clobbering the others. Bundles must ship a .sig signature or they are refused."
+    }
+    static func licenseSourceSummary(registries: Int, seats: Int, updatedAt: String?) -> String {
+        let base = isZH ? "\(registries) 个注册表 · \(seats) 个席位"
+                        : "\(registries) registr" + (registries == 1 ? "y" : "ies") + " · \(seats) seats"
+        guard let updatedAt else { return base }
+        return base + (isZH ? "（更新于 \(updatedAt)）" : " (updated \(updatedAt))")
+    }
+    static func licenseCheckResultSources(_ seats: Int, _ sources: Int, _ updatedAt: String?) -> String {
+        let src = isZH ? "\(sources) 个来源" : "\(sources) source" + (sources == 1 ? "" : "s")
+        if let updatedAt {
+            return isZH ? "已从 \(src) 导入 \(seats) 个席位（更新于 \(updatedAt)）"
+                        : "Imported \(seats) seats from \(src) (updated \(updatedAt))"
+        }
+        return isZH ? "已从 \(src) 导入 \(seats) 个席位" : "Imported \(seats) seats from \(src)"
+    }
+    static var licenseChooseFile: String { isZH ? "选择文件…" : "Choose File…" }
+    static var licenseChooseFolder: String { isZH ? "选择文件夹…" : "Choose Folder…" }
+    static var licenseMirrorUnsafe: String {
+        isZH ? "该路径位于密钥管理器仓库内，会被忽略 —— 镜像永远不会写入密钥管理器的导出目录。"
+             : "That path is inside the key manager repo and will be ignored — the mirror never writes into the key manager's export directory."
+    }
     static func licenseCheckResult(_ n: Int, _ updatedAt: String?) -> String {
         if let u = updatedAt {
             return isZH ? "已导入 \(n) 个席位（更新于 \(u)）" : "Imported \(n) seats (updated \(u))"
