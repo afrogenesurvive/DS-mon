@@ -4993,6 +4993,9 @@ struct StatsPopoverView: View {
                 Spacer(minLength: 40)
             } else if !stats.tailscale.isInstalled {
                 tailscaleUnconfiguredState(Strings.tailscaleCliMissingNote)
+            } else if !stats.tailscale.enabled {
+                // 已安装但还没在设置里打开：给出「去设置」入口，而不是渲染一堆空数据。
+                tailscaleUnconfiguredState(Strings.tailscaleNotConfigured)
             } else if let err = stats.tailscale.errorMessage {
                 Spacer(minLength: 40)
                 VStack(spacing: 8) {
