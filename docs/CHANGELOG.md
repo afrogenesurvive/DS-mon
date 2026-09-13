@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.3.6-1] — 2026-09-13
+
+### Added
+
+- **Tailscale 服务页**：弹窗新增 Tailscale 页签（第 8 个，位于 Databases 与 Notifications 之间），展示本机 tailnet 状态与 serve / funnel 映射：
+  - **概览**：连接状态、本机节点名、tailnet IP、tailnet 名、出口节点、MagicDNS、密钥到期时间；`Health` 非空时逐条列出告警；另附 CLI 版本 / 变体（`macsys`）/ 系统扩展状态 / 二进制路径 / 最后更新时间。
+  - **设备**：tailnet 内其他设备的在线状态、系统、IP，以及**是直连还是走 DERP 中继**（中继显示区域码如 `NYC`）；离线设备显示最后在线时间。
+  - **Serve / Funnel**：列出端口、路径与本地目标，可复制或直接打开 `https://<节点>.<tailnet>.ts.net`；支持**新增 / 移除**（移除有确认弹窗，funnel 另有一键清空）。端口校验：1–65535、funnel 仅限 443 / 8443 / 10000、同一端口不能同时被 serve 与 funnel 占用。
+  - **未在 tailnet 启用 Serve / Funnel 时**：CLI 会给出浏览器授权链接，dev_mon 捕获该链接并在页面上提供**「打开授权页面」**按钮，而不是把请求挂死。
+- **设置 → 服务 → Tailscale**：启用开关、连接状态通知开关、状态 / 版本 / 系统扩展一览与手动刷新按钮；另外把「服务页全部展开 / 收起」的区段数从 8 个更新为 9 个。
+- **Tailscale 连接通知**：断开 / 恢复时发送系统通知（默认开，180 秒冷却；用户自己的操作会短暂抑制告警，避免把自己的操作误报成掉线）。
+- **导出 / 导入配置**已包含 Tailscale 设置（启用、通知开关）。
+
+### Notes
+
+- **不引入任何凭据**：Tailscale 的全部数据都通过本机 `tailscale` 命令行读取（`status --json` / `serve status --json` / `funnel status --json`），不走 admin API，因此没有令牌、没有钥匙串条目、`secretKeys` 未改动。
+- **两个实机验证过的坑（已在代码注释中标注）**：① Tailscale 的 macOS 可执行文件**同时是 GUI 与 CLI**，它靠 `SHLVL` / `TERM` / `TERM_PROGRAM` / `PS1` 判断模式，而 GUI 应用 fork 出来的子进程没有这些变量 —— 不加 `TAILSCALE_BE_CLI=1` 会**弹出 GUI 窗口且命令静默丢失**，因此 `ProcessRunner` 新增了 `extraEnvironment` 与 `runTailscale()` 统一注入。② tailnet 未启用 Serve / Funnel 时，**添加命令会无限阻塞**等待浏览器授权，因此所有变更命令都带 20 秒超时，并从输出里提取授权链接。
+- 解析按**实机抓取的真实 JSON**编写（`TCP{端口:{HTTPS}}` + `Web{主机:端口:{Handlers:{路径:{Proxy}}}}` + `AllowFunnel`），并容错 `Peer: null`（单机 tailnet）、9 位小数纳秒时间戳与全零时间戳。
+- `serve` / `funnel` 在本机**无需管理员权限**（实测），因此没有走 osascript 提权路径。
+- `docs/ui-guide.md`、`docs/settings-guide.md` 已同步更新（`docs/` 除 CHANGELOG 外为本地文件，不入库）。
+
 ## [0.3.5-1] — 2026-09-12
 
 ### Added

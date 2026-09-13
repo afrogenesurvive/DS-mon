@@ -10,6 +10,8 @@ enum AppAlertKind: String, Codable {
     case peakSoon           // 建议：高峰即将开始（提前提醒）
     case tunnelDown         // Cloudflare 隧道断开
     case tunnelRestored     // Cloudflare 隧道恢复
+    case tailscaleDown      // Tailscale 连接断开
+    case tailscaleRestored  // Tailscale 连接恢复
     case dbDown             // 本地数据库停止
     case dbRestored         // 本地数据库恢复
     case storeDegraded      // 仓库自带服务停止

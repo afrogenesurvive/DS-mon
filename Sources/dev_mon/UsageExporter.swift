@@ -697,6 +697,9 @@ enum ConfigExporter {
             Strings.Keys.netlifyAccountName,
             Strings.Keys.netlifySelectedSiteId,
             Strings.Keys.netlifyDeployNotifyEnabled,
+            // Tailscale 配置（无令牌：全部走本机 tailscale 命令行）
+            Strings.Keys.tailscaleEnabled,
+            Strings.Keys.tailscaleNotifyEnabled,
             // Local DBs 配置
             Strings.Keys.localDBsEnabled,
             Strings.Keys.localDBsNotifyEnabled,

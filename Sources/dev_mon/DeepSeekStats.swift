@@ -30,6 +30,7 @@ final class DeepSeekStats {
     private(set) var netlify = NetlifyManager()
     private(set) var localDBs = LocalDBManager()
     private(set) var repoStores = RepoDataStoreManager()
+    private(set) var tailscale = TailscaleManager()
 
     // 活跃提供商信息
     private(set) var providerName: String = "DeepSeek"

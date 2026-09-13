@@ -88,6 +88,9 @@ enum Strings {
         static let netlifyAccountName = "netlify_account_name"
         static let netlifySelectedSiteId = "netlify_selected_site_id"
         static let netlifyDeployNotifyEnabled = "netlify_deploy_notification_enabled"
+        // Tailscale（本机 tailnet 状态 + serve / funnel）
+        static let tailscaleEnabled = "tailscale_enabled"
+        static let tailscaleNotifyEnabled = "tailscale_notification_enabled"
         // Local DBs（本地数据库监控）
         static let localDBsEnabled = "local_dbs_enabled"
         static let localDBsNotifyEnabled = "local_dbs_down_notification_enabled"
@@ -972,6 +975,96 @@ enum Strings {
     static var netlifyDeployFailedBody: String { isZH ? "%@ 的部署失败" : "%@ deploy failed" }
     static var netlifyDeployRolledBackTitle: String { isZH ? "Netlify 已回滚" : "Netlify rolled back" }
     static var netlifyDeployRolledBackBody: String { isZH ? "已恢复到之前的部署版本" : "Restored a previous deploy" }
+
+    // MARK: - Tailscale（本机 tailnet 状态 + serve / funnel）
+    static var tailscaleSection: String { isZH ? "Tailscale" : "Tailscale" }
+    static var tailscaleTabTitle: String { isZH ? "Tailscale" : "Tailscale" }
+    static var tailscaleTabTooltip: String { isZH ? "Tailscale（tailnet 状态与 serve / funnel）" : "Tailscale (tailnet status & serve / funnel)" }
+    static var tailscaleToggle: String { isZH ? "启用 Tailscale 监控" : "Enable Tailscale" }
+    static var tailscaleNotifyLabel: String { isZH ? "连接状态通知" : "Connection notification" }
+    static var tailscaleNotifyHint: String { isZH ? "Tailscale 断开 / 恢复时发送系统通知" : "Notify when Tailscale disconnects or reconnects" }
+    static var tailscaleRefreshAction: String { isZH ? "刷新" : "Refresh" }
+    static var tailscaleLastUpdate: String { isZH ? "最后更新" : "Last update" }
+    static var tailscaleCliPathLabel: String { isZH ? "命令行" : "CLI" }
+    static var tailscaleVersionLabel: String { isZH ? "版本" : "Version" }
+    static var tailscaleVariantLabel: String { isZH ? "变体" : "Variant" }
+    static var tailscaleSysextLabel: String { isZH ? "系统扩展" : "System extension" }
+    static var tailscaleSysextOk: String { isZH ? "已启用（OK）" : "Enabled (OK)" }
+    static var tailscaleNotInstalled: String { isZH ? "未找到 Tailscale 命令行" : "Tailscale CLI not found" }
+    static var tailscaleNotConfigured: String { isZH ? "Settings → Services → Tailscale 配置" : "Settings → Services → Tailscale to configure" }
+    static var tailscaleStateRunning: String { isZH ? "已连接" : "Connected" }
+    static var tailscaleStateStarting: String { isZH ? "连接中…" : "Connecting…" }
+    static var tailscaleStateStopped: String { isZH ? "已断开" : "Disconnected" }
+    static var tailscaleStateNeedsLogin: String { isZH ? "需要登录" : "Needs login" }
+    static var tailscaleStateUnknown: String { isZH ? "未知状态" : "Unknown state" }
+    static var tailscaleTailnetLabel: String { isZH ? "Tailnet" : "Tailnet" }
+    static var tailscaleNodeLabel: String { isZH ? "本机节点" : "This node" }
+    static var tailscaleIPLabel: String { isZH ? "Tailnet IP" : "Tailnet IP" }
+    static var tailscaleExitNodeLabel: String { isZH ? "出口节点" : "Exit node" }
+    static var tailscaleExitNodeYes: String { isZH ? "已启用" : "Active" }
+    static var tailscaleExitNodeNo: String { isZH ? "未使用" : "Not in use" }
+    static var tailscaleMagicDNSLabel: String { isZH ? "MagicDNS" : "MagicDNS" }
+    static var tailscaleKeyExpiryLabel: String { isZH ? "密钥到期" : "Key expires" }
+    static var tailscaleHealthLabel: String { isZH ? "健康告警" : "Health warnings" }
+    static var tailscaleSubTabOverview: String { isZH ? "概览" : "Overview" }
+    static var tailscaleSubTabPeers: String { isZH ? "设备" : "Devices" }
+    static var tailscaleSubTabServe: String { isZH ? "Serve" : "Serve" }
+    static var tailscaleSubTabFunnel: String { isZH ? "Funnel" : "Funnel" }
+    static var tailscalePeersHeader: String { isZH ? "设备" : "Devices" }
+    static var tailscalePeersEmpty: String { isZH ? "tailnet 里还没有其他设备" : "No other devices in this tailnet yet" }
+    static var tailscaleOnline: String { isZH ? "在线" : "Online" }
+    static var tailscaleOffline: String { isZH ? "离线" : "Offline" }
+    static var tailscaleDirect: String { isZH ? "直连" : "Direct" }
+    static var tailscaleRelayLabel: String { isZH ? "中继" : "Relay" }
+    static var tailscaleLastSeenLabel: String { isZH ? "最后在线" : "Last seen" }
+    static var tailscaleServesHeader: String { isZH ? "Tailnet 内共享（serve）" : "Shared in tailnet (serve)" }
+    static var tailscaleServesEmpty: String { isZH ? "还没有 serve 映射" : "No serve mappings yet" }
+    static var tailscaleFunnelsHeader: String { isZH ? "公网共享（funnel）" : "Public (funnel)" }
+    static var tailscaleFunnelsEmpty: String { isZH ? "还没有 funnel 映射" : "No funnel mappings yet" }
+    static var tailscaleAddServeTitle: String { isZH ? "新增 serve" : "New serve" }
+    static var tailscaleAddFunnelTitle: String { isZH ? "新增 funnel" : "New funnel" }
+    static var tailscalePortField: String { isZH ? "端口" : "Port" }
+    static var tailscaleTargetField: String { isZH ? "本地目标" : "Local target" }
+    static var tailscaleTargetPlaceholder: String { isZH ? "localhost:3000" : "localhost:3000" }
+    static var tailscaleHTTPSLabel: String { isZH ? "使用 HTTPS" : "Use HTTPS" }
+    static var tailscaleAddAction: String { isZH ? "添加" : "Add" }
+    static var tailscaleCancelAction: String { isZH ? "取消" : "Cancel" }
+    static var tailscaleRemoveAction: String { isZH ? "移除" : "Remove" }
+    static var tailscaleRemoveConfirm: String { isZH ? "移除这条映射？" : "Remove this mapping?" }
+    static var tailscaleResetFunnelAction: String { isZH ? "清空 funnel" : "Reset funnel" }
+    static var tailscaleResetFunnelConfirm: String { isZH ? "清空全部 funnel 配置？" : "Reset all funnel configuration?" }
+    static var tailscaleEnableBannerTitle: String { isZH ? "尚未在 tailnet 启用" : "Not enabled on your tailnet" }
+    static var tailscaleEnableBannerBody: String { isZH ? "serve / funnel 需要在浏览器里授权一次；授权完成后回到这里刷新即可。" : "serve / funnel needs a one-time browser authorization. Come back and refresh when done." }
+    static var tailscaleOpenEnableAction: String { isZH ? "打开授权页面" : "Open authorization page" }
+    static var tailscalePortInvalid: String { isZH ? "端口需在 1–65535 之间" : "Port must be between 1 and 65535" }
+    static var tailscaleFunnelPortInvalid: String { isZH ? "Funnel 只允许 443 / 8443 / 10000" : "Funnel only allows 443 / 8443 / 10000" }
+    static var tailscaleTargetRequired: String { isZH ? "请填写本地目标" : "Enter a local target" }
+    static var tailscaleFileTargetUnsupported: String { isZH ? "Standalone 变体无法共享文件或目录，只能转发端口" : "The Standalone variant can't share files or directories — ports only" }
+    static var tailscalePortInUse: String { isZH ? "该端口已被 %@ 占用" : "Port already used by %@" }
+    static var tailscaleCopyAction: String { isZH ? "复制链接" : "Copy URL" }
+    static var tailscaleCopied: String { isZH ? "已复制" : "Copied" }
+    static var tailscaleOpenAction: String { isZH ? "打开" : "Open" }
+    static var tailscaleServeHint: String { isZH ? "serve 只在 tailnet 内可访问（https://<节点>.<tailnet>.ts.net）。" : "serve is reachable only inside your tailnet (https://<node>.<tailnet>.ts.net)." }
+    static var tailscaleFunnelHint: String { isZH ? "funnel 会把端口公开到互联网，仅支持 443 / 8443 / 10000，且同一端口不能同时被 serve 与 funnel 使用。" : "funnel exposes a port to the public internet; only 443 / 8443 / 10000 are allowed, and a port can't be serve and funnel at once." }
+    static var tailscaleSettingsNote: String {
+        isZH ? "状态与 serve/funnel 都通过本机 `tailscale` 命令行读取，仅 tailnet 内可达，不需要 API 令牌；凭据只由 Tailscale 自己保管。Standalone 变体无法共享文件或目录。"
+             : "Status and serve/funnel are read through the local `tailscale` CLI — tailnet-only, no API token, and credentials stay with Tailscale itself. The Standalone variant can't share files or directories."
+    }
+    static var tailscaleCliMissingNote: String { isZH ? "未检测到 tailscale 命令行：请在 Tailscale 客户端 设置 → CLI integration 里安装。" : "No tailscale CLI found: install it from the Tailscale client's Settings → CLI integration." }
+
+    // —— Tailscale 连接通知 ——
+    static var tailscaleDownTitle: String { isZH ? "Tailscale 已断开" : "Tailscale disconnected" }
+    static var tailscaleDownBody: String { isZH ? "本机已离开 tailnet，tailnet 内的服务暂时不可达" : "This device left the tailnet; tailnet-only services are unreachable" }
+    static var tailscaleRestoredTitle: String { isZH ? "Tailscale 已恢复" : "Tailscale reconnected" }
+    static var tailscaleRestoredBody: String { isZH ? "本机已重新加入 tailnet" : "This device is back on the tailnet" }
+
+    // —— Tailscale 操作结果 ——
+    static var tailscaleServeAdded: String { isZH ? "serve 已添加" : "serve added" }
+    static var tailscaleFunnelAdded: String { isZH ? "funnel 已添加" : "funnel added" }
+    static var tailscaleMappingRemoved: String { isZH ? "映射已移除" : "Mapping removed" }
+    static var tailscaleFunnelReset: String { isZH ? "funnel 已清空" : "funnel reset" }
+    static var tailscaleEnableRequired: String { isZH ? "该功能未在 tailnet 启用，请先授权" : "Not enabled on your tailnet — authorize first" }
+    static var tailscaleCommandTimedOut: String { isZH ? "命令超时（可能在等待浏览器授权）" : "Command timed out (may be waiting for browser authorization)" }
 
     // MARK: - Local DBs（本地数据库 MongoDB / MySQL / Neo4j）
     static var localDBsSection: String { isZH ? "本地数据库" : "Local DBs" }

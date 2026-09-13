@@ -22,12 +22,14 @@ enum ProcessRunner {
     ]
 
     /// 继承父进程环境，并把 `searchPaths` 前置到 PATH（保留原有尾部、去重）。
-    static func environment() -> [String: String] {
+    /// `extra` 里的变量最后写入，用于给单个子进程附加专用变量（如 TAILSCALE_BE_CLI）。
+    static func environment(extra: [String: String] = [:]) -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         let inherited = (env["PATH"] ?? "").split(separator: ":").map(String.init)
         var seen = Set<String>()
         let merged = (searchPaths + inherited).filter { seen.insert($0).inserted }
         env["PATH"] = merged.joined(separator: ":")
+        for (key, value) in extra { env[key] = value }
         return env
     }
 
@@ -44,13 +46,13 @@ enum ProcessRunner {
     /// 同步运行 `launchPath`，最多等 `timeout` 秒（超时会 terminate）。
     /// 返回终止码 + stdout/stderr 文本。stdout/stderr 并行读取，避免管道缓冲死锁。
     @discardableResult
-    static func run(launchPath: String, args: [String], timeout: TimeInterval = 15)
-        -> (status: Int32, stdout: String, stderr: String)
+    static func run(launchPath: String, args: [String], timeout: TimeInterval = 15,
+                    extraEnvironment: [String: String] = [:]) -> (status: Int32, stdout: String, stderr: String)
     {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: launchPath)
         p.arguments = args
-        p.environment = environment()
+        p.environment = environment(extra: extraEnvironment)
 
         let out = Pipe()
         let err = Pipe()
@@ -104,11 +106,12 @@ enum ProcessRunner {
     }
 
     /// 异步运行（切到后台线程），避免阻塞主线程；常用于 brew services 等耗时命令。
-    static func runAsync(launchPath: String, args: [String], timeout: TimeInterval = 15) async
-        -> (status: Int32, stdout: String, stderr: String)
+    static func runAsync(launchPath: String, args: [String], timeout: TimeInterval = 15,
+                         extraEnvironment: [String: String] = [:]) async -> (status: Int32, stdout: String, stderr: String)
     {
         await Task.detached(priority: .userInitiated) {
-            run(launchPath: launchPath, args: args, timeout: timeout)
+            run(launchPath: launchPath, args: args, timeout: timeout,
+                extraEnvironment: extraEnvironment)
         }.value
     }
 
@@ -130,14 +133,76 @@ enum ProcessRunner {
         ], fallbackName: "cloudflared")
     }
 
+    // MARK: - Tailscale
+
+    /// Tailscale 的 macOS 应用可执行文件**同时充当 GUI 与 CLI**：它会检查
+    /// `SHLVL` / `TERM` / `TERM_PROGRAM` / `PS1` 来决定这次调用是哪种模式。
+    /// GUI 应用 fork 出来的子进程这些变量都不存在，于是它会**弹出 GUI 窗口
+    /// 而不是执行命令**（命令静默丢失）。所有调用必须显式带上这个变量。
+    static let tailscaleCLIEnvironment = ["TAILSCALE_BE_CLI": "1"]
+
+    /// 解析 tailscale 二进制路径。
+    /// CLI integration 装的是 `/usr/local/bin/tailscale`（一个转发到 app bundle 的 sh 包装脚本）；
+    /// Standalone 变体即使没装 CLI integration，也能直接用 bundle 内的可执行文件。
+    static func tailscalePath() -> String? {
+        firstExecutable([
+            "/usr/local/bin/tailscale",
+            "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+            "/opt/homebrew/bin/tailscale",
+            "/usr/bin/tailscale",
+        ], fallbackName: "tailscale")
+    }
+
+    /// 运行 tailscale CLI（自动注入 `TAILSCALE_BE_CLI=1`）。
+    /// ⚠️ `tailscale serve|funnel <target>` 在 tailnet 未启用对应功能时会**无限阻塞**
+    /// 等待浏览器授权（不会自己退出），所以调用方必须给出较小的 timeout ——
+    /// `run` 会在超时后 terminate 子进程。
+    @discardableResult
+    static func runTailscale(_ args: [String], timeout: TimeInterval = 15)
+        -> (status: Int32, stdout: String, stderr: String)
+    {
+        guard let bin = tailscalePath() else {
+            return (127, "", "tailscale CLI not found")
+        }
+        return run(launchPath: bin, args: args, timeout: timeout,
+                   extraEnvironment: tailscaleCLIEnvironment)
+    }
+
+    /// 以管理员权限运行 tailscale CLI（osascript 密码框），并保留 `TAILSCALE_BE_CLI=1`
+    /// （`do shell script` 起的是全新环境，变量必须写进命令行里）。
+    static func runTailscaleAdmin(_ args: [String], timeout: TimeInterval = 120)
+        -> (ok: Bool, message: String)
+    {
+        guard let bin = tailscalePath() else { return (false, "tailscale CLI not found") }
+        return runAdmin(command: shellCommand(executable: bin, args: args,
+                                              env: tailscaleCLIEnvironment),
+                        timeout: timeout)
+    }
+
+    /// 拼一条可安全交给 `do shell script` 执行的命令行：环境变量前缀 + 单引号包裹的每个实参。
+    /// `runAdmin` 只会转义反斜杠和双引号，所以这里一律用单引号包住含空格/特殊字符的参数。
+    static func shellCommand(executable: String, args: [String],
+                             env: [String: String] = [:]) -> String {
+        func quote(_ s: String) -> String {
+            "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        var parts: [String] = []
+        for (key, value) in env.sorted(by: { $0.key < $1.key }) {
+            parts.append("\(key)=\(quote(value))")
+        }
+        parts.append(quote(executable))
+        parts.append(contentsOf: args.map(quote))
+        return parts.joined(separator: " ")
+    }
+
     /// 以管理员权限运行命令（弹出 macOS 密码框）。
     /// 通过 osascript 的 `do shell script … with administrator privileges` 实现。
-    static func runAdmin(command: String) -> (ok: Bool, message: String) {
+    static func runAdmin(command: String, timeout: TimeInterval = 120) -> (ok: Bool, message: String) {
         let escaped = command
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
         let script = "do shell script \"\(escaped)\" with administrator privileges"
-        let r = run(launchPath: "/usr/bin/osascript", args: ["-e", script], timeout: 120)
+        let r = run(launchPath: "/usr/bin/osascript", args: ["-e", script], timeout: timeout)
         let msg = r.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
         if r.status == 0 { return (true, msg) }
         return (false, msg.isEmpty ? "osascript exit \(r.status)" : msg)

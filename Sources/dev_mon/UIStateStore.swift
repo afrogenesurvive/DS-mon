@@ -21,6 +21,7 @@ final class UIStateStore: ObservableObject, @unchecked Sendable {
         static let githubSubTab     = "tab.github"
         static let awsSubTab        = "tab.aws"
         static let cloudflareSubTab = "tab.cloudflare"
+        static let tailscaleSubTab  = "tab.tailscale"
         static let dbSubTab         = "tab.db"
         static let settingsTab      = "tab.settings"
 
@@ -45,6 +46,10 @@ final class UIStateStore: ObservableObject, @unchecked Sendable {
 
         // Cloudflare 页
         static let cfHostnameList = "section.cf.hostnames"
+
+        // Tailscale 页
+        static let tsServeList  = "section.ts.serves"
+        static let tsFunnelList = "section.ts.funnels"
 
         // Netlify 页
         static let netlifySiteList = "section.netlify.list"

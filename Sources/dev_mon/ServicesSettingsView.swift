@@ -18,14 +18,14 @@ struct ServicesSettingsView: View {
 
     private static let defaultExpandedSections: Set<String> = ["proxy", "cloudflare", "sync"]
     private static let allSectionKeys = ["proxy", "github", "aws", "cloudflare", "netlify",
-                                         "localDBs", "repoStores", "sync"]
+                                         "tailscale", "localDBs", "repoStores", "sync"]
 
     private func expansion(_ key: String) -> Binding<Bool> {
         uiState.boolBinding(UIStateStore.Key.service(key),
                             default: Self.defaultExpandedSections.contains(key))
     }
 
-    /// 服务页的 8 个区段一起展开 / 收起。
+    /// 服务页的 9 个区段一起展开 / 收起。
     private func setAllSections(_ expanded: Bool) {
         for key in Self.allSectionKeys { uiState.setBool(UIStateStore.Key.service(key), expanded) }
     }
@@ -84,6 +84,9 @@ struct ServicesSettingsView: View {
             }
             serviceSection("netlify", title: Strings.netlifySection, icon: "diamond.fill") {
                 NetlifySettingsView(stats: stats, embedded: true)
+            }
+            serviceSection("tailscale", title: Strings.tailscaleSection, icon: "network") {
+                TailscaleSettingsView(stats: stats, embedded: true)
             }
             serviceSection("localDBs", title: Strings.localDBsSection, icon: "cylinder.split.1x2") {
                 LocalDBsSettingsView(stats: stats, embedded: true)
@@ -646,6 +649,146 @@ private struct NetlifySettingsView: View {
                     guard !id.isEmpty else { return }
                     Task { await nf.changeAccount(id) }
                 })
+    }
+}
+
+// MARK: - Tailscale Settings
+
+/// Tailscale 设置：只开关 + 状态展示。
+/// 不需要任何令牌（全部走本机 `tailscale` 命令行），所以这里没有 token 字段。
+private struct TailscaleSettingsView: View {
+    let stats: DeepSeekStats
+    var embedded: Bool = false
+
+    @State private var tsEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.tailscaleEnabled)
+    @State private var tsNotify: Bool = (UserDefaults.standard.object(forKey: Strings.Keys.tailscaleNotifyEnabled) as? Bool) ?? true
+
+    private var ts: TailscaleManager { stats.tailscale }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if !embedded {
+                HStack(spacing: 6) {
+                    Image(systemName: "network")
+                        .foregroundColor(.blue)
+                    Text(Strings.tailscaleSection).font(.body).bold()
+                    Spacer()
+                    statusDot
+                }
+            }
+
+            Toggle(isOn: $tsEnabled) {
+                Text(Strings.tailscaleToggle).font(.callout)
+            }
+            .toggleStyle(.switch)
+            .onChange(of: tsEnabled) { _, newVal in
+                ts.enabled = newVal
+                if newVal { ts.startAutoRefresh(); ts.refresh() }
+            }
+
+            Toggle(isOn: $tsNotify) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(Strings.tailscaleNotifyLabel).font(.callout)
+                    Text(Strings.tailscaleNotifyHint).font(.caption2).foregroundColor(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+            .onChange(of: tsNotify) { _, newVal in ts.notifyEnabled = newVal }
+
+            if tsEnabled {
+                Divider()
+
+                HStack(spacing: 6) {
+                    Text(Strings.tailscaleStateUnknown).font(.caption).foregroundColor(.secondary)
+                    Spacer()
+                    Text(stateText).font(.caption).foregroundColor(stateColor)
+                }
+
+                if let ip = ts.selfIPv4 {
+                    row(Strings.tailscaleIPLabel, ip)
+                }
+                if !ts.tailnetName.isEmpty {
+                    row(Strings.tailscaleTailnetLabel, ts.tailnetName)
+                }
+                if let version = ts.cliVersion {
+                    row(Strings.tailscaleVersionLabel, version + (ts.osVariant.map { "  ·  \($0)" } ?? ""))
+                }
+                if let sysext = ts.sysextText {
+                    row(Strings.tailscaleSysextLabel, sysext)
+                }
+                if let path = ts.binaryPath {
+                    row(Strings.tailscaleCliPathLabel, path)
+                }
+
+                if let err = ts.errorMessage {
+                    Text(err).font(.caption2).foregroundColor(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: 8) {
+                    Button {
+                        ts.refresh()
+                    } label: {
+                        Text(Strings.tailscaleRefreshAction).font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(ts.isLoading)
+
+                    if ts.isLoading { ProgressView().scaleEffect(0.6) }
+                    Spacer()
+                    if !ts.lastUpdate.isEmpty && ts.lastUpdate != "-" {
+                        Text("\(Strings.tailscaleLastUpdate) \(ts.lastUpdate)")
+                            .font(.caption2).foregroundColor(.secondary)
+                    }
+                }
+            }
+
+            Text(ts.isInstalled ? Strings.tailscaleSettingsNote : Strings.tailscaleCliMissingNote)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(20)
+        .onAppear { if tsEnabled { ts.refresh() } }
+    }
+
+    private var statusDot: some View {
+        HStack(spacing: 4) {
+            Circle().fill(stateColor).frame(width: 6, height: 6)
+            Text(stateText).font(.caption).foregroundColor(stateColor)
+        }
+    }
+
+    private var stateText: String {
+        guard ts.isInstalled else { return Strings.tailscaleNotInstalled }
+        switch ts.backendState {
+        case .running: return Strings.tailscaleStateRunning
+        case .starting: return Strings.tailscaleStateStarting
+        case .stopped: return Strings.tailscaleStateStopped
+        case .needsLogin: return Strings.tailscaleStateNeedsLogin
+        case .noState, .none: return Strings.tailscaleStateUnknown
+        }
+    }
+
+    private var stateColor: Color {
+        guard ts.isInstalled else { return .secondary }
+        switch ts.backendState {
+        case .running: return .green
+        case .starting: return .orange
+        case .needsLogin, .stopped: return .red
+        case .noState, .none: return .secondary
+        }
+    }
+
+    private func row(_ label: String, _ value: String) -> some View {
+        HStack(spacing: 8) {
+            Text(label).font(.caption).foregroundColor(.secondary)
+            Spacer()
+            Text(value)
+                .font(.system(.caption, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
     }
 }
 

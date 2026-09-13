@@ -334,6 +334,23 @@ struct StatsPopoverView: View {
     // Cloudflare 复制反馈（短暂显示勾选）
     @State private var cfCopiedValue: String?
     @State private var cfCopyResetTask: Task<Void, Never>?
+    // Tailscale（新增映射表单 / 移除确认 / 复制反馈）
+    @State private var tsShowAddForm = false
+    @State private var tsAddIsFunnel = false
+    @State private var tsAddPort = ""
+    @State private var tsAddTarget = ""
+    @State private var tsAddHTTPS = true
+    @State private var tsAddError: String?
+    @State private var tsRemoveRequest: TSRemoveRequest?
+    @State private var tsShowFunnelReset = false
+    @State private var tsCopiedValue: String?
+    @State private var tsCopyResetTask: Task<Void, Never>?
+    /// 移除确认弹窗要同时记住是 serve 还是 funnel（同一个映射两种关法）。
+    private struct TSRemoveRequest: Identifiable {
+        let mapping: TSServeMapping
+        let isFunnel: Bool
+        var id: String { (isFunnel ? "f" : "s") + mapping.id }
+    }
 
     // 折叠区段状态（DeepSeek 页）已改为持久化，见下方 usageSectionKeys
 
@@ -433,6 +450,8 @@ struct StatsPopoverView: View {
                     }
             } else if selectedTab == 7 {
                 localDBsTabContent
+            } else if selectedTab == 8 {
+                tailscaleTabContent
             } else if selectedTab == Self.alertsTabIndex {
                 ScrollView { alertsTabContent.padding(14) }
             } else if selectedTab == 2 {
@@ -1334,6 +1353,7 @@ struct StatsPopoverView: View {
             tabButton(assetName: "cloudflare", symbol: "cloud.bolt.fill", tag: 4, tooltip: Strings.cloudflareTabTooltip)
             tabButton(assetName: "netlify", symbol: "diamond.fill", tag: 6, tooltip: Strings.netlifyTabTooltip)
             tabButton(symbol: "cylinder.split.1x2", tag: 7, tooltip: Strings.localDBsTabTooltip)
+            tabButton(symbol: "network", tag: 8, tooltip: Strings.tailscaleTabTooltip)
             alertsTabButton
             Spacer()
         }
@@ -4675,6 +4695,7 @@ struct StatsPopoverView: View {
                 stats.netlify.refresh()
                 stats.localDBs.refresh()
                 stats.repoStores.refresh()
+                stats.tailscale.refresh()
                 loadUsage()
             }
             iconButton(icon: "square.and.arrow.up", label: Strings.exportUsageButton, color: .teal) {
@@ -4692,6 +4713,7 @@ struct StatsPopoverView: View {
                 stats.netlify.refresh()
                 stats.localDBs.refresh()
                 stats.repoStores.refresh()
+                stats.tailscale.refresh()
                 loadUsage()
             }
             iconButton(icon: "gearshape", label: Strings.settings, color: .secondary) {
@@ -4895,6 +4917,8 @@ struct StatsPopoverView: View {
         case .peakSoon: return "sun.max.trianglebadge.exclamationmark"
         case .tunnelDown: return "cloud.bolt.rain.fill"
         case .tunnelRestored: return "checkmark.circle.fill"
+        case .tailscaleDown: return "network.slash"
+        case .tailscaleRestored: return "network"
         case .dbDown: return "xmark.octagon.fill"
         case .dbRestored: return "checkmark.seal.fill"
         case .storeDegraded: return "shippingbox.fill"
@@ -4913,10 +4937,494 @@ struct StatsPopoverView: View {
         switch kind {
         case .peakStart, .peakSoon, .balanceWarning: return .orange
         case .peakEnd, .tunnelRestored, .netlifyDeployReady, .netlifyDeployRolledBack, .dbRestored,
-             .storeRestored: return .green
-        case .tunnelDown, .lowBalance, .netlifyDeployFailed, .dbDown, .storeDegraded: return .red
+             .storeRestored, .tailscaleRestored: return .green
+        case .tunnelDown, .lowBalance, .netlifyDeployFailed, .dbDown, .storeDegraded,
+             .tailscaleDown: return .red
         case .awsInstanceLongRunning: return .orange
         case .test: return .purple
+        }
+    }
+
+    // MARK: - Tailscale Tab
+
+    private var tsSubTab: Int {
+        get { uiState.int(UIStateStore.Key.tailscaleSubTab) }
+        nonmutating set { uiState.setInt(UIStateStore.Key.tailscaleSubTab, newValue: newValue) }
+    }
+
+    private static let tsSubTabTitles = [
+        Strings.tailscaleSubTabOverview,
+        Strings.tailscaleSubTabPeers,
+        Strings.tailscaleSubTabServe,
+        Strings.tailscaleSubTabFunnel,
+    ]
+
+    private var tsSubTabBar: some View {
+        HStack(spacing: 4) {
+            ForEach(Array(Self.tsSubTabTitles.enumerated()), id: \.offset) { index, title in
+                tsSubTabButton(title, tag: index)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 4)
+    }
+
+    private func tsSubTabButton(_ title: String, tag: Int) -> some View {
+        let active = tsSubTab == tag
+        return Button(action: { tsSubTab = tag }) {
+            Text(title)
+                .font(.system(size: 10, weight: active ? .semibold : .regular))
+                .foregroundColor(active ? .white : .secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(active ? Color.blue : Color.clear)
+                .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .modifier(HoverTooltip(text: title, position: .below))
+    }
+
+    private var tailscaleTabContent: some View {
+        VStack(spacing: 0) {
+            if stats.tailscale.isLoading {
+                Spacer(minLength: 40)
+                HStack { Spacer(); ProgressView().scaleEffect(1.2); Spacer() }
+                Spacer(minLength: 40)
+            } else if !stats.tailscale.isInstalled {
+                tailscaleUnconfiguredState(Strings.tailscaleCliMissingNote)
+            } else if let err = stats.tailscale.errorMessage {
+                Spacer(minLength: 40)
+                VStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill").font(.title2).foregroundColor(.orange)
+                    Text(err).font(.caption).foregroundColor(.orange).multilineTextAlignment(.center)
+                    tsActionButton(Strings.tailscaleRefreshAction, "arrow.clockwise", color: .blue, disabled: false) {
+                        stats.tailscale.refresh()
+                    }
+                    .padding(.top, 2)
+                }
+                .padding(.horizontal, 14)
+                Spacer(minLength: 40)
+            } else {
+                tsSubTabBar
+                Divider().padding(.horizontal, 14)
+                if tsSubTab == 0 {
+                    ScrollView { tailscaleOverviewView.padding(14) }
+                } else if tsSubTab == 1 {
+                    ScrollView { tailscalePeersView.padding(14) }
+                } else if tsSubTab == 2 {
+                    ScrollView { tailscaleMappingsView(funnel: false) }
+                } else {
+                    ScrollView { tailscaleMappingsView(funnel: true) }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .alert(Strings.tailscaleRemoveConfirm, isPresented: tsRemoveAlertBinding, presenting: tsRemoveRequest) { req in
+            Button(Strings.tailscaleCancelAction, role: .cancel) { tsRemoveRequest = nil }
+            Button(Strings.tailscaleRemoveAction, role: .destructive) {
+                let mapping = req.mapping
+                let isFunnel = req.isFunnel
+                tsRemoveRequest = nil
+                Task { await stats.tailscale.removeMapping(mapping, funnel: isFunnel) }
+            }
+        } message: { req in
+            Text("\(req.mapping.scheme)://\(req.mapping.hostPort.isEmpty ? "…" : req.mapping.hostPort)")
+        }
+        .alert(Strings.tailscaleResetFunnelConfirm, isPresented: $tsShowFunnelReset) {
+            Button(Strings.tailscaleCancelAction, role: .cancel) {}
+            Button(Strings.tailscaleResetFunnelAction, role: .destructive) {
+                Task { await stats.tailscale.resetFunnel() }
+            }
+        }
+    }
+
+    private var tsRemoveAlertBinding: Binding<Bool> {
+        Binding(get: { tsRemoveRequest != nil },
+                set: { if !$0 { tsRemoveRequest = nil } })
+    }
+
+    private func tailscaleUnconfiguredState(_ hint: String) -> some View {
+        VStack {
+            Spacer()
+            VStack(spacing: 8) {
+                Image(systemName: "network").font(.title2).foregroundColor(.secondary)
+                Text(hint).font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center)
+                Button(Strings.tailscaleNotConfigured) { StatusBarController.shared.showSettings() }
+                    .buttonStyle(.plain)
+                    .font(.caption2)
+                    .foregroundColor(.blue)
+            }
+            .frame(maxWidth: .infinity)
+            Spacer()
+        }
+    }
+
+    /// 一行“图标 + 标签 + 值”。
+    private func tsRow(_ icon: String, _ label: String, _ value: String,
+                       color: Color = .primary, iconColor: Color = .secondary) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).font(.system(size: 8)).foregroundColor(iconColor).frame(width: 14)
+            Text(label).font(.system(size: 9)).foregroundColor(.secondary)
+            Spacer()
+            Text(value).font(.system(size: 9)).foregroundColor(color)
+                .lineLimit(1).truncationMode(.middle)
+        }
+    }
+
+    private func tsActionButton(_ title: String, _ icon: String, color: Color,
+                                disabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 8))
+                Text(title).font(.system(size: 10, weight: .medium))
+            }
+            .foregroundColor(disabled ? Color.secondary : color)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(disabled ? Color.gray.opacity(0.12) : color.opacity(0.15))
+            .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled || stats.tailscale.isWorking)
+    }
+
+    private var tsStateText: String {
+        switch stats.tailscale.backendState {
+        case .running: return Strings.tailscaleStateRunning
+        case .starting: return Strings.tailscaleStateStarting
+        case .stopped: return Strings.tailscaleStateStopped
+        case .needsLogin: return Strings.tailscaleStateNeedsLogin
+        case .noState, .none: return Strings.tailscaleStateUnknown
+        }
+    }
+
+    private var tsStateColor: Color {
+        switch stats.tailscale.backendState {
+        case .running: return .green
+        case .starting: return .orange
+        case .needsLogin, .stopped: return .red
+        case .noState, .none: return .secondary
+        }
+    }
+
+    private var tailscaleOverviewView: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            let ts = stats.tailscale
+
+            HStack(spacing: 6) {
+                Image(systemName: "network").font(.system(size: 8)).foregroundColor(tsStateColor).frame(width: 14)
+                Text(tsStateText).font(.system(size: 10, weight: .medium)).foregroundColor(tsStateColor)
+                Spacer()
+                tsActionButton(Strings.tailscaleRefreshAction, "arrow.clockwise", color: .blue, disabled: false) {
+                    ts.refresh()
+                }
+            }
+
+            Divider().padding(.vertical, 2)
+
+            if let node = ts.selfNode {
+                tsRow("desktopcomputer", Strings.tailscaleNodeLabel, node.displayName, iconColor: .blue)
+            }
+            if let ip = ts.selfIPv4 {
+                tsRow("number", Strings.tailscaleIPLabel, ip, iconColor: .blue)
+            }
+            if !ts.tailnetName.isEmpty {
+                tsRow("person.2", Strings.tailscaleTailnetLabel, ts.tailnetName, iconColor: .blue)
+            }
+            tsRow("arrow.triangle.branch", Strings.tailscaleExitNodeLabel,
+                  ts.selfNode?.exitNode == true ? Strings.tailscaleExitNodeYes : Strings.tailscaleExitNodeNo,
+                  color: ts.selfNode?.exitNode == true ? .orange : .secondary,
+                  iconColor: .blue)
+            if !ts.magicDNSSuffix.isEmpty {
+                tsRow("globe", Strings.tailscaleMagicDNSLabel,
+                      ts.magicDNSSuffix + (ts.magicDNSEnabled ? "" : " (off)"), iconColor: .blue)
+            }
+            if let expiry = ts.selfNode?.keyExpiry {
+                tsRow("key", Strings.tailscaleKeyExpiryLabel,
+                      expiry.formatted(date: .abbreviated, time: .omitted), iconColor: .blue)
+            }
+
+            // Health 为空是常态（正常）；非空说明 Tailscale 自己报了问题。
+            if !ts.health.isEmpty {
+                Divider().padding(.vertical, 2)
+                ForEach(ts.health, id: \.self) { item in
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 8)).foregroundColor(.orange).frame(width: 14)
+                        Text(item).font(.system(size: 8)).foregroundColor(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+
+            Divider().padding(.vertical, 2)
+            if let version = ts.cliVersion {
+                tsRow("shippingbox", Strings.tailscaleVersionLabel, version)
+            }
+            if let variant = ts.osVariant {
+                tsRow("macwindow", Strings.tailscaleVariantLabel, variant)
+            }
+            if let sysext = ts.sysextText {
+                tsRow("checkmark.shield", Strings.tailscaleSysextLabel, sysext)
+            }
+            if let path = ts.binaryPath {
+                tsRow("terminal", Strings.tailscaleCliPathLabel, path)
+            }
+            tsRow("clock", Strings.tailscaleLastUpdate, ts.lastUpdate)
+        }
+    }
+
+    private var tailscalePeersView: some View {
+        let peers = stats.tailscale.peers
+        return VStack(alignment: .leading, spacing: 8) {
+            if peers.isEmpty {
+                Text(Strings.tailscalePeersEmpty)
+                    .font(.caption).foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 20)
+            } else {
+                ForEach(peers) { peer in
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Circle().fill(peer.online ? Color.green : Color.secondary)
+                                .frame(width: 6, height: 6)
+                            Text(peer.displayName)
+                                .font(.system(size: 10, weight: .medium))
+                                .lineLimit(1).truncationMode(.middle)
+                            Spacer()
+                            Text(peer.online ? Strings.tailscaleOnline : Strings.tailscaleOffline)
+                                .font(.system(size: 8))
+                                .foregroundColor(peer.online ? .green : .secondary)
+                        }
+                        HStack(spacing: 6) {
+                            Text(peer.os).font(.system(size: 8)).foregroundColor(.secondary)
+                            if let ip = peer.ipv4 {
+                                Text(ip).font(.system(size: 8, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            if peer.online {
+                                // 直连还是中继（DERP）—— 排查速度问题时最有用的一栏。
+                                Text(peer.isDirect ? Strings.tailscaleDirect : peer.relay.uppercased())
+                                    .font(.system(size: 8))
+                                    .foregroundColor(peer.isDirect ? .green : .orange)
+                            } else if let seen = peer.lastSeen {
+                                Text(seen.formatted(date: .abbreviated, time: .shortened))
+                                    .font(.system(size: 8)).foregroundColor(.secondary)
+                            }
+                        }
+                        if let login = peer.userLogin, !login.isEmpty {
+                            Text(login).font(.system(size: 8)).foregroundColor(.secondary)
+                                .lineLimit(1).truncationMode(.middle)
+                        }
+                    }
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.gray.opacity(0.08))
+                    .cornerRadius(6)
+                }
+            }
+        }
+    }
+
+    private func tailscaleMappingsView(funnel: Bool) -> some View {
+        let ts = stats.tailscale
+        let mappings = funnel ? ts.funnels : ts.serves
+        let enableURL = funnel ? ts.funnelEnableURL : ts.serveEnableURL
+        return VStack(alignment: .leading, spacing: 10) {
+            // 未在 tailnet 启用：CLI 会给出授权链接（serve / funnel 各自一次）。
+            if let urlString = enableURL {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 9)).foregroundColor(.orange)
+                        Text(Strings.tailscaleEnableBannerTitle)
+                            .font(.system(size: 10, weight: .medium)).foregroundColor(.orange)
+                    }
+                    Text(Strings.tailscaleEnableBannerBody)
+                        .font(.system(size: 8)).foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 6) {
+                        tsActionButton(Strings.tailscaleOpenEnableAction, "safari", color: .blue, disabled: false) {
+                            if let url = URL(string: urlString) { NSWorkspace.shared.open(url) }
+                        }
+                        tsActionButton(Strings.tailscaleRefreshAction, "arrow.clockwise", color: .secondary, disabled: false) {
+                            if funnel { ts.clearFunnelEnableHint() } else { ts.clearServeEnableHint() }
+                            ts.refresh()
+                        }
+                        Spacer()
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.10))
+                .cornerRadius(6)
+            }
+
+            HStack(spacing: 6) {
+                Text(funnel ? Strings.tailscaleFunnelsHeader : Strings.tailscaleServesHeader)
+                    .font(.system(size: 10, weight: .medium))
+                Spacer()
+                tsActionButton(funnel ? Strings.tailscaleAddFunnelTitle : Strings.tailscaleAddServeTitle,
+                               "plus", color: .blue, disabled: false) {
+                    tsAddIsFunnel = funnel
+                    tsAddHTTPS = true
+                    tsAddPort = funnel ? "443" : ""
+                    tsAddTarget = ""
+                    tsAddError = nil
+                    tsShowAddForm = true
+                }
+            }
+
+            if tsShowAddForm && tsAddIsFunnel == funnel {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Text(Strings.tailscalePortField).font(.system(size: 9)).foregroundColor(.secondary)
+                        TextField(funnel ? "443" : "3000", text: $tsAddPort)
+                            .textFieldStyle(.roundedBorder).font(.system(size: 9, design: .monospaced))
+                            .frame(width: 60)
+                            .disabled(funnel)
+                        if !funnel {
+                            Toggle(Strings.tailscaleHTTPSLabel, isOn: $tsAddHTTPS)
+                                .toggleStyle(.switch).font(.system(size: 9))
+                        }
+                        Spacer()
+                    }
+                    HStack(spacing: 6) {
+                        Text(Strings.tailscaleTargetField).font(.system(size: 9)).foregroundColor(.secondary)
+                        TextField(Strings.tailscaleTargetPlaceholder, text: $tsAddTarget)
+                            .textFieldStyle(.roundedBorder).font(.system(size: 9, design: .monospaced))
+                    }
+                    if let err = tsAddError {
+                        Text(err).font(.system(size: 8)).foregroundColor(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    HStack(spacing: 6) {
+                        tsActionButton(Strings.tailscaleAddAction, "checkmark", color: .green, disabled: false) {
+                            submitTSAdd()
+                        }
+                        tsActionButton(Strings.tailscaleCancelAction, "xmark", color: .secondary, disabled: false) {
+                            tsShowAddForm = false
+                            tsAddError = nil
+                        }
+                        Spacer()
+                    }
+                }
+                .padding(10)
+                .background(Color.blue.opacity(0.08))
+                .cornerRadius(6)
+            }
+
+            if mappings.isEmpty {
+                Text(funnel ? Strings.tailscaleFunnelsEmpty : Strings.tailscaleServesEmpty)
+                    .font(.caption).foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 20)
+            } else {
+                ForEach(mappings) { mapping in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Image(systemName: funnel ? "globe" : "lock.shield")
+                                .font(.system(size: 8))
+                                .foregroundColor(funnel ? .orange : .green)
+                            Text("\(mapping.scheme)://\(mapping.hostPort.isEmpty ? "…" : mapping.hostPort)")
+                                .font(.system(size: 9, weight: .medium))
+                                .lineLimit(1).truncationMode(.middle)
+                            Spacer()
+                            tsActionButton(Strings.tailscaleRemoveAction, "trash", color: .red, disabled: false) {
+                                tsRemoveRequest = TSRemoveRequest(mapping: mapping, isFunnel: funnel)
+                            }
+                        }
+                        HStack(spacing: 6) {
+                            Text(mapping.path).font(.system(size: 8, design: .monospaced))
+                                .foregroundColor(.secondary)
+                            Image(systemName: "arrow.right").font(.system(size: 7)).foregroundColor(.secondary)
+                            Text(mapping.target.isEmpty ? "-" : mapping.target)
+                                .font(.system(size: 8, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1).truncationMode(.middle)
+                            Spacer()
+                        }
+                        if let url = mapping.url {
+                            HStack(spacing: 6) {
+                                tsActionButton(tsCopiedValue == url ? Strings.tailscaleCopied : Strings.tailscaleCopyAction,
+                                               tsCopiedValue == url ? "checkmark" : "doc.on.doc",
+                                               color: tsCopiedValue == url ? .green : .secondary, disabled: false) {
+                                    copyTSValue(url)
+                                }
+                                tsActionButton(Strings.tailscaleOpenAction, "arrow.up.right.square",
+                                               color: .blue, disabled: false) {
+                                    if let u = URL(string: url) { NSWorkspace.shared.open(u) }
+                                }
+                                Spacer()
+                            }
+                        }
+                    }
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.gray.opacity(0.08))
+                    .cornerRadius(6)
+                }
+            }
+
+            Divider().padding(.vertical, 2)
+            Text(funnel ? Strings.tailscaleFunnelHint : Strings.tailscaleServeHint)
+                .font(.system(size: 8)).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let msg = ts.actionMessage {
+                Text(msg)
+                    .font(.system(size: 8))
+                    .foregroundColor(ts.actionSuccess ? .green : .orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if funnel && !ts.funnels.isEmpty {
+                tsActionButton(Strings.tailscaleResetFunnelAction, "arrow.counterclockwise",
+                               color: .red, disabled: false) {
+                    tsShowFunnelReset = true
+                }
+            }
+        }
+        .padding(14)
+    }
+
+    private func submitTSAdd() {
+        let port = Int(tsAddPort.trimmingCharacters(in: .whitespaces)) ?? 0
+        let target = tsAddTarget.trimmingCharacters(in: .whitespaces)
+        guard !target.isEmpty else { tsAddError = Strings.tailscaleTargetRequired; return }
+        guard (1...65535).contains(port) else { tsAddError = Strings.tailscalePortInvalid; return }
+        if tsAddIsFunnel, ![443, 8443, 10000].contains(port) {
+            tsAddError = Strings.tailscaleFunnelPortInvalid; return
+        }
+        // Standalone 变体受沙箱限制，只能转发端口，不能共享文件/目录。
+        if target.hasPrefix("/") { tsAddError = Strings.tailscaleFileTargetUnsupported; return }
+        // 同一端口不能同时被 serve 与 funnel 占用。
+        let otherMode = tsAddIsFunnel ? stats.tailscale.serves : stats.tailscale.funnels
+        if let conflict = otherMode.first(where: { $0.port == port }) {
+            tsAddError = String(format: Strings.tailscalePortInUse, "\(conflict.scheme):\(conflict.port)")
+            return
+        }
+        tsAddError = nil
+        tsShowAddForm = false
+        Task {
+            if tsAddIsFunnel {
+                await stats.tailscale.addFunnel(port: port, target: target)
+            } else {
+                await stats.tailscale.addServe(port: port, target: target, useHTTPS: tsAddHTTPS)
+            }
+        }
+    }
+
+    private func copyTSValue(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        tsCopiedValue = value
+        tsCopyResetTask?.cancel()
+        tsCopyResetTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            if !Task.isCancelled { tsCopiedValue = nil }
         }
     }
 
