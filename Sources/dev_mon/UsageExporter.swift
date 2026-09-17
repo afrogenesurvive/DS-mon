@@ -637,7 +637,8 @@ enum ConfigExporter {
 
     private static let formatName = "dev_mon_config"
     /// v2: 补上 Data Sync（sync_config）、许可检查来源、弹窗缩放与 UI 状态（ui.*）
-    private static let formatVersion = 2
+    /// v3: 补上计费时段规则的抓取间隔（peak_rules_check_interval_hours）
+    private static let formatVersion = 3
 
     // 需要导出的非密钥 UserDefaults 键
     @MainActor private static var settingsKeys: [String] {
@@ -681,6 +682,8 @@ enum ConfigExporter {
             Strings.Keys.showPeakDot,
             Strings.Keys.showUnreadDot,
             Strings.Keys.peakNotificationEnabled,
+            // 计费时段规则的抓取间隔（小时）——缓存下来的规则本身是运行时状态，不导出
+            PeakRulesStore.intervalKey,
             Strings.Keys.balanceAlertEnabled,
             Strings.Keys.tunnelDownNotificationEnabled,
             // AWS 实例持续运行提醒（计时起点 aws_instance_run_first_seen 属运行时状态，不导出）

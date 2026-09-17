@@ -32,6 +32,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         restoreProxy()
         SyncManager.shared.start()
         SeatRegistry.shared.startAutoCheck()
+        // 计费时段规则：先按缓存立即生效，随后按间隔（默认 24h）从官方定价页刷新
+        PeakRulesStore.shared.startAutoRefresh()
         PeakNotifier.requestAuthorization()
         PeakNotifier.scheduleNextTransition()
     }

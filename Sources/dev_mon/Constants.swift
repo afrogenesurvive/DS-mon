@@ -8,6 +8,9 @@ enum AppConfig {
     static let modelsRefreshInterval: TimeInterval = 3600
     static let balanceRequestTimeout: TimeInterval = 8
     static let modelsRequestTimeout: TimeInterval = 5
+    /// DeepSeek 计费时段规则的抓取间隔（小时）。用户可在「设置 → 服务 → 计费时段规则」中调整
+    /// （范围 1…168，存于 `PeakRulesStore.intervalKey`）。
+    static let peakRulesCheckIntervalDefaultHours: Double = 24
 
     // 🔌 代理默认值
     static let defaultProxyPort: UInt16 = 18080

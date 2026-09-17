@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.3.8-1] — 2026-09-17
+
+### Added
+
+- **高峰/低谷计费时段改为定期抓取，不再写死。** 时段此前硬编码在 `DeepSeekPricing.swift`（周一至周五 01:00–04:00 / 06:00–10:00 UTC）。新增
+  `Sources/dev_mon/PeakRules.swift`：`PeakRule`（星期集合 + 分钟区间 + 来源 + 时间戳）保存规则，`PeakRule.parse` 从官方定价页正文解析
+  （去标签/解实体 → 定位 “Peak hours are … UTC” 句 → 提取 `HH:MM - HH:MM` 与星期区间 → 结构校验：1–4 个区间、不重叠、start < end ≤ 1440、
+  星期 ⊆ 1…7），`PeakRulesStore` 负责缓存与定期抓取（启动即查 + 定时 + 系统唤醒补查，间隔 1–168 小时，默认 24）。**抓取或解析失败一律保留上一次
+  可用的规则**，从未成功过则退回内置兜底值（即旧行为）—— 失败只会退化成原样，不会让圆点/通知失效；失败原因与上次成功时间直接显示在设置行里，不静默。
+  规则更新后会重排高峰切换的系统通知（`PeakNotifier`），并立即刷新状态栏圆点 / 文字芯片 / 弹窗行。
+- **「计费时段规则」设置区段（设置 → 服务）。** 抓取间隔、上次检查时间、规则来源、解析出的时段、失败原因与 **立即检查** 按钮。间隔随 Export Config 迁移
+  （`ConfigExporter` formatVersion 2 → 3，新增 `peak_rules_check_interval_hours` 键；缓存下来的规则本身属运行时状态，不导出）。
+
+### Changed
+
+- `DeepSeekPricing.isPeak` / `nextTransition` 改为读取当前规则：切换边界由 `PeakRule.boundaryMinutes` 推导，不再假定固定的四个整点。
+
+### Notes
+
+- 成本计算**未**改变：`ModelPricing.computeCost` 仍只按内置价目表估算，不区分高峰/低谷。本次只解决「时段规则是否最新」。
+
 ## [0.3.7-1] — 2026-09-17
 
 ### Security

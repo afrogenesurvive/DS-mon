@@ -20,14 +20,14 @@ struct ServicesSettingsView: View {
 
     private static let defaultExpandedSections: Set<String> = ["proxy", "cloudflare", "sync"]
     private static let allSectionKeys = ["proxy", "github", "aws", "cloudflare", "netlify",
-                                         "tailscale", "localDBs", "repoStores", "sync"]
+                                         "tailscale", "localDBs", "repoStores", "peak", "sync"]
 
     private func expansion(_ key: String) -> Binding<Bool> {
         uiState.boolBinding(UIStateStore.Key.service(key),
                             default: Self.defaultExpandedSections.contains(key))
     }
 
-    /// 服务页的 9 个区段一起展开 / 收起。
+    /// 服务页的 10 个区段一起展开 / 收起。
     private func setAllSections(_ expanded: Bool) {
         for key in Self.allSectionKeys { uiState.setBool(UIStateStore.Key.service(key), expanded) }
     }
@@ -95,6 +95,9 @@ struct ServicesSettingsView: View {
             }
             serviceSection("repoStores", title: Strings.repoStoresSection, icon: "shippingbox") {
                 RepoStoresSettingsView(stats: stats, embedded: true)
+            }
+            serviceSection("peak", title: Strings.peakRulesSection, icon: "clock.badge.checkmark") {
+                PeakRulesSettingsView(embedded: true)
             }
             serviceSection("sync", title: Strings.syncSection, icon: "arrow.triangle.2.circlepath") {
                 SyncSettingsView(stats: stats, embedded: true)
@@ -714,6 +717,116 @@ private struct NetlifySettingsView: View {
                     guard !id.isEmpty else { return }
                     Task { await nf.changeAccount(id) }
                 })
+    }
+}
+
+// MARK: - Peak Rules Settings（计费时段规则）
+
+/// 设置 → 服务 → 计费时段规则：抓取间隔 / 上次检查 / 当前规则 / 立即检查。
+///
+/// 规则来自官方定价页的正文解析，因此这里把「上次成功抓取时间」「来源」「解析出的时段」
+/// 全部摊开显示 —— 页面改版导致解析失败时，用户能直接看到失败原因，而不是默默沿用旧规则。
+private struct PeakRulesSettingsView: View {
+    var embedded: Bool = false
+
+    @ObservedObject private var store = PeakRulesStore.shared
+    @State private var intervalHours: Double = PeakRulesStore.shared.intervalHours
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if !embedded {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.badge.checkmark")
+                        .foregroundColor(.orange)
+                    Text(Strings.peakRulesSection).font(.body).bold()
+                    Spacer()
+                }
+            }
+
+            HStack(spacing: 8) {
+                Text(Strings.peakRulesIntervalLabel)
+                    .font(.caption).foregroundColor(.secondary)
+                TextField("24", value: $intervalHours, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 60)
+                    .multilineTextAlignment(.trailing)
+                    .onSubmit { store.setInterval(hours: intervalHours) }
+                Stepper("", value: $intervalHours, in: 1...168, step: 1)
+                    .labelsHidden()
+                    .onChange(of: intervalHours) { _, newVal in
+                        store.setInterval(hours: newVal)
+                    }
+                Spacer()
+            }
+            Text(Strings.peakRulesIntervalHint)
+                .font(.caption2).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            HStack(spacing: 6) {
+                Text(Strings.peakRulesLastCheckedLabel).font(.caption).foregroundColor(.secondary)
+                Spacer()
+                Text(lastCheckedText).font(.caption).foregroundColor(.secondary)
+            }
+
+            HStack(spacing: 6) {
+                Text(Strings.peakRulesSourceLabel).font(.caption).foregroundColor(.secondary)
+                Spacer()
+                Text(store.rule.isFallback ? Strings.peakRulesSourceFallback : store.rule.source)
+                    .font(.caption2)
+                    .foregroundColor(store.rule.isFallback ? .orange : .secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            HStack(spacing: 6) {
+                Text(Strings.peakRulesWindowsLabel).font(.caption).foregroundColor(.secondary)
+                Spacer()
+                Text(windowsText)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.trailing)
+            }
+
+            if let err = store.lastError {
+                Text(err)
+                    .font(.caption2).foregroundColor(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    Task { await store.refresh() }
+                } label: {
+                    Text(store.isRefreshing ? Strings.peakRulesChecking : Strings.peakRulesCheckNow)
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                .disabled(store.isRefreshing)
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+    }
+
+    private var lastCheckedText: String {
+        guard let checked = store.lastChecked else { return Strings.peakRulesNeverChecked }
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .short
+        return f.localizedString(for: checked, relativeTo: Date())
+    }
+
+    /// 例：`周一至周五 01:00–04:00, 06:00–10:00 UTC`
+    private var windowsText: String {
+        let rule = store.rule
+        let days = Strings.peakRulesWeekdays(rule.weekdays)
+        let windows = rule.windows
+            .sorted { $0.startMinute < $1.startMinute }
+            .map { Strings.peakRulesWindow($0.startMinute, $0.endMinute) }
+            .joined(separator: ", ")
+        return "\(days) \(windows) \(rule.timeZoneID)"
     }
 }
 

@@ -190,6 +190,44 @@ enum Strings {
     static var offPeakNotifyTitle: String { isZH ? "DeepSeek 低谷时段开始" : "DeepSeek Off-Peak started" }
     static var offPeakNotifyBody: String { isZH ? "低谷计费已开始（价格约为高峰一半）——适合跑大批量任务" : "Off-peak discount is now active (~50% off) — good time for batch jobs." }
 
+    // 计费时段规则（设置 → 服务 → 计费时段规则）
+    static var peakRulesSection: String { isZH ? "计费时段规则" : "Billing Rule" }
+    static var peakRulesIntervalLabel: String { isZH ? "检查间隔（小时）" : "Check every (hours)" }
+    static var peakRulesIntervalHint: String {
+        isZH ? "每隔多少小时重新抓取 DeepSeek 官方定价页上的高峰/低谷时段（1–168）。抓取或解析失败时保留上一次可用的规则，界面与通知不受影响。"
+             : "How often to re-read the peak/off-peak hours published on DeepSeek's pricing page (1–168). A failed check keeps the last known-good rule, so the dot and notifications are unaffected."
+    }
+    static var peakRulesLastCheckedLabel: String { isZH ? "上次检查" : "Last checked" }
+    static var peakRulesNeverChecked: String { isZH ? "从未" : "Never" }
+    static var peakRulesSourceLabel: String { isZH ? "规则来源" : "Rule source" }
+    static var peakRulesSourceFallback: String { isZH ? "内置默认值（尚未成功抓取）" : "Built-in default (never fetched)" }
+    static var peakRulesWindowsLabel: String { isZH ? "时段" : "Windows" }
+    static var peakRulesWeekdaysEvery: String { isZH ? "每天" : "Every day" }
+    static var peakRulesCheckNow: String { isZH ? "立即检查" : "Check Now" }
+    static var peakRulesChecking: String { isZH ? "检查中…" : "Checking…" }
+    static var peakRulesErrorHTTP: String { isZH ? "定价页返回 HTTP %@" : "Pricing page returned HTTP %@" }
+    static var peakRulesErrorParse: String {
+        isZH ? "无法从定价页解析出时段（继续使用上一次可用的规则）"
+             : "Could not parse the hours from the pricing page (keeping the last known-good rule)"
+    }
+    static var peakRulesErrorNetwork: String { isZH ? "网络错误：%@" : "Network error: %@" }
+
+    /// 星期集合的可读文本（"Mon–Fri" / "周一至周五"）
+    static func peakRulesWeekdays(_ days: [Int]) -> String {
+        let sorted = days.sorted()
+        if sorted == [2, 3, 4, 5, 6] { return isZH ? "周一至周五" : "Mon–Fri" }
+        let names = isZH ? ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
+                         : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+        let text = sorted.compactMap { (1...7).contains($0) ? names[$0 - 1] : nil }
+        return text.isEmpty ? peakRulesWeekdaysEvery : text.joined(separator: isZH ? "、" : ", ")
+    }
+
+    /// 单个区间的可读文本（"01:00–04:00"）
+    static func peakRulesWindow(_ startMinute: Int, _ endMinute: Int) -> String {
+        String(format: "%02d:%02d–%02d:%02d",
+               startMinute / 60, startMinute % 60, endMinute / 60, endMinute % 60)
+    }
+
     // MARK: - 🔔 Notifications / Alerts
     static var alertsTabTitle: String { isZH ? "通知" : "Alerts" }
     static var alertsTabTooltip: String { isZH ? "通知" : "Notifications" }
