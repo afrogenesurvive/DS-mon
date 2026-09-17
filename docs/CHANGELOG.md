@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.3.8-2] — 2026-09-17
+
+### Added
+
+- **来源用量 → 明细：按仓库（子来源）过滤。** 来源筛选旁新增青色「全部仓库」下拉，列出当前时间范围内出现过的仓库（按最近使用排序，跟随已选来源 /
+  时间范围 / 活动提供商），可与来源筛选组合使用 —— 例如「只看 VS Code 为 DS-mon 发的请求」。`UsageStore.distinctRepos(...)` 为新增查询，
+  `records(...)` / `sourceRecords(...)` 增加 `repo` 精确匹配参数（`AND repo = ?`，绑定顺序 since → sourceIP → repo → providerId → limit）。
+- **指南页改为可折叠侧边栏。** 顶部文档页签换成「**文档 ▸ 章节**」两级目录：文档（How It Works / Network Posture / Settings Guide /
+  Interface Guide）是父行，其 `##` / `###` 标题作为**缩进子行**（h2 一级、h3 两级）；点击章节直接滚动到该标题，点击文档行回到顶部。
+  `MarkdownRenderer.render(...)` 现在同时返回目录 —— `OutlineItem` 带**标题在渲染结果里的字符偏移**，由 `NSTextView.scrollRangeToVisible`
+  定位（滚动请求带 token，重复点同一章节也会重新滚动）。文档一次性全部渲染后缓存，所以未选中文档的章节也能直接点。
+  每份文档的展开状态持久化在 `UIStateStore.Key.guideDoc(slug)`，随 Export Config 迁移；文档头部保留 ↗（外部打开）与 📁（Finder 显示）。
+- **`SecureStore.keychainDiagnostic`**：只读诊断串（是否已缓存 / 最近 `OSStatus` / 是否已放弃写钥匙串），便于日志与「关于」页排查授权问题。
+
+### Fixed
+
+- **钥匙串授权弹窗反复弹出（0.3.8 回归）。** 旧实现里主密钥**每次**加解密都要读一次钥匙串 —— 而代理在**每个请求**上都会读取客户端令牌
+  （`ProxyConnectionHandler` → `ProxyServer.clientToken` → `SecureStore.retrieve`），设置界面的多个 `@State` 初始化器也会反复触发；
+  更关键的是**读取失败被当成「钥匙串里没有密钥」**：用户点取消 / 拒绝（或 ACL 失效）后会走兜底分支，把密钥**删除再重建**
+  （`SecItemDelete` + `SecItemAdd`），于是刚点的「始终允许」连同条目 ACL 一起作废，下一次读取再次弹窗 —— 弹窗就此死循环。
+  现在：主密钥在一次运行里**最多读一次**（进程内缓存 + `NSLock`，缓存是安全的，主密钥本身不会变）；写入改为 `SecItemUpdate`，
+  仅在 `errSecItemNotFound` 时才 `SecItemAdd`，**绝不 delete + add**；读取被拒绝后本次运行不再触碰钥匙串、直接用 0600 兜底密钥文件；
+  所有钥匙串失败都会打印 `OSStatus` 而不是静默塌缩成 `nil`。
+- **指南页滚动位置被重置**：`RichTextScrollView.updateNSView` 此前每次 SwiftUI 刷新都重设整份 attributed string，会把读者已经滚到的位置抹掉 ——
+  现在只在内容真的变化时重排。
+
+### Changed
+
+- **`docs/network-posture.md` 全篇改为英文**（它是 `docs/` 里唯一的中文文档，会在应用内指南页整篇显示成中文）。主机名 / 隧道 ID / zone ID
+  仍全部使用占位符（`dsmon.<zone>`、`chat.<zone>`）。
+- **文档补齐**（`docs/` 除本文件外为本地文件，不入库）：ui-guide 补上 `Databases → Local / Repo` 双页签与整节**仓库数据存储**说明、
+  Guide 页的新侧边栏与四份文档列表、Source Usage 的仓库筛选；settings-guide 补上 **Repo Data Stores** 服务条目（扫描目录 / 深度 /
+  显示详细信息 / 包含外部系统 / 服务通知 / 立即扫描）、**About 与 Guide** 页说明，以及钥匙串弹窗（含「**不要删除该条目**」）与仓库存储的
+  疑难排查行；how-it-works 补上仓库数据存储、主密钥与「钥匙串 + 0600 兜底文件」的实际机制，并链到 `network-posture.md`。
+
+### Notes
+
+- 修复后的预期行为是**每次启动最多弹一次**授权框，点「取消」也不会丢数据（走 0600 兜底密钥文件）。弹窗的频率归根到底由代码签名决定：
+  发布包是 **ad-hoc 签名**（`codesign --sign -`），每次构建的 cdhash 都不同，macOS 无法把新构建认成同一个 app，「始终允许」会随下一次构建失效 ——
+  要让它彻底不再出现，需要改用稳定的签名身份。
+- 升级后建议完全退出并重启一次 dev_mon，以便新的读取路径生效。
+- 成本计算、代理与同步的鉴权行为未改动。
+
 ## [0.3.8-1] — 2026-09-17
 
 ### Added

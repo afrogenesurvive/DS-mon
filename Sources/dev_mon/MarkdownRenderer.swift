@@ -29,8 +29,24 @@ enum MarkdownRenderer {
 
     // MARK: - Public
 
+    /// 渲染结果的目录项。`location` 是标题在 attributed string 里的**字符偏移**，
+    /// 可直接喂给 `NSTextView.scrollRangeToVisible` 实现「点目录跳转」。
+    struct OutlineItem: Identifiable {
+        let level: Int      // 1 = "#", 2 = "##", 3 = "###"
+        let title: String
+        let location: Int
+        var id: Int { location }
+    }
+
     static func attributedString(from markdown: String, baseURL: URL? = nil) -> NSAttributedString {
+        render(markdown: markdown, baseURL: baseURL).attributed
+    }
+
+    /// 渲染并**同时返回目录**（标题层级 / 文本 / 偏移），供指南页侧边栏使用。
+    static func render(markdown: String, baseURL: URL? = nil)
+        -> (attributed: NSAttributedString, outline: [OutlineItem]) {
         let out = NSMutableAttributedString()
+        var outline: [OutlineItem] = []
         let lines = markdown.components(separatedBy: .newlines)
         var i = 0
         let n = lines.count
@@ -47,7 +63,7 @@ enum MarkdownRenderer {
             }
             // ATX 标题
             if let level = headingLevel(raw) {
-                appendHeading(raw, level: level, baseURL: baseURL, to: out)
+                outline.append(appendHeading(raw, level: level, baseURL: baseURL, to: out))
                 i += 1
                 continue
             }
@@ -104,7 +120,7 @@ enum MarkdownRenderer {
             appendParagraph(para.joined(separator: " "), baseURL: baseURL, to: out)
         }
 
-        return out
+        return (out, outline)
     }
 
     // MARK: - Paragraph helpers
@@ -176,7 +192,9 @@ enum MarkdownRenderer {
         }
     }
 
-    private static func appendHeading(_ raw: String, level: Int, baseURL: URL?, to out: NSMutableAttributedString) {
+    /// 追加标题，并把「层级 / 标题文本 / 起始偏移」返回给调用方（目录用）。
+    @discardableResult
+    private static func appendHeading(_ raw: String, level: Int, baseURL: URL?, to out: NSMutableAttributedString) -> OutlineItem {
         let chars = Array(raw)
         let content = String(chars.dropFirst(level + 1)).trimmingCharacters(in: .whitespaces)
         let spec = headingSpec(level)
@@ -186,6 +204,7 @@ enum MarkdownRenderer {
         appendInlineRuns(content, font: font, color: .labelColor, baseURL: baseURL, to: out)
         applyStyle(out, from: start, paragraphStyle(spacingBefore: before, spacing: 5))
         newline(out)
+        return OutlineItem(level: level, title: content, location: start)
     }
 
     // MARK: - Paragraph / quote / rule

@@ -65,6 +65,9 @@ final class UIStateStore: ObservableObject, @unchecked Sendable {
         static func service(_ key: String) -> String { "service.\(key)" }
         static func provider(_ id: String) -> String { "provider.\(id)" }
 
+        /// 指南页侧边栏：每份文档的展开/收起（slug = 文件名去掉 .md）
+        static func guideDoc(_ slug: String) -> String { "section.guide.\(slug)" }
+
         /// Export Config 中 UI 状态键的前缀
         static let exportPrefix = "ui."
 

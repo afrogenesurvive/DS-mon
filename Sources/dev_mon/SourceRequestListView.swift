@@ -1,10 +1,11 @@
 import SwiftUI
 import Foundation
 
-/// 按来源（sourceIP）+ 时间范围过滤的逐条请求列表（Source Usage → Individual 模式）
+/// 按来源（sourceIP）+ 仓库子来源（repo）+ 时间范围过滤的逐条请求列表（Source Usage → Individual 模式）
 struct SourceRequestListView: View {
     let frameWidth: CGFloat
     var sourceIP: String = ""
+    var repo: String = ""
     var since: Date?
     var providerId: String?
 
@@ -83,6 +84,7 @@ struct SourceRequestListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear { loadRecords() }
         .onChange(of: sourceIP) { _, _ in loadRecords() }
+        .onChange(of: repo) { _, _ in loadRecords() }
         .onChange(of: since) { _, _ in loadRecords() }
         .onChange(of: providerId ?? "") { _, _ in loadRecords() }
         .onReceive(NotificationCenter.default.publisher(for: .usageRecorded)) { _ in
@@ -196,6 +198,7 @@ struct SourceRequestListView: View {
                 since: since,
                 sourceIP: sourceIP,
                 providerId: providerId,
+                repo: repo.isEmpty ? nil : repo,
                 limit: 2000,
                 perSourceLimit: sourceIP.isEmpty ? 50 : nil
             )

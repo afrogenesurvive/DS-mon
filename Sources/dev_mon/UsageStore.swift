@@ -662,11 +662,51 @@ actor UsageStore {
         return results
     }
 
-    /// Individual usage records, optionally filtered by period + source, newest first.
+    /// Distinct non-empty repo names (sub-sources) for the repo filter dropdown.
+    /// Ordered by most recent use, optionally narrowed to one source.
+    func distinctRepos(since: Date? = nil, sourceIP: String? = nil, providerId: String? = nil) -> [String] {
+        guard let db else { return [] }
+        let hasSince = since != nil
+        let hasSource = sourceIP.map { !$0.isEmpty } ?? false
+        let hasProvider = providerId.map { !$0.isEmpty } ?? false
+        let sql = """
+        SELECT repo, MAX(timestamp)
+        FROM usage_log
+        WHERE repo != '' AND repo IS NOT NULL
+        \(hasSince ? " AND timestamp >= ?" : "")\(hasSource ? " AND source_ip = ?" : "")\(hasProvider ? " AND provider_id = ?" : "")
+        GROUP BY repo
+        ORDER BY MAX(timestamp) DESC;
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        var bindIdx: Int32 = 1
+        if let since {
+            sqlite3_bind_double(stmt, bindIdx, since.timeIntervalSince1970)
+            bindIdx += 1
+        }
+        if let src = sourceIP, hasSource {
+            sqlite3_bind_text(stmt, bindIdx, src, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            bindIdx += 1
+        }
+        if let pid = providerId, hasProvider {
+            sqlite3_bind_text(stmt, bindIdx, pid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            bindIdx += 1
+        }
+        defer { sqlite3_finalize(stmt) }
+        var results: [String] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            results.append(String(cString: sqlite3_column_text(stmt, 0)))
+        }
+        return results
+    }
+
+    /// Individual usage records, optionally filtered by period + source + repo, newest first.
     /// When `perSourceLimit` is set (and no specific source filter), balances across sources
     /// so a high-volume source (e.g. the local host) can't hide the others.
-    func records(since: Date? = nil, sourceIP: String? = nil, providerId: String? = nil, limit: Int = 50, perSourceLimit: Int? = nil) -> [UsageRecord] {
+    /// `repo` is the sub-source filter (a repo basename detected by `LocalRepoDetector`).
+    func records(since: Date? = nil, sourceIP: String? = nil, providerId: String? = nil, repo: String? = nil, limit: Int = 50, perSourceLimit: Int? = nil) -> [UsageRecord] {
         let hasSource = sourceIP.map { !$0.isEmpty } ?? false
+        let hasRepo = repo.map { !$0.isEmpty } ?? false
         let balanced = !hasSource && (perSourceLimit != nil)
 
         if balanced {
@@ -674,10 +714,16 @@ actor UsageStore {
             let sources = distinctSources()
             var all: [UsageRecord] = []
             for src in sources {
-                all.append(contentsOf: sourceRecords(since: since, sourceIP: src, providerId: providerId, limit: per))
+                all.append(contentsOf: sourceRecords(since: since, sourceIP: src,
+                                                    providerId: providerId,
+                                                    repo: hasRepo ? repo : nil,
+                                                    limit: per))
             }
             // local (empty/NULL source_ip) partition — always included so it can't be dropped
-            all.append(contentsOf: sourceRecords(since: since, sourceIP: "", providerId: providerId, limit: per))
+            all.append(contentsOf: sourceRecords(since: since, sourceIP: "",
+                                                providerId: providerId,
+                                                repo: hasRepo ? repo : nil,
+                                                limit: per))
             all.sort { $0.timestamp > $1.timestamp }
             if all.count > limit {
                 all = Array(all.prefix(limit))
@@ -685,15 +731,19 @@ actor UsageStore {
             return all
         }
 
-        return sourceRecords(since: since, sourceIP: hasSource ? sourceIP : nil, providerId: providerId, limit: limit)
+        return sourceRecords(since: since, sourceIP: hasSource ? sourceIP : nil,
+                             providerId: providerId,
+                             repo: hasRepo ? repo : nil,
+                             limit: limit)
     }
 
     /// Per-source records query. `sourceIP` = "" matches the local (empty/NULL) partition;
-    /// `nil` matches all sources.
-    private func sourceRecords(since: Date?, sourceIP: String?, providerId: String?, limit: Int) -> [UsageRecord] {
+    /// `nil` matches all sources. `repo` is an exact-match sub-source filter (`nil` = all repos).
+    private func sourceRecords(since: Date?, sourceIP: String?, providerId: String?, repo: String?, limit: Int) -> [UsageRecord] {
         guard let db else { return [] }
         let hasSince = since != nil
         let hasProvider = providerId.map { !$0.isEmpty } ?? false
+        let hasRepo = repo.map { !$0.isEmpty } ?? false
         let sourceClause: String
         if let src = sourceIP, src.isEmpty {
             sourceClause = " AND (source_ip = '' OR source_ip IS NULL)"
@@ -702,12 +752,13 @@ actor UsageStore {
         } else {
             sourceClause = ""
         }
+        // 绑定顺序必须与占位符顺序一致：since → sourceIP → repo → providerId → limit
         let sql = """
         SELECT uuid, timestamp, provider_id, model, endpoint,
                prompt_tokens, completion_tokens, total_tokens, cached_tokens,
                reasoning_tokens, latency_ms, status_code, user_agent, source_ip, repo
         FROM usage_log
-        WHERE 1=1\(hasSince ? " AND timestamp >= ?" : "")\(sourceClause)\(hasProvider ? " AND provider_id = ?" : "")
+        WHERE 1=1\(hasSince ? " AND timestamp >= ?" : "")\(sourceClause)\(hasRepo ? " AND repo = ?" : "")\(hasProvider ? " AND provider_id = ?" : "")
         ORDER BY timestamp DESC
         LIMIT ?;
         """
@@ -720,6 +771,10 @@ actor UsageStore {
         }
         if let src = sourceIP, !src.isEmpty {
             sqlite3_bind_text(stmt, bindIdx, src, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            bindIdx += 1
+        }
+        if let repo, hasRepo {
+            sqlite3_bind_text(stmt, bindIdx, repo, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
             bindIdx += 1
         }
         if let pid = providerId, hasProvider {

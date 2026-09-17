@@ -468,11 +468,11 @@ struct StatsPopoverView: View {
         .frame(maxHeight: 550)
         .scrollIndicators(.hidden)
         .onAppear {
-            loadUsage(); loadSourceUsage(); loadSourceOptions(); postPopoverResize()
+            loadUsage(); loadSourceUsage(); loadSourceOptions(); loadRepoOptions(); postPopoverResize()
             recentAlerts = AppAlertCenter.recent
         }
         .onReceive(NotificationCenter.default.publisher(for: .usageRecorded)) { _ in
-            loadUsage(); loadSourceUsage(); loadSourceOptions()
+            loadUsage(); loadSourceUsage(); loadSourceOptions(); loadRepoOptions()
         }
         .onReceive(NotificationCenter.default.publisher(for: .appAlertDidFire)) { note in
             guard let alert = note.object as? AppAlert else { return }
@@ -495,7 +495,7 @@ struct StatsPopoverView: View {
                 recentAlerts = AppAlertCenter.recent
             }
         }
-        .onChange(of: stats.providerID) { _, _ in loadUsage(); loadSourceUsage(); loadSourceOptions() }
+        .onChange(of: stats.providerID) { _, _ in loadUsage(); loadSourceUsage(); loadSourceOptions(); loadRepoOptions() }
         .alert(Strings.awsConfirmTitle, isPresented: $showAwsConfirm, presenting: awsConfirmRequest) { req in
             Button(Strings.cancel, role: .cancel) {}
             Button(awsConfirmButtonLabel) {
@@ -830,6 +830,9 @@ struct StatsPopoverView: View {
     @State private var sourceRepos: [String: [String]] = [:]
     @State private var sourceChartData: [TokenBar] = []
     @State private var sourceOptions: [String] = []
+    /// 子来源（仓库）筛选："" = 全部仓库。仅明细模式生效。
+    @State private var repoOptions: [String] = []
+    @State private var selectedRepo = ""
     @State private var aggregateSortKey = "cost"
     @State private var aggregateSortAsc = false
 
@@ -980,6 +983,21 @@ struct StatsPopoverView: View {
         }
     }
 
+    /// 子来源（仓库）下拉项：跟随已选来源、时间范围与活动提供商。
+    private func loadRepoOptions() {
+        let src = selectedSource.isEmpty ? nil : selectedSource
+        let since = sourcePeriodStart
+        let pid = activeUsageProviderId
+        Task { @MainActor in
+            repoOptions = await UsageStore.shared.distinctRepos(since: since,
+                                                               sourceIP: src,
+                                                               providerId: pid)
+            if !selectedRepo.isEmpty && !repoOptions.contains(selectedRepo) {
+                selectedRepo = ""
+            }
+        }
+    }
+
     private var sourcePeriodStart: Date? {
         let cal = Calendar.current
         switch sourcePeriod {
@@ -1042,6 +1060,10 @@ struct StatsPopoverView: View {
         VStack(spacing: 4) {
             HStack(spacing: 6) {
                 sourceFilterMenu
+                // 子来源（仓库）筛选只在明细模式出现：聚合行按 IP 分组，不拆仓库。
+                if sourceMode == 1, !repoOptions.isEmpty {
+                    repoFilterMenu
+                }
                 Spacer()
                 modePills
                 Button(action: { sourceShowChart.toggle() }) {
@@ -1058,10 +1080,42 @@ struct StatsPopoverView: View {
                 Spacer()
             }
             .font(.system(size: 10))
-            .onChange(of: sourcePeriod) { _, _ in loadSourceUsage() }
+            .onChange(of: sourcePeriod) { _, _ in loadRepoOptions(); loadSourceUsage() }
         }
         .onChange(of: sourceMode) { _, _ in loadSourceUsage() }
-        .onChange(of: selectedSource) { _, _ in loadSourceUsage() }
+        .onChange(of: selectedSource) { _, _ in loadRepoOptions(); loadSourceUsage() }
+        .onChange(of: selectedRepo) { _, _ in loadSourceUsage() }
+    }
+
+    /// 子来源（仓库）筛选菜单：与来源菜单同款样式，但用青色调区分。
+    private var repoFilterMenu: some View {
+        Menu {
+            Button(Strings.allRepos) { selectedRepo = "" }
+            if !repoOptions.isEmpty { Divider() }
+            ForEach(repoOptions, id: \.self) { repo in
+                Button(repo) { selectedRepo = repo }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "shippingbox")
+                    .font(.system(size: 8))
+                Text(selectedRepo.isEmpty ? Strings.allRepos : selectedRepo)
+                    .font(.system(size: 9))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+                    .frame(maxWidth: 96, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8))
+            }
+            .foregroundColor(.teal)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+        }
+        .menuStyle(.borderlessButton)
+        .background(Color.teal.opacity(0.1))
+        .cornerRadius(4)
+        .help(Strings.repoFilterHint)
     }
 
     private var sourceFilterMenu: some View {
@@ -1227,7 +1281,7 @@ struct StatsPopoverView: View {
     }
 
     private var sourceListID: String {
-        "\(selectedSource)|\(stats.providerID)|\(sourcePeriodStart?.timeIntervalSince1970 ?? 0)"
+        "\(selectedSource)|\(selectedRepo)|\(stats.providerID)|\(sourcePeriodStart?.timeIntervalSince1970 ?? 0)"
     }
 
     @ViewBuilder
@@ -1241,7 +1295,7 @@ struct StatsPopoverView: View {
                     .padding(.top, 6)
             }
         } else {
-            SourceRequestListView(frameWidth: AppConfig.contentWidth, sourceIP: selectedSource, since: sourcePeriodStart, providerId: activeUsageProviderId)
+            SourceRequestListView(frameWidth: AppConfig.contentWidth, sourceIP: selectedSource, repo: selectedRepo, since: sourcePeriodStart, providerId: activeUsageProviderId)
                 .id(sourceListID)
         }
     }

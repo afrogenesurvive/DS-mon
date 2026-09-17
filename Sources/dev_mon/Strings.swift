@@ -627,6 +627,8 @@ enum Strings {
     // Source Usage
     static var sourceUsageTitle: String { isZH ? "来源用量" : "Source Usage" }
     static var allSources: String { isZH ? "全部来源" : "All Sources" }
+    static var allRepos: String { isZH ? "全部仓库" : "All Repos" }
+    static var repoFilterHint: String { isZH ? "按仓库（子来源）过滤明细" : "Filter individual rows by repo (sub-source)" }
     static var aggregateLabel: String { isZH ? "汇总" : "Aggregate" }
     static var individualLabel: String { isZH ? "明细" : "Individual" }
     static var lastSeenLabel: String { isZH ? "最近活跃" : "Last Seen" }
