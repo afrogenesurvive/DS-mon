@@ -29,6 +29,28 @@ final class ProxyServer: @unchecked Sendable {
     var hasActiveConnection: Bool { lock.withLock { _activeConnectionCount > 0 } }
     var listenerError: String? { lock.withLock { _listenerError } }
 
+    /// 客户端令牌：为空时**拒绝所有请求**。代理会用本机的 API Key 覆盖上游认证头，
+    /// 所以没令牌就转发等于把账号借给任何能连上端口的人。
+    var clientToken: String? {
+        guard let stored = SecureStore.retrieve(key: Strings.Keys.proxyClientToken),
+              !stored.isEmpty else { return nil }
+        return stored
+    }
+
+    /// 确保存在客户端令牌；返回 nil 表示签发失败（调用方应拒绝启动）。
+    @discardableResult
+    func ensureClientToken() -> String? {
+        if let token = clientToken { return token }
+        let generated = SyncManager.makeToken()
+        guard !generated.isEmpty else {
+            print("[ProxyServer] Cannot generate a client token")
+            return nil
+        }
+        SecureStore.save(key: Strings.Keys.proxyClientToken, value: generated)
+        print("[ProxyServer] Generated a new client token")
+        return generated
+    }
+
     private init() {
         let saved = UserDefaults.standard.integer(forKey: Strings.Keys.proxyPort)
         if saved >= AppConfig.minProxyPort, saved <= AppConfig.maxProxyPort {
@@ -61,6 +83,8 @@ final class ProxyServer: @unchecked Sendable {
     func start(port: UInt16? = nil) throws {
         guard !lock.withLock({ _isRunning }) else { return }
         if let port { lock.withLock { _port = port } }
+        // fail-closed：没有客户端令牌就不把代理暴露出去
+        guard ensureClientToken() != nil else { throw ProxyError.missingClientToken }
 
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
@@ -68,8 +92,12 @@ final class ProxyServer: @unchecked Sendable {
         guard let nwPort = NWEndpoint.Port(rawValue: currentPort) else {
             throw ProxyError.invalidPort
         }
+        // 只监听回环：cloudflared / tailscale 都从本机发起连接，公网入口交给隧道。
+        // 这样同一 Wi-Fi 上的其它设备就无法直接使用未认证的代理。
+        // 注意：端口随 requiredLocalEndpoint 给出，不能再传给 `on:`（两者同时传会抛 EINVAL）。
+        params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: nwPort)
 
-        let listener = try NWListener(using: params, on: nwPort)
+        let listener = try NWListener(using: params)
         self.listener = listener
 
         listener.newConnectionHandler = { [weak self] conn in
@@ -123,8 +151,7 @@ final class ProxyServer: @unchecked Sendable {
         listener.start(queue: .global(qos: .utility))
         lock.withLock { _isRunning = true }
         UserDefaults.standard.set(Int(lock.withLock { _port }), forKey: Strings.Keys.proxyPort)
-        UserDefaults.standard.set(true, forKey: Strings.Keys.proxyEnabled)
-        print("[ProxyServer] Started on :\(currentPort)")
+        print("[ProxyServer] Started on 127.0.0.1:\(currentPort)")
     }
 
     func stop() {
@@ -135,7 +162,8 @@ final class ProxyServer: @unchecked Sendable {
             connectionHandlers.removeAll()
             connectionTasks.removeAll()
         }
-        UserDefaults.standard.set(false, forKey: Strings.Keys.proxyEnabled)
+        // 不再写 proxyEnabled：退出应用时写 false 会让「客户端是否开启代理」这个
+        // 用户意图被系统事件覆盖（下次启动就不再生效）。意图只由设置里的开关写入。
         print("[ProxyServer] Stopped")
     }
 }
@@ -143,4 +171,6 @@ final class ProxyServer: @unchecked Sendable {
 enum ProxyError: Error {
     case invalidPort
     case alreadyRunning
+    /// 未能签发客户端令牌：宁可不启动，也不开一个无认证的转发口
+    case missingClientToken
 }

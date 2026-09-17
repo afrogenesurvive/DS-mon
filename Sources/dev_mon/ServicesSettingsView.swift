@@ -12,6 +12,8 @@ struct ServicesSettingsView: View {
     }()
     @State private var proxyRunning: Bool = ProxyServer.shared.isRunning
     @State private var proxyError: String? = ProxyServer.shared.listenerError
+    @State private var proxyClientToken: String = SecureStore.retrieve(key: Strings.Keys.proxyClientToken) ?? ""
+    @State private var showProxyToken: Bool = false
 
     /// 各区段的展开状态（持久化到 ui_state_prefs）。带实时状态的服务默认展开，其余收起。
     @ObservedObject private var uiState = UIStateStore.shared
@@ -110,8 +112,22 @@ struct ServicesSettingsView: View {
                 .toggleStyle(.switch)
                 .onChange(of: proxyEnabled) { _, newVal in
                     UserDefaults.standard.set(newVal, forKey: Strings.Keys.proxyEnabled)
-                    if newVal { try? ProxyServer.shared.start(port: UInt16(proxyPort)) }
-                    else { ProxyServer.shared.stop() }
+                    // 只有 UI 开关代表用户意图（ProxyServer 自己不再写这两个键）
+                    UserDefaults.standard.set(newVal, forKey: Strings.Keys.proxyUserIntent)
+                    if newVal {
+                        do {
+                            try ProxyServer.shared.start(port: UInt16(proxyPort))
+                            proxyError = ProxyServer.shared.listenerError
+                        } catch {
+                            // 没有客户端令牌时不启动：宁可不跑，也不开一个无认证的转发口
+                            proxyError = "\(error)"
+                            proxyEnabled = false
+                            UserDefaults.standard.set(false, forKey: Strings.Keys.proxyUserIntent)
+                        }
+                    } else {
+                        ProxyServer.shared.stop()
+                        proxyError = nil
+                    }
                     proxyRunning = ProxyServer.shared.isRunning
                 }
                 Spacer()
@@ -126,12 +142,61 @@ struct ServicesSettingsView: View {
                             let p = max(AppConfig.minProxyPort, min(proxyPort, AppConfig.maxProxyPort))
                             proxyPort = p
                             UserDefaults.standard.set(p, forKey: Strings.Keys.proxyPort)
-                            if proxyRunning { ProxyServer.shared.stop(); try? ProxyServer.shared.start(port: UInt16(p)) }
+                            if proxyRunning {
+                                ProxyServer.shared.stop()
+                                do { try ProxyServer.shared.start(port: UInt16(p)) }
+                                catch { proxyError = "\(error)" }
+                            }
                         }
                 }
             }
 
             Text(Strings.proxyToggleHint).font(.caption).foregroundColor(.secondary)
+
+            HStack(spacing: 8) {
+                Text(Strings.proxyClientTokenLabel).font(.caption).foregroundColor(.secondary)
+                Group {
+                    if showProxyToken {
+                        TextField("", text: $proxyClientToken)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.caption, design: .monospaced))
+                    } else {
+                        SecureField("", text: $proxyClientToken)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.caption, design: .monospaced))
+                    }
+                }
+                .onChange(of: proxyClientToken) { _, newVal in
+                    SecureStore.save(key: Strings.Keys.proxyClientToken, value: newVal)
+                }
+                Button {
+                    showProxyToken.toggle()
+                } label: {
+                    Image(systemName: showProxyToken ? "eye.slash" : "eye")
+                }
+                .buttonStyle(.bordered)
+                .help(Strings.proxyClientTokenRevealHint)
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(proxyClientToken, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+                .disabled(proxyClientToken.isEmpty)
+                .help(Strings.proxyClientTokenCopyHint)
+                Button {
+                    let generated = SyncManager.makeToken()
+                    proxyClientToken = generated
+                    SecureStore.save(key: Strings.Keys.proxyClientToken, value: generated)
+                } label: {
+                    Image(systemName: "wand.and.stars")
+                }
+                .buttonStyle(.bordered)
+                .help(Strings.proxyClientTokenGenerateHint)
+            }
+            Text(Strings.proxyClientTokenHint).font(.caption2).foregroundColor(.secondary)
+            Text(Strings.proxyLoopbackNote).font(.caption2).foregroundColor(.secondary)
 
             if let err = proxyError {
                 HStack(spacing: 4) {
@@ -1184,7 +1249,6 @@ private struct SyncSettingsView: View {
                     Image(systemName: showPushToken ? "eye.slash" : "eye")
                 }
                 .buttonStyle(.bordered)
-                .disabled(syncEnabled)
                 .help(Strings.syncPushTokenRevealHint)
                 Button {
                     NSPasteboard.general.clearContents()
@@ -1193,7 +1257,7 @@ private struct SyncSettingsView: View {
                     Image(systemName: "doc.on.doc")
                 }
                 .buttonStyle(.bordered)
-                .disabled(syncEnabled || syncPushToken.isEmpty)
+                .disabled(syncPushToken.isEmpty)
                 .help(Strings.syncPushTokenCopyHint)
                 Button {
                     let generated = generatePushToken()
@@ -1248,9 +1312,7 @@ private struct SyncSettingsView: View {
 
 // MARK: - 工具
 
-/// 生成 256-bit 随机推送令牌（64 个十六进制字符，对应 `openssl rand -hex 32`）
+/// 生成 256-bit 随机令牌（与同步服务共用 SyncManager.makeToken）
 private func generatePushToken() -> String {
-    var bytes = [UInt8](repeating: 0, count: 32)
-    guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return "" }
-    return bytes.map { String(format: "%02x", $0) }.joined()
+    SyncManager.makeToken()
 }

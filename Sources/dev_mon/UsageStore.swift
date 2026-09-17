@@ -255,6 +255,9 @@ actor UsageStore {
         let appDir = dir.appendingPathComponent("dev_mon")
         try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
         let path = appDir.appendingPathComponent("usage.db").path
+        // 数据库里是用量明细（含 sourceIP / repo / userAgent），目录与文件都收紧到当前用户
+        AppConfig.secureDirectory(appDir)
+        AppConfig.secureFile(URL(fileURLWithPath: path))
 
         // 迁移: 从旧路径 DS-mon 复制数据库（如果存在且新路径不存在）
         let oldDir = dir.appendingPathComponent("DS-mon")
@@ -264,6 +267,8 @@ actor UsageStore {
         if oldExists && !newExists {
             try? FileManager.default.copyItem(atPath: oldPath, toPath: path)
             print("[UsageStore] Migrated database from \(oldPath) to \(path)")
+            // 迁移后删掉旧副本：留着等于同样的明细有两个明文拷贝
+            try? FileManager.default.removeItem(atPath: oldPath)
         }
 
         var handle: OpaquePointer?
@@ -274,6 +279,9 @@ actor UsageStore {
         db = handle
 
         sqlite3_exec(handle, "PRAGMA journal_mode=WAL", nil, nil, nil)
+        for suffix in ["", "-wal", "-shm"] {
+            AppConfig.secureFile(URL(fileURLWithPath: path + suffix))
+        }
 
         // 迁移 V1: 添加 provider_id 列（忽略"列已存在"错误）
         if sqlite3_exec(handle, "ALTER TABLE usage_log ADD COLUMN provider_id TEXT DEFAULT ''", nil, nil, nil) != SQLITE_OK {

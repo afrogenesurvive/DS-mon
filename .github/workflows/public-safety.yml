@@ -1,0 +1,53 @@
+name: Public Safety
+
+# DS-mon is a public repo that ships to users. No private key, license string or
+# key-store path may ever be committed — key management lives in the separate
+# private personal_key_manager repo.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Scan the publish set for key material
+        run: |
+          set -uo pipefail
+          node scripts/check-public-safety.mjs .
+          code=$?
+          # 0 = clean, 2 = warnings only (reviewed by a human), 1 = blocker
+          if [ "$code" -eq 1 ]; then
+            echo "::error::public-safety found blocking matches"
+            exit 1
+          fi
+          if [ "$code" -eq 2 ]; then
+            echo "::warning::public-safety reported warnings — review before merging"
+          fi
+          exit 0
+
+      - name: Assert key stores stay gitignored
+        run: |
+          set -euo pipefail
+          fail=0
+          for p in dev-keys personal_key_manager keyrings; do
+            # The paths may not exist in CI, and a `dir/` ignore rule only
+            # matches an actual directory — so create them before asserting.
+            mkdir -p "$p"
+            if git check-ignore -q "$p"; then
+              echo "ok: $p is ignored"
+            else
+              echo "::error file=.gitignore::$p is not gitignored — add it"
+              fail=1
+            fi
+            rmdir "$p" 2>/dev/null || true
+          done
+          exit $fail

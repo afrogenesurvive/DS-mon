@@ -48,7 +48,8 @@ struct CFZone: Identifiable, Equatable, Sendable {
 enum CloudflareError: LocalizedError {
     case notConfigured
     case invalidToken
-    case accessDenied
+    /// 附带账户 ID（可用它拼出账户令牌管理页的 URL）
+    case accessDenied(String?)
     case notFound(String)
     case networkError(String)
     case parseFailed
@@ -64,8 +65,14 @@ enum CloudflareError: LocalizedError {
             return isZH ? "尚未配置（Settings → Services → Cloudflare）" : "Not configured (Settings → Services → Cloudflare)"
         case .invalidToken:
             return isZH ? "Cloudflare API 令牌无效或已过期" : "Invalid or expired Cloudflare API token"
-        case .accessDenied:
-            return isZH ? "权限不足（令牌需要 Zone:Read+DNS:Edit 与 Account:Tunnel:Edit）" : "Insufficient permissions (token needs Zone:Read+DNS:Edit and Account:Tunnel:Edit)"
+        case .accessDenied(let accountID):
+            // 权限不足时直接告诉用户去哪儿改 —— 用户令牌与账户令牌在两个不同的页面，
+            // 而且改权限不需要重新粘贴令牌值（这一点最容易被误解）。
+            let where_ = accountID.map { "dash.cloudflare.com/\($0)/api-tokens" }
+                ?? "dash.cloudflare.com → My Profile → API Tokens"
+            return isZH
+                ? "权限不足（令牌需要 Zone:Read + Zone:DNS:Edit 与 Account:Cloudflare Tunnel:Edit）。改权限不会改变令牌值，无需重新粘贴 —— 请到 \(where_) 修改"
+                : "Insufficient permissions (token needs Zone:Read + Zone:DNS:Edit and Account:Cloudflare Tunnel:Edit). Editing permissions keeps the same token value, so there is nothing to re-paste — fix it at \(where_)"
         case .notFound(let s):
             return isZH ? "未找到: \(s)" : "Not found: \(s)"
         case .networkError(let m):
@@ -602,9 +609,21 @@ final class CloudflareTunnelManager {
 
     // MARK: - Hostname routes (ingress + DNS CNAME)
 
-    func addPublicHostname(hostname: String, service: String) async {
+    func addPublicHostname(hostname: String, service: String, path: String? = nil) async {
+        // 发布前护栏：把本应用自己的端口挂到公网之前，必须先有入站令牌。
+        // （历史事故：一条公开主机名直接映射到未认证的 :18888，任何人都能拉走用量库。）
+        if let port = AppConfig.appOwnedServicePort(in: service),
+           !AppConfig.appOwnedPortIsAuthenticated(port) {
+            actionSuccess = false
+            actionMessage = String(format: Strings.publishBlockedNoToken, "\(port)")
+            return
+        }
         await mutateIngress { rules in
-            rules + [["hostname": hostname, "service": service]]
+            var rule: [String: Any] = ["hostname": hostname, "service": service]
+            if let path, !path.isEmpty { rule["path"] = path }
+            // 必须插到结尾的 catch-all 之前：Cloudflare 按顺序匹配，
+            // 追加在 catch-all 后面等于这条规则永远不会生效。
+            return Self.insertingBeforeCatchAll(rule, into: rules)
         }
         if actionSuccess {
             await ensureDNS(hostname: hostname)
@@ -612,12 +631,32 @@ final class CloudflareTunnelManager {
         refresh()
     }
 
-    func removePublicHostname(hostname: String) async {
+    /// 把新规则插到结尾的 catch-all（没有 hostname 的那条）之前，保持「具体规则在前、兜底在后」。
+    private static func insertingBeforeCatchAll(_ rule: [String: Any],
+                                                into rules: [[String: Any]]) -> [[String: Any]] {
+        var out = rules
+        if let idx = out.firstIndex(where: { $0["hostname"] == nil }) {
+            out.insert(rule, at: idx)
+        } else {
+            out.append(rule)
+        }
+        return out
+    }
+
+    /// 删除一条公开主机名规则。`path` 为 nil / 空 = 只删该主机名下「无路径」的那条。
+    /// 同一主机名可以有多条按路径区分的规则（例如 `/webhooks/*` 与 `/api/...`），
+    /// 不能因为删掉其中一行就把整台服务下线 —— 只有该主机名不再有任何规则时才删 DNS。
+    func removePublicHostname(hostname: String, path: String? = nil) async {
+        let wanted = path ?? ""
         await mutateIngress { rules in
-            rules.filter { ($0["hostname"] as? String) != hostname }
+            rules.filter { dict in
+                guard (dict["hostname"] as? String) == hostname else { return true }
+                return ((dict["path"] as? String) ?? "") != wanted
+            }
         }
         if actionSuccess {
-            await removeDNS(hostname: hostname)
+            let stillPublished = ingress.contains { $0.hostname == hostname }
+            if !stillPublished { await removeDNS(hostname: hostname) }
         }
         refresh()
     }
@@ -807,7 +846,7 @@ final class CloudflareTunnelManager {
         }
         if let http = resp as? HTTPURLResponse {
             if http.statusCode == 401 { throw CloudflareError.invalidToken }
-            if http.statusCode == 403 { throw CloudflareError.accessDenied }
+            if http.statusCode == 403 { throw CloudflareError.accessDenied(accountID) }
         }
         guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             throw CloudflareError.parseFailed

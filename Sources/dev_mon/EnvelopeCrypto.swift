@@ -29,6 +29,8 @@ enum EnvelopeCrypto {
         for path in candidates {
             if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
                data.count == 32 {
+                // 原始密钥文件：顺手收紧权限，避免同机其它用户读到共享密钥
+                AppConfig.secureFile(URL(fileURLWithPath: path))
                 return SymmetricKey(data: data)
             }
         }

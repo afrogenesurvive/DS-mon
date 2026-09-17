@@ -128,6 +128,32 @@ final class ProxyConnectionHandler: @unchecked Sendable {
 
             let path = rawURL.path + (rawURL.query.map { "?\($0)" } ?? "")
 
+            // 入站认证：代理会用自己的 API Key 转发，所以令牌缺失/不匹配就一律拒绝。
+            // 所有路由（含 /models、/v1/responses）都要过这一关。
+            let expectedToken = ProxyServer.shared.clientToken
+            let presentedTok = presentedToken(in: headers)
+            let authorized: Bool = {
+                guard let expectedToken, let presentedTok else { return false }
+                return constantTimeEquals(presentedTok, expectedToken)
+            }()
+            if !authorized {
+                // 日志只写原因与「指纹」，不写令牌本身：
+                // 「没带头」和「带了另一个令牌」是完全不同的两种故障。
+                let why: String
+                if expectedToken == nil {
+                    why = "服务端未生成客户端令牌"
+                } else if let presentedTok {
+                    why = "令牌不匹配 presented=\(tokenFingerprint(presentedTok)) expected=\(tokenFingerprint(expectedToken!))"
+                } else {
+                    let names = headers.keys.map { $0.lowercased() }.sorted().joined(separator: ",")
+                    why = "请求未携带 authorization / x-api-key（收到头: \(names)）"
+                }
+                AppConfig.appendLog(to: AppConfig.proxyLogURL,
+                                    "[\(Date())] 401 \(method) \(path) — \(why)\n")
+                sendError(code: 401, body: "Unauthorized: send Authorization: Bearer <client token>")
+                return
+            }
+
             let isResponsesApi = path.contains("/v1/responses")
             onRequestStarted?(isResponsesApi)
 
@@ -265,6 +291,9 @@ final class ProxyConnectionHandler: @unchecked Sendable {
         for (key, value) in headers {
             let lower = key.lowercased()
             guard lower != "host", lower != "content-length", lower != "transfer-encoding" else { continue }
+            // 客户端的凭据不进上游：下面会写入本机提供商的认证头。
+            // （Anthropic 路由只设 x-api-key，若不剥离，客户端的 Authorization 会原样转发给上游。）
+            guard lower != "authorization", lower != "x-api-key", lower != "api-key" else { continue }
             req.setValue(value, forHTTPHeaderField: key)
         }
         if req.value(forHTTPHeaderField: "Content-Type") == nil, !body.isEmpty {
@@ -347,9 +376,9 @@ final class ProxyConnectionHandler: @unchecked Sendable {
                 usageLogger.logMessagesUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, statusCode: statusCode, providerId: activeProviderId, userAgent: userAgent, repo: repo)
             } else {
                 usageLogger.logResponsesUsage(requestBody: body, responseBody: accumulatedBody, latencyMs: elapsed, providerId: activeProviderId, userAgent: userAgent, repo: repo)
-                let preview = String(data: accumulatedBody.prefix(800), encoding: .utf8) ?? "(非文本)"
-                debugLog("← \(path) body(\(accumulatedBody.count)B) preview:\n\(preview)")
-                appendLog("← body \(accumulatedBody.count)B | \(preview.replacingOccurrences(of: "\n", with: " ").prefix(200))")
+                // 日志不再落盘响应体内容（模型输出属于用户数据，日志文件未加密且不轮转）
+                debugLog("← \(path) body(\(accumulatedBody.count)B) preview:\n\(String(data: accumulatedBody.prefix(800), encoding: .utf8) ?? "(非文本)")")
+                appendLog("← body \(accumulatedBody.count)B")
             }
         } catch {
             let msg: String

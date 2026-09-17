@@ -434,6 +434,8 @@ enum UsageExporter {
                 encoder.dateEncodingStrategy = .iso8601
                 guard let data = try? encoder.encode(payload) else { return }
                 try? data.write(to: url, options: .atomic)
+                // 含 sourceIP / repo / userAgent，导出后收紧到 0600
+                AppConfig.secureFile(url)
             }
         }
     }
@@ -746,8 +748,12 @@ enum ConfigExporter {
         alert.informativeText = Strings.configExportWarningMessage
         alert.alertStyle = .warning
         alert.addButton(withTitle: Strings.configExportSave)
+        // 密钥必须显式选择：默认导出的配置文件不含任何 API Key / 令牌
+        alert.addButton(withTitle: Strings.configExportSaveWithSecrets)
         alert.addButton(withTitle: Strings.cancel)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let choice = alert.runModal()
+        guard choice == .alertFirstButtonReturn || choice == .alertSecondButtonReturn else { return }
+        let includeSecrets = choice == .alertSecondButtonReturn
 
         let panel = NSSavePanel()
         panel.title = Strings.configExportTitle
@@ -758,17 +764,19 @@ enum ConfigExporter {
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             Task { @MainActor in
-                let payload = buildPayload()
+                let payload = buildPayload(includeSecrets: includeSecrets)
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
                 encoder.dateEncodingStrategy = .iso8601
                 guard let data = try? encoder.encode(payload) else { return }
                 try? data.write(to: url, options: .atomic)
+                AppConfig.secureFile(url)
             }
         }
     }
 
-    @MainActor static func buildPayload() -> ConfigPayload {
+    /// `includeSecrets` 为 false 时**不**解密任何 API Key / 令牌 —— 默认值即安全值。
+    @MainActor static func buildPayload(includeSecrets: Bool = false) -> ConfigPayload {
         let ud = UserDefaults.standard
 
         var settings: [String: ConfigValue] = [:]
@@ -789,17 +797,18 @@ enum ConfigExporter {
             settings[key] = value
         }
 
-        // Provider API keys（解密后导出，含 OpenAI/Anthropic 管理密钥）
+        // Provider API keys / 各类令牌：只在用户显式选择「含密钥导出」时才解密
         var providerApiKeys: [String: String] = [:]
-        for p in ProviderManager.shared.providers {
-            let k = ProviderManager.shared.apiKey(for: p.id)
-            if !k.isEmpty { providerApiKeys[p.id] = k }
-        }
-
         var secrets: [String: String] = [:]
-        for key in secretKeys {
-            if let v = SecureStore.retrieve(key: key), !v.isEmpty {
-                secrets[key] = v
+        if includeSecrets {
+            for p in ProviderManager.shared.providers {
+                let k = ProviderManager.shared.apiKey(for: p.id)
+                if !k.isEmpty { providerApiKeys[p.id] = k }
+            }
+            for key in secretKeys {
+                if let v = SecureStore.retrieve(key: key), !v.isEmpty {
+                    secrets[key] = v
+                }
             }
         }
 

@@ -1,5 +1,58 @@
 # Changelog
 
+## [0.3.7-1] — 2026-09-17
+
+### Security
+
+- **本地代理现在要求客户端令牌，并且只监听回环。** 代理（默认 `18080`）在**每一条**路由上校验 `Authorization: Bearer <客户端令牌>`（也接
+  受 `x-api-key`，方便 Anthropic 风格客户端）；没有令牌就**不再启动代理**（`ProxyError.missingClientToken`），令牌不匹配一律
+  `401 Unauthorized`。客户端传来的 `authorization` / `x-api-key` / `api-key` 会被**剥离**，再写入本机提供商的认证头 —— 因此**客户端
+  「API Key」字段里要填的是 dev_mon 的客户端令牌，而不是提供商密钥**。监听地址从 `*` 收紧到 `127.0.0.1`：同一 Wi-Fi 上的其它设备、容器 /
+  虚拟机 / Remote-SSH 窗口都无法再直接使用代理（回环限制是刻意的取舍，因为代理会用本机密钥转发）。设置 → 服务 → 代理 里可生成（✨）、查看
+  （👁）与复制令牌；轮换令牌会让所有客户端同时失效。代理日志只记录 401 的原因与令牌指纹（不可逆），从不记录令牌本身。
+- **同步服务所有路由都要令牌（fail-closed）。** `GET /sync/pull`、`POST /sync/push`、`POST /license/check` 三条路由全部校验
+  `push_token`；未配置令牌时服务器**拒绝启动**（旧版「未配置就放行」正是 `GET /sync/pull` 曾经公开可读的根因）。首次启动自动签发 64 位
+  十六进制令牌，可在设置 → 服务 → 数据同步 复制。请求体上限 12 MB、整条请求 30 s 读取超时（旧版既没有上限也没有超时）；`/license/check`
+  不再回显席位元数据，只回 `{ok, revoked, exp, checkedAt}`。同步监听同样收紧到 `127.0.0.1` —— 隧道与 tailnet 都从本机发起连接，远程访问
+  不受影响。
+- **发布护栏。** 把本应用自己的端口（`18080` / `18888`）发布到 Cloudflare 隧道或 Tailscale funnel 之前，会先检查对应令牌是否已配置，
+  未配置则直接拒绝发布并说明原因。仓库清单里声明的端口（如 `3199` / `5001`）仍不在护栏范围内 —— 那类端口需要自己确认后再发布。
+- **运行时暴露审计 `scripts/check-exposure.mjs`。** 检查本机监听端口与**绑定地址**、Cloudflare 隧道的公开主机名（走 API 读取）、
+  Tailscale serve / funnel 的差异，并**用完全没有凭据的请求探测每个映射到本应用端口的公开 URL** —— 返回 2xx 即判定为 BLOCKER。退出码
+  0 干净 / 1 BLOCKER / 2 仅警告。为什么需要它：文件扫描器永远看不到「隧道入口指向哪里」和「某个路由少了一个 guard」，而这两者才是
+  2026-09-15 那次 `GET /sync/pull` 可被匿名读取的成因。两者必须都跑。
+- **`scripts/check-public-safety.mjs` 强化 + CI。** 扫描整个发布集（已跟踪 + 已暂存 + 未暂存 + 未跟踪），按路径阻断
+  （`docs/safe/`、`afrogene/`、`storage/`、`logs/`、`.env`、`*.key` 等）、按内容阻断（PEM 私钥、JWK `"d"`、许可证串、裸 43 字符密钥），
+  并对令牌形状（`ghp_`/`sk-`/`hf_`/`AKIA`…）、长 base64、绝对用户路径、真实拓扑（主机名 / 隧道 ID / `*.cfargotunnel.com`）告警。
+  退出码 0 / 1 / 2，新增 `.github/workflows/public-safety.yml` 在 `main` 的 push 与 PR 上运行（把警告降级为 CI warning，阻断则失败），
+  并额外断言密钥与钥匙环目录始终被忽略（见 `.gitignore` 末尾）。
+- **静态加固（密钥与落盘）。** 主密钥从明文密钥文件迁移到**登录钥匙串**（`com.devmon.app` / `master-key`，
+  `WhenUnlockedThisDeviceOnly`），迁移成功后删除旧文件；使用数据库及其 WAL/SHM、信封密钥、配置目录统一 `0600` / `0700`；子进程环境变量
+  会剥离 `DSMON_*` 与 `*_TOKEN` / `*_SECRET` / `*_API_KEY` / `*_PASSWORD`（避免密钥随 `ProcessRunner` 泄漏给被调起的命令）；代理日志不再
+  记录响应体；导出配置默认排除全部密钥，需要用户显式选择「导出密钥」；仓库数据存储的 `sensitive` 项默认**拒绝**备份（见下）。
+
+### Added
+
+- **`proxy_user_intent` 键。** 只有设置里的开关会写它，代表「用户是否想要代理」；`proxy_enabled` 退化为 UI 显示状态。旧版在
+  `applicationWillTerminate` 里把 `proxy_enabled` 写成 `false`，导致退出一次之后代理再也起不来。
+- **仓库清单 `devmon.json` 支持每个存储的 `backupAllowed`。** `sensitive` 存储默认不参与整库备份；需要备份就在清单里显式写
+  `"backupAllowed": true`（语音指纹这类真敏感数据保持默认拒绝，而只是「不想显示内容」的配置缓存可以打开）。
+- **Cloudflare 公开主机名支持路径规则。** 新增规则会插在末尾的 `http_status:404` 兜底规则**之前** —— 此前是追加，落在兜底之后所以**永远
+  匹配不到**；删除按「主机名 + 路径」精确匹配，只在某个主机名不再有任何规则时才删 DNS（此前删一行会连带下掉该主机名的全部规则）。
+- **`Sources/dev_mon/TokenAuth.swift`**：代理与同步服务共用的令牌工具（常量时间比较、从 `Authorization` / `x-api-key` 解析令牌、
+  日志用不可逆指纹），不再两处各写一份实现。
+
+### Changed
+
+- **文档改口。** `docs/how-it-works.md`、`docs/settings-guide.md`、`docs/ui-guide.md` 统一说明：客户端「API Key」= dev_mon 的
+  **客户端令牌**（不再是「随便填个占位符」），并补充回环监听、令牌生成 / 轮换、401 排查与 `/v1/models` 也要令牌；`docs/network-posture.md`
+  记录加固后的实际暴露面、认证契约与 2026-09-15 事件复盘（主机名 / 隧道 ID 用占位符）。
+
+### Notes
+
+- `docs/` 为本地目录（gitignored），不入库；本文件同样只在本机存在。
+- 升级后第一次启动会自动签发客户端令牌 —— 每个本地客户端都要把它的「API Key」改成该令牌，否则一律 401。
+
 ## [0.3.6-1] — 2026-09-13
 
 ### Added

@@ -39,6 +39,11 @@ struct RepoStoreDescriptor: Identifiable, Sendable, Equatable, Codable {
     var sensitive: Bool
     /// manifest 声明的表名（用于计数）。
     var tables: [String]
+    /// manifest 显式声明「即使是敏感存储也允许整库备份」。
+    /// 用途：只是为了让 UI 隐藏内容的缓存文件（如 Trello / Drive / Calendar 的本地镜像），
+    /// 它们的 `sensitive` 是为了不展示内容，不代表不能备份。
+    /// 可选类型 —— 旧的缓存 JSON 里没有这个键时解码为 nil。
+    var backupAllowed: Bool?
 
     var fullPath: String {
         relPath.isEmpty ? repoPath : (repoPath as NSString).appendingPathComponent(relPath)
@@ -560,7 +565,8 @@ final class RepoDataStoreManager {
                     triggerFile: entry.triggerFile,
                     capBytes: entry.capBytes,
                     sensitive: entry.sensitive ?? false,
-                    tables: entry.tables ?? []))
+                    tables: entry.tables ?? [],
+                    backupAllowed: entry.backupAllowed))
             }
         }
 
@@ -588,7 +594,7 @@ final class RepoDataStoreManager {
                 id: "\(repoPath)|\(kind.rawValue)|\(trimmed)",
                 repoPath: repoPath, repoName: repoName, relPath: trimmed, label: label,
                 kind: kind, source: source, port: nil, pidFile: nil, triggerFile: nil,
-                capBytes: capBytes, sensitive: sensitive, tables: []))
+                capBytes: capBytes, sensitive: sensitive, tables: [], backupAllowed: nil))
         }
 
         // .env 里声明的存储路径（只读我们关心的键，值不展示）。
@@ -929,8 +935,16 @@ final class RepoDataStoreManager {
         case failure(String)
     }
 
-    nonisolated static func performBackup(_ descriptor: RepoStoreDescriptor) -> BackupOutcome {
+    nonisolated static func performBackup(_ descriptor: RepoStoreDescriptor,
+                                          allowSensitive: Bool = false) -> BackupOutcome {
         guard descriptor.kind != .remote else { return .failure("remote store") }
+        // 标记为 sensitive 的 store（如 voiceprints）不做整库拷贝：那会绕过
+        // 「只显示数量、不显示内容」的约定，把明文库整份复制到备份目录。
+        // 例外：manifest 显式写了 `"backupAllowed": true` —— 用于那些只是「不想显示内容」
+        // 的缓存文件（Trello / Drive / Calendar 镜像），备份它们是预期行为。
+        guard !descriptor.sensitive || allowSensitive || descriptor.backupAllowed == true else {
+            return .failure(Strings.storeBackupSensitiveBlocked)
+        }
         let source = descriptor.fullPath
         let fm = FileManager.default
         guard fm.fileExists(atPath: source) else { return .failure(Strings.storeMissing) }
@@ -949,6 +963,8 @@ final class RepoDataStoreManager {
         } catch {
             return .failure(error.localizedDescription)
         }
+        // 备份是明文库拷贝，目录与文件都收紧到当前用户
+        AppConfig.secureDirectory(URL(fileURLWithPath: dir))
         let dest = (dir as NSString).appendingPathComponent(fileName)
 
         // SQLite：VACUUM INTO 生成一致性快照（包含未 checkpoint 的 WAL）。
@@ -959,12 +975,16 @@ final class RepoDataStoreManager {
                 let escaped = dest.replacingOccurrences(of: "'", with: "''")
                 let rc = sqlite3_exec(db, "VACUUM INTO '\(escaped)';", nil, nil, nil)
                 sqlite3_close(db)
-                if rc == SQLITE_OK { return .success(URL(fileURLWithPath: dest)) }
+                if rc == SQLITE_OK {
+                    AppConfig.secureFile(URL(fileURLWithPath: dest))
+                    return .success(URL(fileURLWithPath: dest))
+                }
             }
         }
         do {
             if fm.fileExists(atPath: dest) { try fm.removeItem(atPath: dest) }
             try fm.copyItem(atPath: source, toPath: dest)
+            AppConfig.secureFile(URL(fileURLWithPath: dest))
             return .success(URL(fileURLWithPath: dest))
         } catch {
             return .failure(error.localizedDescription)
@@ -1009,6 +1029,8 @@ final class RepoDataStoreManager {
             var pidFile: String?
             var triggerFile: String?
             var capBytes: Int64?
+            /// true = 即使是敏感存储也允许整库备份（默认不写 = 保持禁止）
+            var backupAllowed: Bool?
         }
         struct Service: Decodable {
             var port: Int?

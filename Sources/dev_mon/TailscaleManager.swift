@@ -68,7 +68,7 @@ struct TSServeMapping: Identifiable, Equatable, Sendable {
     let scheme: String        // https / http / tcp
     let path: String          // 通常是 "/"
     let target: String        // http://localhost:18080
-    let hostPort: String      // michaels-macbook-air.tailb302ac.ts.net:8443（纯 TCP 转发时为空）
+    let hostPort: String      // <node>.<tailnet>.ts.net:8443（纯 TCP 转发时为空）
     let isFunnel: Bool
 
     var id: String { "\(scheme):\(port):\(path)" }
@@ -382,6 +382,13 @@ final class TailscaleManager {
 
     /// 添加一条 funnel（公开到互联网；端口仅限 443 / 8443 / 10000）。
     func addFunnel(port: Int, target: String) async {
+        // 发布前护栏：funnel 是完全公开的，本应用自己的端口必须先配好令牌
+        if let appPort = AppConfig.appOwnedServicePort(in: target),
+           !AppConfig.appOwnedPortIsAuthenticated(appPort) {
+            actionSuccess = false
+            actionMessage = String(format: Strings.publishBlockedNoToken, "\(appPort)")
+            return
+        }
         await runMutation(["funnel", "--bg", "--yes", "--https=\(port)", target],
                           success: Strings.tailscaleFunnelAdded, isFunnelCommand: true)
     }

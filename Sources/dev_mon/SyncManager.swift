@@ -7,14 +7,7 @@ private func syncLog(_ message: String) {
     AppConfig.appendLog(to: AppConfig.syncLogURL, ts + " " + message + "\n")
 }
 
-/// 常量时间比较：先 SHA-256 哈希到固定长度，再逐字节异或，避免长度侧信道
-private func constantTimeEquals(_ a: String, _ b: String) -> Bool {
-    let ha = Data(SHA256.hash(data: Data(a.utf8)))
-    let hb = Data(SHA256.hash(data: Data(b.utf8)))
-    var diff: UInt8 = 0
-    for i in 0..<ha.count { diff |= ha[i] ^ hb[i] }
-    return diff == 0
-}
+// 常量时间比较与 Bearer 解析见 TokenAuth.swift（代理与同步服务共用）
 
 // MARK: - 同步配置
 struct SyncConfig: Codable, Sendable {
@@ -74,15 +67,46 @@ final class SyncManager: @unchecked Sendable {
         return ""
     }
 
-    /// 校验推送 / 许可检查令牌。失败时发送 401 并返回 false。注意：不得将令牌写入日志。
-    private func requirePushAuth(_ lines: [String], connection: NWConnection) -> Bool {
-        guard let expected = self.pushToken, !expected.isEmpty else { return true }
+    /// 生成 256-bit 随机令牌（64 个十六进制字符，等价 `openssl rand -hex 32`）
+    static func makeToken() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return "" }
+        return bytes.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// 确保存在推送令牌：没有令牌就意味着服务器以「开放」状态运行，
+    /// 所以这里主动签发而不是放行请求。返回 nil 表示无法签发（服务器不应启动）。
+    @discardableResult
+    func ensurePushToken() -> String? {
+        if let token = pushToken, !token.isEmpty { return token }
+        let generated = Self.makeToken()
+        guard !generated.isEmpty else {
+            syncLog("[Sync] Server: cannot generate a token — refusing to start")
+            return nil
+        }
+        SecureStore.save(key: Strings.Keys.syncPushToken, value: generated)
+        syncLog("[Sync] Server: generated a new push token (Settings → Services)")
+        return generated
+    }
+
+    /// 校验入站请求的 Bearer 令牌。失败时发送 401 并返回 false。
+    /// **fail-closed**：未配置令牌时一律拒绝，绝不默认放行。注意：不得将令牌写入日志。
+    private func requireAuth(_ lines: [String], connection: NWConnection) -> Bool {
+        guard let expected = self.pushToken, !expected.isEmpty else {
+            syncLog("[Sync] Server: DENIED (no token configured — fail closed)")
+            sendUnauthorized(connection)
+            return false
+        }
         guard constantTimeEquals(bearerToken(from: lines), expected) else {
             syncLog("[Sync] Server: UNAUTHORIZED (missing/mismatched token)")
-            sendHTTP(connection, 401, Data("{\"error\":\"unauthorized\"}".utf8), "application/json")
+            sendUnauthorized(connection)
             return false
         }
         return true
+    }
+
+    private func sendUnauthorized(_ connection: NWConnection) {
+        sendHTTP(connection, 401, Data("{\"error\":\"unauthorized\"}".utf8), "application/json")
     }
 
     /// 可选信封解密：已配置密钥时尝试解开信封；失败则回退原始 body（兼容明文）
@@ -137,8 +161,19 @@ final class SyncManager: @unchecked Sendable {
     private func startServer(port: UInt16) {
         // 服务端启动时清理重复数据
         Task.detached { await UsageStore.shared.deduplicate() }
+        // fail-closed：没有令牌就拒绝启动，否则 /sync/push、/sync/pull 都是开放的
+        guard ensurePushToken() != nil else {
+            Task { @MainActor in self.observableStatus = .error(Strings.syncServerNoTokenError) }
+            return
+        }
         let p = NWEndpoint.Port(rawValue: port) ?? 18888
-        guard let l = try? NWListener(using: .tcp, on: p) else {
+        // 只监听回环：cloudflared / tailscale 都从本机发起连接，公网入口交给隧道，
+        // 同一 Wi-Fi 上的其它设备就无法直接访问未认证的 sync 接口。
+        // 注意：端口来自 requiredLocalEndpoint，不能同时传给 `on:`（会抛 EINVAL）。
+        let params = NWParameters.tcp
+        params.allowLocalEndpointReuse = true
+        params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: p)
+        guard let l = try? NWListener(using: params) else {
             Task { @MainActor in self.observableStatus = .error("无法监听端口 \(port)") }
             return
         }
@@ -176,7 +211,15 @@ final class SyncManager: @unchecked Sendable {
         let terminator = Data([0x0D, 0x0A, 0x0D, 0x0A])
         var buf = Data()
         var contentLength = -1
+        let deadline = Date().addingTimeInterval(AppConfig.syncReadTimeout)
         while true {
+            // 慢速 / 挂起的连接不能无限占用这个任务
+            if Date() > deadline {
+                syncLog("[Sync] Server: read timeout after \(Int(AppConfig.syncReadTimeout))s")
+                sendHTTP(connection, 408, Data("{\"error\":\"timeout\"}".utf8), "application/json")
+                connection.cancel()
+                return
+            }
             let (data, _, isDone, error) = await withCheckedContinuation { (cont: CheckedContinuation<(Data?, NWConnection.ContentContext?, Bool, NWError?), Never>) in
                 connection.receive(minimumIncompleteLength: 1, maximumLength: 131072) { d, ctx, done, err in
                     cont.resume(returning: (d, ctx, done, err))
@@ -198,6 +241,13 @@ final class SyncManager: @unchecked Sendable {
                     }
                     if contentLength < 0 { contentLength = 0 }
                     syncLog("[Sync] Server: Content-Length = \(contentLength)")
+                    // 对端可以随便声明长度，必须在读取前就拒绝
+                    if contentLength > AppConfig.maxSyncBodySize {
+                        syncLog("[Sync] Server: rejecting oversized body (\(contentLength) bytes)")
+                        sendHTTP(connection, 413, Data("{\"error\":\"payload_too_large\"}".utf8), "application/json")
+                        connection.cancel()
+                        return
+                    }
                 }
                 // Check if body is complete
                 let bodyBytes = Data(buf[headerEnd.upperBound...]).count
@@ -246,6 +296,8 @@ final class SyncManager: @unchecked Sendable {
 
         switch (method, path) {
             case ("GET", "/sync/pull"):
+                // 读取用量数据与写入同等敏感（含 sourceIP / repo / userAgent），必须校验令牌
+                guard requireAuth(lines, connection: connection) else { break }
                 let since = queryParams["since"].flatMap { TimeInterval($0) }
                     .map { Date(timeIntervalSince1970: $0) } ?? Date.distantPast
                 syncLog("[Sync] Server: query records since \(since.timeIntervalSince1970)")
@@ -271,8 +323,8 @@ final class SyncManager: @unchecked Sendable {
                     }
                 }()
 
-                // 推送令牌校验（未配置令牌则保持开放）。注意：不得将令牌写入日志。
-                guard requirePushAuth(lines, connection: connection) else { break }
+                // 令牌校验（fail-closed）。注意：不得将令牌写入日志。
+                guard requireAuth(lines, connection: connection) else { break }
 
                 if var records = try? decoder.decode([UsageRecord].self, from: maybeDecryptEnvelope(body)) {
                     // Stamp sourceIP if not already set by the client
@@ -308,7 +360,7 @@ final class SyncManager: @unchecked Sendable {
 
             case ("POST", "/license/check"):
                 // Hybrid 授权权威：回答“该席位是否已被吊销”。与 push 共用令牌校验。
-                guard requirePushAuth(lines, connection: connection) else { break }
+                guard requireAuth(lines, connection: connection) else { break }
 
                 let payload = maybeDecryptEnvelope(body)
 
@@ -324,31 +376,22 @@ final class SyncManager: @unchecked Sendable {
                 }
 
                 let status = SeatRegistry.shared.status(for: req.sub)
-                let record = SeatRegistry.shared.seat(for: req.sub)
                 let revoked = status?.revoked ?? false
                 let exp = status?.exp ?? 0
-                let registryId = status?.registryId
-                syncLog("[Sync] Server: /license/check sub=\(req.sub) revoked=\(revoked) exp=\(exp) registry=\(registryId ?? "-")")
+                // 不回显席位元数据（sub/kid/registryId/issuedAt）：调用方已经知道自己是谁，
+                // 多给的字段只会把这个接口变成信息泄露面。
+                syncLog("[Sync] Server: /license/check revoked=\(revoked) exp=\(exp)")
 
                 struct LicenseCheckResponse: Codable {
                     let ok: Bool
                     let revoked: Bool
                     let exp: Int
-                    let seat: Seat
                     let checkedAt: String
-                    struct Seat: Codable {
-                        let sub: String
-                        let kid: String
-                        let registryId: String?
-                        let issuedAt: String?
-                    }
                 }
                 let resp = LicenseCheckResponse(
                     ok: true,
                     revoked: revoked,
                     exp: exp,
-                    seat: .init(sub: req.sub, kid: req.kid,
-                                registryId: registryId, issuedAt: record?.issuedAt),
                     checkedAt: ISO8601DateFormatter().string(from: Date())
                 )
                 guard let data = try? JSONEncoder().encode(resp) else {
@@ -379,10 +422,13 @@ final class SyncManager: @unchecked Sendable {
         case 400: t = "Bad Request"
         case 401: t = "Unauthorized"
         case 404: t = "Not Found"
+        case 408: t = "Request Timeout"
+        case 413: t = "Payload Too Large"
         case 500: t = "Internal Server Error"
         default: t = "Unknown"
         }
-        var r = Data("HTTP/1.1 \(status) \(t)\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
+        let challenge = status == 401 ? "WWW-Authenticate: Bearer\r\n" : ""
+        var r = Data("HTTP/1.1 \(status) \(t)\r\nContent-Type: \(type)\r\n\(challenge)Content-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
         r.append(body)
         let sem = DispatchSemaphore(value: 0)
         conn.send(content: r, completion: .contentProcessed({ _ in sem.signal() }))
@@ -457,6 +503,10 @@ final class SyncManager: @unchecked Sendable {
 
         var req = URLRequest(url: url, timeoutInterval: 30)
         req.httpMethod = "GET"
+        // 拉取同样需要令牌（服务端已改为 fail-closed）
+        if let token = SyncManager.shared.pushToken, !token.isEmpty {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         let (pullData, pullResp) = try await session.data(for: req)
         guard let httpResp = pullResp as? HTTPURLResponse else { throw SyncError.httpError }
         syncLog("[Sync] Client: GET response \(httpResp.statusCode), \(pullData.count) bytes")

@@ -669,10 +669,13 @@ final class LocalDBManager {
         case .mysql:
             var args = ["--batch", "--skip-column-names", "-h", "127.0.0.1", "-P", "3306"]
             args += ["-u", cred.user]
-            if !cred.password.isEmpty { args += ["-p\(cred.password)"] }
+            // 密码走 MYSQL_PWD，不进 argv（argv 对同机任何进程的 ps 都可见）
             args += ["-e", "SHOW DATABASES"]
-            r = ProcessRunner.run(launchPath: bin, args: args, timeout: commandTimeout)
+            r = ProcessRunner.run(launchPath: bin, args: args, timeout: commandTimeout,
+                                  extraEnvironment: cred.password.isEmpty ? [:] : ["MYSQL_PWD": cred.password])
         case .neo4j:
+            // cypher-shell 只能通过 --password 传密码：它没有等价的 env 变量，
+            // 所以这里的 argv 暴露面只能靠「本机单用户」假设来兜。
             var args = ["-a", "bolt://localhost:7687"]
             if !cred.user.isEmpty { args += ["-u", cred.user] }
             if !cred.password.isEmpty { args += ["-p", cred.password] }

@@ -50,6 +50,9 @@ enum Strings {
         static let maxBalanceAmount = "max_balance_amount"
         static let proxyPort        = "proxy_port"
         static let proxyEnabled     = "proxy_enabled"
+        static let proxyClientToken = "proxy_client_token"
+        /// 只有 UI 开关写这个键；ProxyServer 自己写的 proxyEnabled 不能代表用户意图
+        static let proxyUserIntent  = "proxy_user_intent"
         static let showMenuIcon     = "show_menu_icon"
         static let showIndicator   = "show_indicator"
         static let showBalance     = "show_balance"
@@ -224,11 +227,13 @@ enum Strings {
     static var configImportButton: String { isZH ? "导入配置" : "Import Config" }
     static var configExportTitle: String { isZH ? "导出配置" : "Export Config" }
     static var configExportSave: String { isZH ? "导出" : "Export" }
+    /// 第二个按钮：显式选择「含密钥导出」
+    static var configExportSaveWithSecrets: String { isZH ? "含密钥导出" : "Export with secrets" }
     static var configImportTitle: String { isZH ? "导入配置" : "Import Config" }
     static var configImportOpen: String { isZH ? "导入" : "Import" }
     static var ok: String { isZH ? "好" : "OK" }
-    static var configExportWarningTitle: String { isZH ? "导出包含密钥" : "Export contains keys" }
-    static var configExportWarningMessage: String { isZH ? "导出的 JSON 将以明文包含 API Key 与密钥，请妥善保管，不要上传到公共位置。" : "The exported JSON includes your API keys and secrets in plaintext. Keep it private and secure." }
+    static var configExportWarningTitle: String { isZH ? "导出配置" : "Export config" }
+    static var configExportWarningMessage: String { isZH ? "默认只导出非密钥配置。选择「含密钥导出」会把 API Key 与令牌以明文写入 JSON，请勿上传到公共位置。" : "Non-secret settings are exported by default. \"Export with secrets\" writes your API keys and tokens as plaintext JSON — do not upload it anywhere public." }
     static var configImportInvalid: String { isZH ? "配置文件无效或版本不匹配" : "Invalid or unsupported config file" }
     static var configImportDone: String { isZH ? "配置已导入" : "Config imported" }
 
@@ -339,9 +344,17 @@ enum Strings {
     static var proxyToggle: String { isZH ? "启用代理" : "Enable Proxy" }
     static var proxyToggleHint: String { isZH ? "拦截并记录 API 调用数据" : "Intercept and log API calls" }
     static var proxyPortLabel: String { isZH ? "代理端口" : "Proxy Port" }
-    static var proxyPortHint: String { isZH ? "客户端设置 base_url 为 http://localhost:{port}" : "Set client base_url to http://localhost:{port}" }
+    static var proxyPortHint: String { isZH ? "客户端设置 base_url 为 http://localhost:{port}，并把客户端令牌当作 API Key" : "Set client base_url to http://localhost:{port} and use the client token as the API key" }
     static var proxyRunning: String { isZH ? "代理已启动" : "Proxy running" }
     static var proxyStopped: String { isZH ? "代理已停止" : "Proxy stopped" }
+    static var proxyClientTokenLabel: String { isZH ? "客户端令牌" : "Client Token" }
+    static var proxyClientTokenHint: String { isZH ? "所有请求都必须携带 Authorization: Bearer <token>；代理用本机的 API Key 覆盖上游认证头，所以没有令牌就不转发" : "Every request must carry Authorization: Bearer <token>; the proxy swaps in your local provider key, so it refuses to forward without one" }
+    static var proxyClientTokenGenerateHint: String { isZH ? "生成随机客户端令牌" : "Generate a random client token" }
+    static var proxyClientTokenRevealHint: String { isZH ? "显示/隐藏令牌" : "Show / hide token" }
+    static var proxyClientTokenCopyHint: String { isZH ? "复制令牌" : "Copy token" }
+    static var proxyLoopbackNote: String { isZH ? "代理与同步服务只监听 127.0.0.1；远程访问请通过 Cloudflare 隧道或 Tailscale" : "Proxy and sync listen on 127.0.0.1 only — use the Cloudflare tunnel or Tailscale for remote access" }
+    /// 发布护栏：本应用端口还没配令牌时阻止公开发布
+    static var publishBlockedNoToken: String { isZH ? "端口 %@ 是本应用自身的服务且尚未配置令牌，已阻止公开发布。请先在「服务」里生成令牌。" : "Port %@ belongs to this app and has no token configured — publishing blocked. Generate a token in Settings → Services first." }
 
     // License
     static var settingsTabLicense: String { isZH ? "许可" : "License" }
@@ -679,7 +692,8 @@ enum Strings {
     static var syncPortHint: String { isZH ? "需要确保端口未被占用，且防火墙已放行" : "Ensure port is not in use and firewall allows it" }
     static var syncAddressHint: String { isZH ? "客户端填写目标服务器 IP:端口，如 1.2.3.4:6000" : "Client: target server IP:port, e.g. 1.2.3.4:6000" }
     static var syncPushTokenLabel: String { isZH ? "推送令牌" : "Push Token" }
-    static var syncPushTokenHint: String { isZH ? "共享令牌：客户端推送 /sync/push 时需携带 Authorization: Bearer <token>；留空则接受开放推送" : "Shared token: clients must send Authorization: Bearer <token> on POST /sync/push; leave blank to accept open pushes" }
+    static var syncPushTokenHint: String { isZH ? "共享令牌：所有 /sync/push 与 /sync/pull 请求都必须携带 Authorization: Bearer <token>。未配置时同步服务不会启动（fail-closed）" : "Shared token: every /sync/push and /sync/pull request must send Authorization: Bearer <token>. The sync server refuses to start without one (fail-closed)" }
+    static var syncServerNoTokenError: String { isZH ? "未能生成推送令牌，同步服务未启动" : "Could not generate a push token — sync server not started" }
     static var syncPushTokenGenerateHint: String { isZH ? "生成随机推送令牌" : "Generate a random push token" }
     static var syncPushTokenRevealHint: String { isZH ? "显示/隐藏令牌" : "Show / hide token" }
     static var syncPushTokenCopyHint: String { isZH ? "复制令牌" : "Copy token" }
@@ -828,7 +842,7 @@ enum Strings {
     static var cloudflareSection: String { isZH ? "Cloudflare 隧道" : "Cloudflare Tunnel" }
     static var cloudflareToggle: String { isZH ? "启用 Cloudflare 隧道管理" : "Enable Cloudflare Tunnel" }
     static var cloudflareTokenLabel: String { isZH ? "API Token" : "API Token" }
-    static var cloudflareTokenHint: String { isZH ? "需要作用域：Zone:Read + Zone:DNS:Edit、Account:Read + Account:Cloudflare Tunnel:Edit（在 dash.cloudflare.com → My Profile → API Tokens 创建）" : "Needs scopes: Zone:Read + Zone:DNS:Edit, Account:Read + Account:Cloudflare Tunnel:Edit (create at dash.cloudflare.com → My Profile → API Tokens)" }
+    static var cloudflareTokenHint: String { isZH ? "需要作用域：Zone:Read + Zone:DNS:Edit、Account:Read + Account:Cloudflare Tunnel:Edit。用户令牌在 dash.cloudflare.com → My Profile → API Tokens；账户令牌在 dash.cloudflare.com/<账户ID>/api-tokens（Manage Account → Account API Tokens）。两者都能用 —— 改权限不会改变令牌值，无需重新粘贴" : "Needs scopes: Zone:Read + Zone:DNS:Edit, Account:Read + Account:Cloudflare Tunnel:Edit. User tokens are created at dash.cloudflare.com → My Profile → API Tokens; account-owned tokens live at dash.cloudflare.com/<account-id>/api-tokens (Manage Account → Account API Tokens). Either works — editing a token's permissions keeps the same value, so there is nothing to re-paste" }
     static var cloudflareVerifyAction: String { isZH ? "验证并发现" : "Verify & Discover" }
     static var cloudflareVerifyBusy: String { isZH ? "验证中…" : "Verifying…" }
     static var cloudflareAccountLabel: String { isZH ? "账户" : "Account" }
@@ -1186,6 +1200,7 @@ enum Strings {
     static var storeActionReveal: String { isZH ? "显示" : "Reveal" }
     static var storeActionOpen: String { isZH ? "打开" : "Open" }
     static var storeMissing: String { isZH ? "文件不存在" : "file not found" }
+    static var storeBackupSensitiveBlocked: String { isZH ? "该存储被标记为敏感，不提供整库备份" : "This store is flagged sensitive — whole-file backup disabled" }
     static var storeInUse: String { isZH ? "使用中" : "in use" }
     static var storeRemoteHint: String { isZH ? "外部系统（唯一数据源）" : "remote system of record" }
     static var storeBackupTitle: String { isZH ? "备份数据存储" : "Back up data store" }

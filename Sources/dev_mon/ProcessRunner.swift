@@ -21,10 +21,34 @@ enum ProcessRunner {
         "/sbin",
     ]
 
+    /// 不应传给子进程的环境变量：这些是 dev_mon 自己的凭据 / 共享密钥，
+    /// 而 `node`、`brew`、`lsof`、`osascript`、`tailscale` 都不需要它们。
+    private static let blockedEnvironmentKeys: Set<String> = [
+        "DSMON_ENCRYPTION_KEY",
+        "DSMON_ENCRYPTION_KEY_ID",
+        "DSMON_PUSH_TOKEN",
+        "DSMON_PUSH_URL",
+    ]
+
+    /// 形如 `*_API_KEY` / `*_TOKEN` / `*_SECRET` / `*_PASSWORD` 的继承变量同样剔除。
+    /// 注意：`extra` 在剔除之后写入，所以显式传给某个子进程的变量不受影响。
+    private static func looksLikeSecret(_ key: String) -> Bool {
+        let upper = key.uppercased()
+        return upper.hasSuffix("_API_KEY")
+            || upper.hasSuffix("_TOKEN")
+            || upper.hasSuffix("_SECRET")
+            || upper.hasSuffix("_PASSWORD")
+            || upper.hasSuffix("_SECRET_KEY")
+    }
+
     /// 继承父进程环境，并把 `searchPaths` 前置到 PATH（保留原有尾部、去重）。
     /// `extra` 里的变量最后写入，用于给单个子进程附加专用变量（如 TAILSCALE_BE_CLI）。
     static func environment(extra: [String: String] = [:]) -> [String: String] {
         var env = ProcessInfo.processInfo.environment
+        // 子进程没有理由拿到本应用的密钥：先剔除，再应用显式 extra
+        for key in env.keys where blockedEnvironmentKeys.contains(key) || looksLikeSecret(key) {
+            env.removeValue(forKey: key)
+        }
         let inherited = (env["PATH"] ?? "").split(separator: ":").map(String.init)
         var seen = Set<String>()
         let merged = (searchPaths + inherited).filter { seen.insert($0).inserted }

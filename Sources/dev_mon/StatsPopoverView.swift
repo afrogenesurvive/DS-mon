@@ -24,7 +24,7 @@ private struct CFConfirmRequest: Identifiable {
         case start
         case stop
         case restart
-        case removeHostname(String)
+        case removeHostname(hostname: String, path: String?)
         case removeRoute(String)
     }
     let kind: Kind
@@ -33,7 +33,7 @@ private struct CFConfirmRequest: Identifiable {
         case .start: return "cf-start"
         case .stop: return "cf-stop"
         case .restart: return "cf-restart"
-        case .removeHostname(let h): return "cf-h-" + h
+        case .removeHostname(let h, let p): return "cf-h-" + h + (p ?? "")
         case .removeRoute(let n): return "cf-r-" + n
         }
     }
@@ -3189,7 +3189,7 @@ struct StatsPopoverView: View {
                         AnyView(HStack(spacing: 6) {
                             cfCopyButton(rule.hostname)
                             cfDeleteButton(tooltip: Strings.cloudflareRemoveAction) {
-                                cfConfirmRequest = CFConfirmRequest(kind: .removeHostname(rule.hostname))
+                                cfConfirmRequest = CFConfirmRequest(kind: .removeHostname(hostname: rule.hostname, path: rule.path))
                                 showCFConfirm = true
                             }
                         })
@@ -3348,7 +3348,10 @@ struct StatsPopoverView: View {
         case .start: return Strings.cloudflareStartConfirm
         case .stop: return Strings.cloudflareStopConfirm
         case .restart: return Strings.cloudflareRestartConfirm
-        case .removeHostname(let h): return String(format: Strings.cloudflareRemoveHostnameConfirm, h)
+        case .removeHostname(let h, let p):
+            // 同一主机名可能有多条路径规则，确认框里显示完整路径，避免删错
+            let label = (p?.isEmpty == false) ? "\(h)\(p!)" : h
+            return String(format: Strings.cloudflareRemoveHostnameConfirm, label)
         case .removeRoute(let n): return String(format: Strings.cloudflareRemoveRouteConfirm, n)
         }
     }
@@ -3359,7 +3362,7 @@ struct StatsPopoverView: View {
             case .start: await stats.cloudflare.startTunnel()
             case .stop: await stats.cloudflare.stopTunnel()
             case .restart: await stats.cloudflare.restartTunnel()
-            case .removeHostname(let h): await stats.cloudflare.removePublicHostname(hostname: h)
+            case .removeHostname(let h, let p): await stats.cloudflare.removePublicHostname(hostname: h, path: p)
             case .removeRoute(let n): await stats.cloudflare.removeIPRoute(network: n)
             }
         }

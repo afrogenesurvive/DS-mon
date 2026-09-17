@@ -240,12 +240,15 @@ struct BaseURLHelpView: View {
     }
 
     private var configExample: String {
+        // 代理现在要求客户端令牌：只给 baseURL 的配置会直接 401
+        let token = SecureStore.retrieve(key: Strings.Keys.proxyClientToken) ?? "<client token>"
         var lines: [String] = ["{"]
         for (i, p) in providers.enumerated() {
             let comma = i < providers.count - 1 ? "," : ""
             lines.append("  \"\(p.opencodeProviderId)\": {")
             lines.append("    \"options\": {")
-            lines.append("      \"baseURL\": \"http://localhost:18080\"")
+            lines.append("      \"baseURL\": \"http://localhost:18080\",")
+            lines.append("      \"apiKey\": \"\(token)\"")
             lines.append("    }")
             lines.append("  }\(comma)")
         }
