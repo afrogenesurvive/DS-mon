@@ -175,6 +175,10 @@ struct UsageRecord: Codable, Sendable {
     let sourceIP: String
     /// 本地仓库名（可选）。仅本机来源、且能解析出客户端 cwd 时才有值；远程/未知来源为 nil。
     let repo: String?
+    /// 写入 `usage_log` 那一刻的成本（按当时的价目表；老行由 `backfillCost` 补齐）。
+    /// 可选是为了向后兼容：Data Sync 的旧负载、以及代码里合成出来的记录没有这个字段，
+    /// 此时导出/聚合回退到「按当前价目表重算」。
+    var cost: Double? = nil
 }
 
 struct AggregatedUsage: Sendable {
@@ -238,6 +242,13 @@ actor UsageStore {
         sqlite3_bind_text(stmt, 14, record.userAgent, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         sqlite3_bind_text(stmt, 15, record.sourceIP, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         sqlite3_bind_text(stmt, 16, record.repo ?? "", -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+    }
+
+    /// 读取可空的 REAL 列（NULL → nil）。`usage_log.cost` 理论上不为 NULL，
+    /// 但手工导入/旧数据可能是，导出时要能区分「成本为 0」和「没有成本」。
+    private static func optionalDouble(_ stmt: OpaquePointer?, _ index: Int32) -> Double? {
+        guard let stmt else { return nil }
+        return sqlite3_column_type(stmt, index) == SQLITE_NULL ? nil : sqlite3_column_double(stmt, index)
     }
 
     private static let dayLookupFormatter: DateFormatter = {
@@ -421,7 +432,7 @@ actor UsageStore {
         let sql = """
         SELECT uuid, timestamp, provider_id, model, endpoint,
                prompt_tokens, completion_tokens, total_tokens, cached_tokens,
-               reasoning_tokens, latency_ms, status_code, user_agent, source_ip, repo
+               reasoning_tokens, latency_ms, status_code, user_agent, source_ip, repo, cost
         FROM usage_log
         WHERE timestamp > ?
         ORDER BY timestamp ASC;
@@ -450,7 +461,8 @@ actor UsageStore {
                 statusCode: Int(sqlite3_column_int64(stmt, 11)),
                 userAgent: String(cString: sqlite3_column_text(stmt, 12)),
                 sourceIP: String(cString: sqlite3_column_text(stmt, 13)),
-                repo: sqlite3_column_text(stmt, 14).map { String(cString: $0) }
+                repo: sqlite3_column_text(stmt, 14).map { String(cString: $0) },
+                cost: Self.optionalDouble(stmt, 15)
             ))
         }
         return records
@@ -469,7 +481,9 @@ actor UsageStore {
 
         sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
         for record in records {
-            let cost = ModelPricing.computeCost(
+            // 同步过来的记录带 cost 时沿用它（同一行在两端设备上成本一致）；
+            // 旧版负载没有这个字段，按本机价目表重算。
+            let cost = record.cost ?? ModelPricing.computeCost(
                 promptTokens: record.promptTokens,
                 completionTokens: record.completionTokens,
                 cachedTokens: record.cachedTokens,
@@ -489,7 +503,7 @@ actor UsageStore {
         let hasSince = since != nil
         let sql = """
         SELECT timestamp, model, endpoint, latency_ms, status_code, user_agent, uuid, source_ip, provider_id,
-               prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens, repo
+               prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens, repo, cost
         FROM usage_log
         WHERE 1=1\(hasProvider ? " AND provider_id = ?" : "")\(hasSince ? " AND timestamp >= ?" : "")
         ORDER BY timestamp DESC
@@ -525,7 +539,8 @@ actor UsageStore {
                 statusCode: Int(sqlite3_column_int64(stmt, 4)),
                 userAgent: String(cString: sqlite3_column_text(stmt, 5)),
                 sourceIP: String(cString: sqlite3_column_text(stmt, 7)),
-                repo: sqlite3_column_text(stmt, 14).map { String(cString: $0) }
+                repo: sqlite3_column_text(stmt, 14).map { String(cString: $0) },
+                cost: Self.optionalDouble(stmt, 15)
             ))
         }
         return results
@@ -756,7 +771,7 @@ actor UsageStore {
         let sql = """
         SELECT uuid, timestamp, provider_id, model, endpoint,
                prompt_tokens, completion_tokens, total_tokens, cached_tokens,
-               reasoning_tokens, latency_ms, status_code, user_agent, source_ip, repo
+               reasoning_tokens, latency_ms, status_code, user_agent, source_ip, repo, cost
         FROM usage_log
         WHERE 1=1\(hasSince ? " AND timestamp >= ?" : "")\(sourceClause)\(hasRepo ? " AND repo = ?" : "")\(hasProvider ? " AND provider_id = ?" : "")
         ORDER BY timestamp DESC
@@ -801,7 +816,8 @@ actor UsageStore {
                 statusCode: Int(sqlite3_column_int64(stmt, 11)),
                 userAgent: String(cString: sqlite3_column_text(stmt, 12)),
                 sourceIP: String(cString: sqlite3_column_text(stmt, 13)),
-                repo: sqlite3_column_text(stmt, 14).map { String(cString: $0) }
+                repo: sqlite3_column_text(stmt, 14).map { String(cString: $0) },
+                cost: Self.optionalDouble(stmt, 15)
             ))
         }
         return results

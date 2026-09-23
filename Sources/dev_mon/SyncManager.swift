@@ -344,7 +344,8 @@ final class SyncManager: @unchecked Sendable {
                             statusCode: records[i].statusCode,
                             userAgent: records[i].userAgent,
                             sourceIP: clientIP,
-                            repo: records[i].repo
+                            repo: records[i].repo,
+                            cost: records[i].cost
                         )
                     }
                     syncLog("[Sync] Server: insert \(records.count) records from \(clientIP)")

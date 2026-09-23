@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.3.9-1] — 2026-09-23
+
+### Added
+
+- **导出数据补齐最后一块云端快照：Tailscale（导出格式 v3 → v4）。** `CloudUsageExport` 此前没有 `tailscale` —— 它是
+  `DeepSeekStats` 里唯一**没有**进入 Export Data 的监控对象（Tailscale 只有两个设置键随 Export Config 走，运行状态一个都
+  没导出）。新增 `TailscaleExport`（`@MainActor init`，与 Cloudflare / Netlify 快照同构）：设置开关 / 是否真的在采集
+  （开关 + 找到 CLI）/ 是否随连接发通知、`BackendState` 原值与是否已连接、tailnet 名与 MagicDNS 后缀（含开关）、本机节点
+  （主机名 / DNS 名 / OS / tailnet IP / 在线 / exit node / relay / 创建时间 / 密钥到期）、对端列表（在线、直连还是 DERP、
+  `curAddr`、relay、收发字节、last seen、登录身份）以及 `peerCount` / `onlinePeerCount`、serve 与 funnel 映射（端口 /
+  scheme / path / target / hostPort / url / `isFunnel`）、Tailscale 自己报告的健康警告、CLI 路径与版本、macOS 变体、
+  系统扩展状态（含 `notOk` 的原因文本）、错误信息与最后刷新时间。取值全部来自本机 `tailscale` 命令行，**不含任何令牌**；
+  字段仍是可选类型，所以旧文件照旧能被解码。
+
+### Changed
+
+- **成本口径统一到「落库时的成本」，导出文件不再自相矛盾。** 此前 `summary.today/week/month`、`periods.*`、
+  `bySource[].totalCost` 走 SQL 的 `SUM(usage_log.cost)`（写入时算出的成本），而 `summary.allTime`、
+  `providers[].summary.allTime` 与 `byRepo[].totalCost` 却按**导出那一刻**的价目表重算 —— 只要用户改过价目表、或版本
+  更新改过内置价格，同一个文件里同一个总量就会给出两个成本数字，`bySource`（存库成本）与 `byRepo`（重算成本）之间也
+  无法对账。现在 `UsageRecord` 增加可选 `cost`（来自 `usage_log.cost`），三条记录查询（`queryRecords` /
+  `recentRecords` / `sourceRecords`）一并读出来，`aggregate` 与 `byRepo` **优先用它**、缺失时才回退到按当前价目表重算
+  （`recordCost(of:)`）；`records[]` 每条也因此带上了 `cost`，可以直接在表格或脚本里自行求和核对。改价目表**不会**回写
+  历史行的成本（只有从未写过成本的行会在下次启动被既有的 `backfillCost` 补上），所以文件里的数字始终与应用自己统计的
+  一致。
+- **同步也一并保真。** `UsageStore.insertRecords`（拉取与接收端）改为优先沿用记录里带的 `cost`，`SyncManager` 服务端补写
+  `sourceIP` 时也把它一起带上 —— 同一条记录不再在两端各算一次、给出两个成本（这也是「两台设备的汇总应当一致」的前提）；
+  旧版客户端发来的负载没有该字段，仍按接收端的价目表重算，行为与之前一致。
+- **文档补齐**（`docs/` 除本文件外为本地文件，不入库）：ui-guide 新增 **Export Data** 一节 —— 文件名与 `0600` 权限、
+  envelope（`format` / `formatVersion` / `exportedAt` / `appVersion`）、`summary` / `periods` / `breakdowns` /
+  `providers` / `bySource` / `byRepo` / `records` / `cloud` 各块的内容与范围（30 天 / 12 周 / 12 个月、Netlify 只取最近
+  10 次部署）、成本口径，以及「导出是单向的、只有配置能导入」；how-it-works 在「记录下来什么」补上**成本按行落库**、在
+  「数据存在哪里」把导出这条拆成 Export Data 与 Export Config 两条并写清各自内容。
+
+### Notes
+
+- 导出格式版本升到 **4**（`UsageExporter.exportFormatVersion`，并在枚举的文档注释里记录 v1→v4 各版本新增了什么）。
+  新增字段一律用可选类型：旧文件仍能被新版解码，新文件里的 `tailscale` 在旧代码里也不会解码失败。
+- 仍未进入导出文件的内容是刻意的：DeepSeek 余额 / 赠送 / 充值、Z.ai Coding Plan 配额与钱包余额、告警历史、许可席位、
+  计费时段规则缓存都属运行时状态；其中设置项与密钥由 **Export Config** 负责（配置格式版本独立，当前 v3）。
+- 未改动：`Export Data` 仍是**单向**的（没有 Import Data）；代理、同步、聚合查询与 UI 行为均未变；`swift build` 通过。
+
 ## [0.3.8-2] — 2026-09-17
 
 ### Added

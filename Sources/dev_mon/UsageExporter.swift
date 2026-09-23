@@ -125,7 +125,7 @@ struct TokenBarExport: Codable {
     }
 }
 
-// MARK: - Cloud (AWS / GitHub / Cloudflare / Netlify / 本地服务) Snapshot Export
+// MARK: - Cloud (AWS / GitHub / Cloudflare / Netlify / Tailscale / 本地服务) Snapshot Export
 
 struct CloudUsageExport: Codable {
     let aws: AWSExport?
@@ -135,6 +135,8 @@ struct CloudUsageExport: Codable {
     let netlify: NetlifyExport?
     let localDBs: LocalDBsExport?
     let repoStores: RepoStoresExport?
+    // v4 新增（同样是可选项：v3 及更早的文件解码时缺省为 nil）
+    let tailscale: TailscaleExport?
 }
 
 // MARK: Cloudflare
@@ -314,6 +316,165 @@ struct RepoStoreExport: Codable {
     let sensitive: Bool
 }
 
+// MARK: Tailscale
+
+/// Tailscale 快照（v4 新增）。全部来自本机 `tailscale` 命令行，不含任何令牌。
+struct TailscaleExport: Codable {
+    /// 设置里的开关（用户意图）
+    let enabled: Bool
+    /// 开关打开**且**找到了 `tailscale` CLI —— 也就是真的在采集
+    let active: Bool
+    let installed: Bool
+    /// 是否随连接状态发通知
+    let notifyEnabled: Bool
+    /// `status --json` 的 BackendState 原值（Running / Stopped / NeedsLogin …）
+    let backendState: String
+    let connected: Bool
+    let tailnetName: String
+    let magicDNSSuffix: String
+    let magicDNSEnabled: Bool
+    let selfNode: TSSelfNodeExport?
+    let peerCount: Int
+    let onlinePeerCount: Int
+    let peers: [TSPeerExport]
+    /// 仅 tailnet 内可见的共享映射
+    let serves: [TSServeExport]
+    /// 公网可访问的映射（funnel）
+    let funnels: [TSServeExport]
+    /// Tailscale 自己报告的健康警告
+    let health: [String]
+    let binaryPath: String?
+    let cliVersion: String?
+    let osVariant: String?
+    /// ok / notOk / unknown
+    let sysextState: String
+    /// sysextState == "notOk" 时的原因文本
+    let sysextMessage: String?
+    let error: String?
+    let lastUpdate: String
+
+    @MainActor
+    init(_ ts: TailscaleManager) {
+        enabled = ts.enabled
+        active = ts.isEnabled
+        installed = ts.isInstalled
+        notifyEnabled = ts.notifyEnabled
+        backendState = ts.backendStateRaw.isEmpty ? TSBackendState.noState.rawValue : ts.backendStateRaw
+        connected = ts.isConnected
+        tailnetName = ts.tailnetName
+        magicDNSSuffix = ts.magicDNSSuffix
+        magicDNSEnabled = ts.magicDNSEnabled
+        selfNode = ts.selfNode.map(TSSelfNodeExport.init)
+        peerCount = ts.peers.count
+        onlinePeerCount = ts.onlinePeerCount
+        peers = ts.peers.map(TSPeerExport.init)
+        serves = ts.serves.map(TSServeExport.init)
+        funnels = ts.funnels.map(TSServeExport.init)
+        health = ts.health
+        binaryPath = ts.binaryPath
+        cliVersion = ts.cliVersion
+        osVariant = ts.osVariant
+        switch ts.sysextState {
+        case .ok:
+            sysextState = "ok"
+            sysextMessage = nil
+        case .notOk(let message):
+            sysextState = "notOk"
+            sysextMessage = message
+        case .unknown:
+            sysextState = "unknown"
+            sysextMessage = nil
+        }
+        error = ts.errorMessage
+        lastUpdate = ts.lastUpdate
+    }
+}
+
+/// 本机节点（`status --json` 的 `Self`）。
+struct TSSelfNodeExport: Codable {
+    let hostName: String
+    let dnsName: String
+    let os: String
+    let tailscaleIPs: [String]
+    let online: Bool
+    let exitNode: Bool
+    let exitNodeOption: Bool
+    let relay: String
+    let created: Date?
+    let keyExpiry: Date?
+
+    init(_ n: TSSelfNode) {
+        hostName = n.hostName
+        dnsName = n.dnsName
+        os = n.os
+        tailscaleIPs = n.tailscaleIPs
+        online = n.online
+        exitNode = n.exitNode
+        exitNodeOption = n.exitNodeOption
+        relay = n.relay
+        created = n.created
+        keyExpiry = n.keyExpiry
+    }
+}
+
+/// tailnet 里的其他设备。
+struct TSPeerExport: Codable {
+    let id: String
+    let hostName: String
+    let dnsName: String
+    let os: String
+    let online: Bool
+    let active: Bool
+    let tailscaleIPs: [String]
+    let relay: String
+    let curAddr: String
+    let exitNode: Bool
+    let exitNodeOption: Bool
+    let lastSeen: Date?
+    let userLogin: String?
+    let rxBytes: Int64
+    let txBytes: Int64
+
+    init(_ p: TSPeer) {
+        id = p.id
+        hostName = p.hostName
+        dnsName = p.dnsName
+        os = p.os
+        online = p.online
+        active = p.active
+        tailscaleIPs = p.tailscaleIPs
+        relay = p.relay
+        curAddr = p.curAddr
+        exitNode = p.exitNode
+        exitNodeOption = p.exitNodeOption
+        lastSeen = p.lastSeen
+        userLogin = p.userLogin
+        rxBytes = p.rxBytes
+        txBytes = p.txBytes
+    }
+}
+
+/// 一条 serve / funnel 映射；`isFunnel` 区分二者。
+struct TSServeExport: Codable {
+    let port: Int
+    let scheme: String
+    let path: String
+    let target: String
+    let hostPort: String
+    let url: String?
+    let isFunnel: Bool
+
+    init(_ m: TSServeMapping) {
+        port = m.port
+        scheme = m.scheme
+        path = m.path
+        target = m.target
+        hostPort = m.hostPort
+        url = m.url
+        isFunnel = m.isFunnel
+    }
+}
+
 /// 按本地仓库聚合的用量（usage_log.repo）。
 struct RepoUsageExport: Codable {
     let repo: String
@@ -414,7 +575,16 @@ struct GitHubExport: Codable {
 // MARK: - 导出器
 
 /// 导出全部用量数据为 verbose JSON（通过文件选择器选择保存位置）。
+///
+/// 格式版本（消费方按它判断字段是否存在）：
+/// - v1：summary / periods / breakdowns / providers / bySource / records
+/// - v2：cloud 加入 AWS / GitHub 快照
+/// - v3：cloud 加入 cloudflare / netlify / localDBs / repoStores 快照 + byRepo 聚合
+/// - v4：cloud 加入 **tailscale** 快照；records 每条带 cost；allTime / byRepo 的成本改用
+///       落库的 `usage_log.cost`，与 periods / bySource 的 `SUM(cost)` 口径一致
 enum UsageExporter {
+
+    private static let exportFormatVersion = 4
 
     /// 弹出保存面板并把完整用量数据导出为 JSON
     @MainActor
@@ -503,7 +673,8 @@ enum UsageExporter {
                 cloudflare: CloudflareExport(s.cloudflare),
                 netlify: NetlifyExport(s.netlify),
                 localDBs: LocalDBsExport(s.localDBs),
-                repoStores: RepoStoresExport(s.repoStores)
+                repoStores: RepoStoresExport(s.repoStores),
+                tailscale: TailscaleExport(s.tailscale)
             )
         }()
 
@@ -512,11 +683,7 @@ enum UsageExporter {
             var agg: [String: (count: Int, total: Int, cached: Int, cost: Double, last: Date)] = [:]
             for r in allRecords {
                 guard let repo = r.repo, !repo.isEmpty else { continue }
-                let pricing = ModelPricing.forModel(r.model, providerId: r.providerId)
-                let cost = ModelPricing.computeCost(promptTokens: r.promptTokens,
-                                                    completionTokens: r.completionTokens,
-                                                    cachedTokens: r.cachedTokens,
-                                                    pricing: pricing, providerId: r.providerId)
+                let cost = recordCost(of: r)
                 var entry = agg[repo] ?? (0, 0, 0, 0, Date.distantPast)
                 entry.count += 1
                 entry.total += r.totalTokens
@@ -535,7 +702,7 @@ enum UsageExporter {
 
         return UsageExportPayload(
             format: "dev-mon-usage-export",
-            formatVersion: 3,
+            formatVersion: exportFormatVersion,
             exportedAt: Date(),
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev",
             summary: PeriodSummary(today: today, week: week, month: month, allTime: allTime),
@@ -553,7 +720,22 @@ enum UsageExporter {
         )
     }
 
-    /// 从原始记录汇总 all-time 聚合（cost 按 ModelPricing 重算）
+    /// 单条记录的成本。
+    ///
+    /// 优先用**落库时**算出的 `usage_log.cost` —— 周期聚合（periods / bySource）走的是
+    /// SQL 的 `SUM(cost)`，只有同一个口径，导出文件内部才对得上（例如
+    /// `bySource[local].totalCost` == Σ `byRepo` + 未标注仓库的部分）。
+    /// 没有该字段（旧同步负载 / 合成出来的记录）时，回退到按当前价目表重算。
+    private static func recordCost(of record: UsageRecord) -> Double {
+        if let stored = record.cost { return stored }
+        let pricing = ModelPricing.forModel(record.model, providerId: record.providerId)
+        return ModelPricing.computeCost(promptTokens: record.promptTokens,
+                                        completionTokens: record.completionTokens,
+                                        cachedTokens: record.cachedTokens,
+                                        pricing: pricing, providerId: record.providerId)
+    }
+
+    /// 从原始记录汇总 all-time 聚合（cost 用落库成本，见 `recordCost(of:)`）
     private static func aggregate(_ records: [UsageRecord]) -> AggregatedUsageExport {
         var count = 0, prompt = 0, completion = 0, total = 0, cached = 0, reasoning = 0
         var latencySum = 0.0, cost = 0.0
@@ -565,11 +747,7 @@ enum UsageExporter {
             cached += r.cachedTokens
             reasoning += r.reasoningTokens
             latencySum += r.latencyMs
-            let pricing = ModelPricing.forModel(r.model, providerId: r.providerId)
-            cost += ModelPricing.computeCost(promptTokens: r.promptTokens,
-                                             completionTokens: r.completionTokens,
-                                             cachedTokens: r.cachedTokens,
-                                             pricing: pricing, providerId: r.providerId)
+            cost += recordCost(of: r)
         }
         return AggregatedUsageExport(
             period: "all",
