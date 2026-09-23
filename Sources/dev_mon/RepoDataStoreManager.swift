@@ -421,7 +421,8 @@ final class RepoDataStoreManager {
         lastDownFiredAt[group.id] = Date()
         AppAlertCenter.fire(.storeDegraded,
                             title: String(format: Strings.storeDownTitle, group.repoName),
-                            body: String(format: Strings.storeDownBody, group.repoName))
+                            body: String(format: Strings.storeDownBody, group.repoName),
+                            subject: group.repoName)
     }
 
     private func fireRestoredIfAllowed(_ group: RepoStoreGroup) {
@@ -430,7 +431,8 @@ final class RepoDataStoreManager {
         lastRestoredFiredAt[group.id] = Date()
         AppAlertCenter.fire(.storeRestored,
                             title: String(format: Strings.storeRestoredTitle, group.repoName),
-                            body: String(format: Strings.storeRestoredBody, group.repoName))
+                            body: String(format: Strings.storeRestoredBody, group.repoName),
+                            subject: group.repoName)
     }
 
     // MARK: - 计数
@@ -469,6 +471,8 @@ final class RepoDataStoreManager {
         guard isEnabled, !store.working else { return }
         store.working = true
         let descriptor = store.descriptor
+        // 日志作用对象用「仓库/存储名」——descriptor.id 里含绝对路径，不写进日志。
+        let target = "\(descriptor.repoName)/\(descriptor.label)"
         Task {
             let result = await Task.detached(priority: .userInitiated) {
                 RepoDataStoreManager.performBackup(descriptor)
@@ -478,9 +482,14 @@ final class RepoDataStoreManager {
             case .success(let url):
                 actionMessage = String(format: Strings.storeBackupDone, url.path)
                 actionSuccess = true
+                // detail 只记文件名：完整目标路径含家目录。
+                ActionLog.record(.repoStores, action: "store.backup", target: target,
+                                 result: .success, detail: url.lastPathComponent)
             case .failure(let message):
                 actionMessage = message
                 actionSuccess = false
+                ActionLog.record(.repoStores, action: "store.backup", target: target,
+                                 result: .failure, detail: message)
             }
         }
     }
@@ -493,14 +502,18 @@ final class RepoDataStoreManager {
     /// 在终端里用 sqlite3 打开（仅 SQLite/Chroma）。
     func openInTerminal(_ store: RepoStoreState) {
         let path = store.descriptor.fullPath
+        let target = "\(store.descriptor.repoName)/\(store.descriptor.label)"
         guard let sqlite3 = ProcessRunner.firstExecutable(
             ["/usr/bin/sqlite3", "/opt/homebrew/bin/sqlite3"], fallbackName: "sqlite3") else {
             actionMessage = Strings.localDBClientMissing("sqlite3")
             actionSuccess = false
+            ActionLog.record(.repoStores, action: "store.open_in_terminal", target: target,
+                             result: .failure, detail: actionMessage ?? "")
             return
         }
         let script = "tell application \"Terminal\" to do script \"\(sqlite3) \(shellQuoted(path))\""
         _ = ProcessRunner.run(launchPath: "/usr/bin/osascript", args: ["-e", script], timeout: 10)
+        ActionLog.record(.repoStores, action: "store.open_in_terminal", target: target, result: .success)
     }
 
     private func shellQuoted(_ s: String) -> String {

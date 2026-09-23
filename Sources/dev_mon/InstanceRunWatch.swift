@@ -57,7 +57,8 @@ final class InstanceRunWatch {
                 title: Strings.awsRunningTitle,
                 body: Strings.awsRunningBody(instance.name ?? instance.instanceId,
                                              instance.instanceId,
-                                             Strings.dbUptime(Int(elapsed))))
+                                             Strings.dbUptime(Int(elapsed))),
+                subject: instance.instanceId)
         }
     }
 

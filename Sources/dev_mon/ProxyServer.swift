@@ -152,6 +152,13 @@ final class ProxyServer: @unchecked Sendable {
         lock.withLock { _isRunning = true }
         UserDefaults.standard.set(Int(lock.withLock { _port }), forKey: Strings.Keys.proxyPort)
         print("[ProxyServer] Started on 127.0.0.1:\(currentPort)")
+        // 操作日志（本类是 nonisolated，记录需跳回主线程）
+        let startedPort = currentPort
+        Task { @MainActor in
+            ActionLog.record(.`internal`, action: "proxy.start",
+                             target: "127.0.0.1:\(startedPort)",
+                             result: .success, source: .auto)
+        }
     }
 
     func stop() {
@@ -165,6 +172,9 @@ final class ProxyServer: @unchecked Sendable {
         // 不再写 proxyEnabled：退出应用时写 false 会让「客户端是否开启代理」这个
         // 用户意图被系统事件覆盖（下次启动就不再生效）。意图只由设置里的开关写入。
         print("[ProxyServer] Stopped")
+        Task { @MainActor in
+            ActionLog.record(.`internal`, action: "proxy.stop", result: .success, source: .auto)
+        }
     }
 }
 

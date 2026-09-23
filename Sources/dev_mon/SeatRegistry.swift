@@ -709,6 +709,9 @@ final class SeatRegistry: @unchecked Sendable {
         timer.tolerance = interval * 0.1
         RunLoop.main.add(timer, forMode: .common)
         lock.withLock { self.checkTimer = timer }
+        Task { @MainActor in
+            ActionLog.record(.`internal`, action: "seats.start", result: .success, source: .auto)
+        }
     }
 
     /// 在后台立即导入一次许可来源（不阻塞调用方）。
@@ -720,9 +723,14 @@ final class SeatRegistry: @unchecked Sendable {
 
     /// 停止定期检查
     func stopAutoCheck() {
+        let wasActive = lock.withLock { checkTimer != nil }
         lock.withLock {
             checkTimer?.invalidate()
             checkTimer = nil
+        }
+        guard wasActive else { return }
+        Task { @MainActor in
+            ActionLog.record(.`internal`, action: "seats.stop", result: .success, source: .auto)
         }
     }
 

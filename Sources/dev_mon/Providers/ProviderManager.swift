@@ -44,9 +44,15 @@ final class ProviderManager {
 
     func setDefaultProvider(id: String) {
         guard providers.contains(where: { $0.id == id }) else { return }
+        let changed = defaultProviderId != id
         defaultProviderId = id
         UserDefaults.standard.set(id, forKey: Strings.Keys.defaultProviderId)
         NotificationCenter.default.post(name: .providerChanged, object: nil)
+        // 只在真的换了提供商时记录（初始化读 UserDefaults 不走这里，不会产生启动噪声）
+        if changed {
+            ActionLog.record(.`internal`, action: "provider.switch", target: id,
+                             result: .success, source: .user)
+        }
     }
 
     // MARK: - 模型→提供商路由

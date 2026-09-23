@@ -1,5 +1,69 @@
 # Changelog
 
+## [0.3.9-2] — 2026-09-23
+
+### Added
+
+- **导出文件新增 `service_activity`：服务操作与通知的持久化流水（导出格式 v4 → v5）。** 此前没有任何地方记录「做了什么」——
+  `AppAlertCenter.recent` 是**纯内存**、上限 30 条、退出即失，通知之外的 AWS / Cloudflare / Netlify / 本地数据库 /
+  仓库存储 / Tailscale 操作一个都没留痕。新增 `action_log` 表（与用量同库 `usage.db`，WAL + `0600`，沿用自愈式
+  `CREATE TABLE IF NOT EXISTS`），以及 `ActionLog`（`@MainActor`）记录入口：事件在记录点取时间戳、合并成一次批量写入，
+  退出前由 `applicationWillTerminate` 里的 `flushPending()` 兜底落盘。每条事件含 `uuid`（唯一索引去重）、`timestamp`、
+  `service`、`action`、`target`、`result`（success / failure / blocked / noop）、`source`（user / auto）与 `detail`。
+  导出时按服务分成 `service_activity.{aws,cloudflare,netlify,databases,repoStores,tailscale,internal,notifications}`。
+- **记录点放在各管理器内部，而不是 popover 的确认弹窗**：确认弹窗只是其中一条路径，新增 hostname / 新增私有路由 /
+  新建站点 / 上传本地目录 / 规则编辑器保存都是直接从表单调用的，只挂弹窗会漏记。AWS（实例 start / stop、入站规则增删）、
+  Cloudflare（隧道 start / stop / restart、公开主机名增删、私有网段路由增删）、Netlify（新建站点、触发部署、
+  上传本地目录、回滚、加 / 解锁部署，以及首次部署时**隐式创建构建钩子**这一副作用）、本地数据库（start / stop、
+  信任 Homebrew tap）、仓库存储（备份、在终端打开）、Tailscale（serve / funnel 增删、funnel reset）与 dev_mon 自身模块
+  （代理启停、同步启停、席位自动检查启停、切换提供商）全部接入。
+- **通知全部入账。** 挂在 `AppAlertCenter.postInApp` 这一个出口上，17 处生产者（隧道 / Tailscale / 数据库 / 仓库服务状态
+  变化、实例长跑、部署结果、余额预警、高峰切换）无需各自改造；`AppAlert` 增加可选 `subject`（数据库 id / 仓库名 /
+  隧道名 / 实例 id / 站点 id / provider id），因为标题与正文是本地化文案，只有它能让日志机器可读地说明「是哪一项」。
+  `PeakNotifier` 不经过 `AppAlertCenter`，改为在**调度**时记一条（系统通知可能在应用未运行时投递，无法记录）。
+
+### Changed
+
+- **导出信封与 LLM 字段重新分组。** 四个信封字段收进 `app`（`format` / `formatVersion` / `exportedAt` / `appVersion`），
+  全部 LLM 相关字段（`summary` / `periods` / `breakdowns` / `providers` / `bySource` / `byRepo` / `records`）收进
+  `llm_activity`，顶层只剩 `app` / `llm_activity` / `service_activity` / `cloud`。只有分组键用 snake_case，
+  其余键名一律不变（实现上用显式 `CodingKeys`，**不能**用 `keyEncodingStrategy = .convertToSnakeCase`——那会把
+  `byRepo` 改成 `by_repo`、`sourceIP` 改成 `source_ip`，把消费方全部打断）。
+- **`breakdowns` 与 `byRepo` 每条新增 `providerIds`。** 两者都是跨提供商的聚合，此前无法按提供商拆分；现在按提供商重跑
+  同一个 breakdown 查询、按标签合并出「该时间桶内有请求的 provider id」（逗号连接、已排序，无则空字符串），
+  `byRepo` 则在已有的 Swift 聚合里顺带收集。**数值仍用不带过滤的那份**，所以 v4 → v5 的数字完全一致，只多出该字段。
+  `bySource` 早就有 `providerIds`，保持原样。
+- **导出中的所有时间统一为 `DD-MM-YYYY HH:MM:SS GMT±H[:MM]`（本地时间 + 时区）。** 编码器改用
+  `dateEncodingStrategy = .custom` 把 `ActionLog.format(_:)` 的结果当字符串写出，一次性覆盖 `exportedAt`、
+  `lastTimestamp`、Netlify 部署 `createdAt`、`service_activity` 每条的 `timestamp` 等全部日期字段
+  （`ConfigExporter` 有自己的编码器，其日期是 epoch 数值，不受影响）。时区后缀由 `ActionLog.gmtOffsetLabel(for:)`
+  按**该时刻**的真实偏移拼出（`GMT-5` / `GMT+5:30` / `GMT+0`），**不用 `zzz`** —— 那会随系统区域给出 `EST` / `JST`
+  这类缩写，同一个地方冬夏令时还可能换一种写法，消费方得自己维护缩写表。`format(_:)` 与 `gmtOffsetLabel(for:)`
+  都是 `nonisolated`（编码闭包不是 MainActor 上下文，否则跨隔离域），因此不再持有共享的 `DateFormatter`
+  （非 Sendable），改为按公历字段拼字符串；已用 286,400 个时刻（含整整一天 1 秒粒度 + 20 年随机抽样）与旧的
+  `DateFormatter` 输出逐字节比对，日期时间部分完全一致。
+- **菜单栏未读通知只保留数字胶囊，红点删除。** 红点与紧邻的同色数字胶囊表达的是同一件事（「有未读通知」），
+  同时画出来只是在 leading 槽位重复占宽；现在该槽位只画**红底白字数字胶囊**（未读数 `9+` 封顶），无未读时依旧
+  不占宽。随之删掉**只服务于红点**的设置项 **通用 → 未读通知红点**（`show_unread_dot`）与 `unreadDotDidChange`
+  通知——胶囊本来就是「始终显示」，没有开关；`StatusBarView.unreadDot*` / `isUnreadDotOn` / `drawStatusDot` 的
+  红点分支、`StatusBarController` 的红点宽度占位与 Export Config 里的该键一并移除（`drawStatusDot` 保留，
+  高峰/低谷点仍在用）。
+- **文档补齐**（`docs/` 除本文件外为本地文件，不入库）：ui-guide 的 **Export Data** 一节按新结构重写——`app` 信封、
+  `llm_activity` 各块、`service_activity` 八个数组与条目字段、统一时间格式，以及「应用外的操作与仅被观察到的状态变化
+  如何呈现」；how-it-works 的导出段同步改写。
+
+### Notes
+
+- 导出格式版本升到 **5**（`UsageExporter.exportFormatVersion`，v1→v5 的历史记在枚举的文档注释里）。
+- **未记录**的几类，均为刻意：Tailscale「设备连接 / 断开」**功能本身不存在**（对端列表是只读展示，全仓没有
+  up / down / login / logout 命令）；周期性同步每次 tick 不记（否则按同步间隔刷爆日志，失败细节另有 sync.log）；
+  在 dev_mon 之外做的操作（AWS 控制台、终端里手敲 `brew services`、别处配置 serve / funnel）无法记录，只能以
+  `dbDown` / `tailscaleRestored` 这类**被观察到**的通知形式出现；应用未运行时投递的高峰系统通知同样无法记录。
+- `action_log` **不参与数据同步**（`SyncManager` 只传 `[UsageRecord]`），所以两台设备的操作历史不会合并；
+  历史也从本次改动起才开始累积，无法回填（通知本来就只存在内存里）。
+- 记录是**尽力而为**：任何写入失败都不影响被记录的操作本身，进程崩溃最多丢掉防抖窗口内的那一批。
+- 未改动：`Export Data` 仍是**单向**的；代理 / 同步 / 用量聚合 / popover UI 行为均未变；`swift build` 通过。
+
 ## [0.3.9-1] — 2026-09-23
 
 ### Added

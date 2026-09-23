@@ -22,10 +22,6 @@ class StatusBarView: NSView {
         didSet { iconView.isHidden = !showIcon; needsDisplay = true }
     }
     var showIndicator: Bool = false
-    /// 未读通知红点开关（设置项，默认开）。
-    var showUnreadDot: Bool = true {
-        didSet { if oldValue != showUnreadDot { needsDisplay = true } }
-    }
     var menuBarTextDisplay: String = "balance"
     var hitRateText: String = ""
     var balanceAmount: String = ""
@@ -34,16 +30,12 @@ class StatusBarView: NSView {
     var isPeakHour: Bool?
     /// 菜单栏 "Peak" 文字芯片内容（DeepSeek：当前窗口 + 距下次切换倒计时）；非 DeepSeek 或未启用时为空。
     var peakText: String = ""
-    /// 未读通知数：> 0 时在内容最左侧（leading 槽位）绘制**红点 + 红色数字徽标**。
+    /// 未读通知数：> 0 时在内容最左侧（leading 槽位）绘制**红色数字徽标**（不再画红点）。
     /// 与高峰/低谷点区分：leading 槽位在**左**、垂直居中、红底白字（数字徽标**无**描边）；
     /// 状态点在**右**、贴顶、黄/绿、带白色描边。
     var unreadAlertCount: Int = 0 {
         didSet { if oldValue != unreadAlertCount { needsDisplay = true } }
     }
-
-    /// 未读红点是否点亮：设置开启且存在未读通知。
-    /// 绘制与宽度计算共用此判定（`StatusBarController.applyLabel` 直接读它），避免两处漂移。
-    var isUnreadDotOn: Bool { showUnreadDot && unreadAlertCount > 0 }
 
     // MARK: 数据
     private var balanceRatio: Double = 0
@@ -78,16 +70,6 @@ class StatusBarView: NSView {
     private static let badgeHPad: CGFloat = 3.5
     /// 徽标与右侧内容之间的间距。
     private static let badgeGap: CGFloat = 3
-
-    /// 未读红点直径 —— 与高峰/低谷点同尺寸，保持同一套视觉语言。
-    static let unreadDotSize: CGFloat = 6
-    /// 红点与右侧数字徽标之间的间距。
-    static let unreadDotGap: CGFloat = 4
-
-    /// 红点占用的 leading 槽位宽度（含与后续内容的间距）；未点亮时为 0（不占位）。
-    static func unreadDotGutter(_ visible: Bool) -> CGFloat {
-        visible ? unreadDotSize + unreadDotGap : 0
-    }
 
     /// 徽标文本：超过 9 条显示 "9+"（菜单栏空间有限）。
     static func unreadBadgeText(_ count: Int) -> String {
@@ -162,22 +144,14 @@ class StatusBarView: NSView {
 
         // 内容基础起点：有图标时为 21（图标 x=1 宽 18 → maxX 19，再留 2pt），否则贴最左侧。
         let baseX: CGFloat = showIcon ? 21 : 2
-        // leading 槽位：未读红点（左）→ 未读数字徽标（右）。任一存在都让内容整体右移，
-        // 避免与图标 / 文字重叠；两者都不存在时不占位（菜单栏不会平白多出空隙）。
-        let dotGutter = Self.unreadDotGutter(isUnreadDotOn)
-        let leftX: CGFloat = baseX + dotGutter + Self.unreadBadgeGutter(unreadAlertCount)
+        // leading 槽位：未读数字徽标。有未读时让内容整体右移，避免与图标 / 文字重叠；
+        // 无未读时不占位（菜单栏不会平白多出空隙）。
+        let leftX: CGFloat = baseX + Self.unreadBadgeGutter(unreadAlertCount)
         var cursorX = leftX
-
-        // ── 未读红点（红底 + 白描边圆点，垂直居中；无未读 / 关闭设置时不绘制）──
-        if isUnreadDotOn {
-            let size = Self.unreadDotSize
-            let dotRect = CGRect(x: baseX + 1, y: (barH - size) / 2, width: size, height: size)
-            drawStatusDot(ctx: ctx, color: .systemRed, dotRect: dotRect)
-        }
 
         // ── 未读通知徽标（红底白字胶囊，垂直居中）──
         if unreadAlertCount > 0 {
-            drawUnreadBadge(ctx: ctx, x: baseX + 1 + dotGutter, barH: barH)
+            drawUnreadBadge(ctx: ctx, x: baseX + 1, barH: barH)
         }
 
         // ── 三个指示灯条 ──
@@ -342,7 +316,7 @@ class StatusBarView: NSView {
     }
 
     /// 状态点通用绘制：彩色实心圆 + 白色描边环（深浅色菜单栏下都清晰）。
-    /// 高峰/低谷点与未读通知红点共用，保证两者尺寸与描边完全一致。
+    /// 现在只有高峰/低谷点用它 —— 未读通知改成只画红色数字徽标，不再画点。
     private func drawStatusDot(ctx: CGContext, color: NSColor, dotRect: CGRect) {
         ctx.setFillColor(NSColor.white.withAlphaComponent(0.9).cgColor)
         ctx.fillEllipse(in: dotRect.insetBy(dx: -1, dy: -1))

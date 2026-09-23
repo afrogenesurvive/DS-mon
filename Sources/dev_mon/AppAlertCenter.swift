@@ -33,12 +33,17 @@ struct AppAlert: Identifiable, Equatable, Codable {
     var body: String
     var date: Date
     var isUnread: Bool
+    /// 结构化作用对象（数据库 id / 仓库名 / 存储 id / 隧道名 / 实例 id / 站点名 / provider id……）。
+    /// 标题与正文是本地化文案，只有这个字段能机器可读地说明“是哪一项”。可空：旧编码数据不带它。
+    var subject: String?
 
-    init(kind: AppAlertKind, title: String, body: String, date: Date = Date(), isUnread: Bool = true) {
+    init(kind: AppAlertKind, title: String, body: String, subject: String? = nil,
+         date: Date = Date(), isUnread: Bool = true) {
         self.id = UUID()
         self.kind = kind
         self.title = title
         self.body = body
+        self.subject = subject
         self.date = date
         self.isUnread = isUnread
     }
@@ -60,8 +65,9 @@ enum AppAlertCenter {
     /// 发事件：系统通知（可选）+ popover 横幅 + 历史列表。
     /// - Parameter system: 是否同时发送 macOS 系统通知。为 false 时只更新 popover（用于
     ///   已有独立调度器的场景，例如高峰切换的系统通知由 PeakNotifier 调度，避免重复）。
-    static func fire(_ kind: AppAlertKind, title: String, body: String, system: Bool = true) {
-        postInApp(AppAlert(kind: kind, title: title, body: body))
+    static func fire(_ kind: AppAlertKind, title: String, body: String,
+                     subject: String? = nil, system: Bool = true) {
+        postInApp(AppAlert(kind: kind, title: title, body: body, subject: subject))
         guard system else { return }
         let content = UNMutableNotificationContent()
         content.title = title
@@ -79,6 +85,14 @@ enum AppAlertCenter {
 
     /// 仅 popover 横幅 + 历史列表（不发系统通知）。
     static func postInApp(_ alert: AppAlert) {
+        // 同时记入操作日志（导出到 service_activity.notifications）。
+        // 历史列表 `recent` 本身仍然是进程内、不落盘；持久化只靠这条日志。
+        ActionLog.record(.notifications,
+                         action: "notify.\(alert.kind.rawValue)",
+                         target: alert.subject ?? alert.kind.rawValue,
+                         result: .success,
+                         source: .auto,
+                         detail: "\(alert.title): \(alert.body)")
         recent.insert(alert, at: 0)
         if recent.count > maxAlerts {
             recent.removeLast(recent.count - maxAlerts)

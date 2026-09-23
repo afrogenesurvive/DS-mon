@@ -53,5 +53,16 @@ enum PeakNotifier {
                 AppConfig.appendLog(to: AppConfig.proxyLogURL, "peak notify: \(error)")
             }
         }
+        // 记入操作日志：系统通知的实际投递可能发生在应用未运行时（无法记录），
+        // 所以记录的是“已安排”这一事件，并把触发时间写进 detail。
+        // 真正的时段切换由 StatusBarController 的 popover 通知记录。
+        Task { @MainActor in
+            ActionLog.record(.notifications,
+                             action: "notify.scheduled",
+                             target: identifier,
+                             result: .success,
+                             source: .auto,
+                             detail: "\(title) @ \(ActionLog.format(date))")
+        }
     }
 }

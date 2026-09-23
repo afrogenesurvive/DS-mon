@@ -745,15 +745,28 @@ final class AWSUsageTracker {
         return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
     }
 
+    /// 日志 / 审计用的规则摘要，形如 `TCP 3389 · 1.2.3.4/32`
+    private static func ruleSummary(_ rule: AWSIngressRule) -> String {
+        var s = rule.protocolDisplay
+        if rule.proto != "-1", let f = rule.fromPort, let t = rule.toPort {
+            s += " " + (f == t ? "\(f)" : "\(f)-\(t)")
+        }
+        s += " · " + rule.sourceDisplay
+        if let d = rule.description, !d.isEmpty { s += " · " + d }
+        return s
+    }
+
     /// Starts a stopped instance. Returns a localized error string, or nil on success.
     func startInstance(_ id: String) async -> String? {
         let (_, err) = await ec2Call(action: "StartInstances", params: ["InstanceId.1": id])
+        ActionLog.record(.aws, action: "instance.start", target: id, success: err == nil, message: err)
         return err
     }
 
     /// Stops a running instance. Returns a localized error string, or nil on success.
     func stopInstance(_ id: String) async -> String? {
         let (_, err) = await ec2Call(action: "StopInstances", params: ["InstanceId.1": id])
+        ActionLog.record(.aws, action: "instance.stop", target: id, success: err == nil, message: err)
         return err
     }
 
@@ -803,11 +816,17 @@ final class AWSUsageTracker {
         await fetchMyPublicIP(force: true)
         guard let ip = myPublicIP else {
             rdpIngress[groupId] = .unknown
+            ActionLog.record(.aws, action: "ingress.add", target: groupId,
+                             result: .failure, detail: Strings.awsIPResolveFailed)
             return (.unknown, Strings.awsIPResolveFailed)
         }
         let check = await checkRDPIngress(groupId: groupId)
         guard check == .closed else {
-            return (check, check == .open ? Strings.awsRdpAlreadyOpen : Strings.awsRdpUnknownState)
+            // 无需操作（已开放 / 状态未知）—— 未触碰 AWS，记为 noop
+            let message = check == .open ? Strings.awsRdpAlreadyOpen : Strings.awsRdpUnknownState
+            ActionLog.record(.aws, action: "ingress.add", target: groupId,
+                             result: .noop, detail: message)
+            return (check, message)
         }
         let dateStr = {
             let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
@@ -822,10 +841,13 @@ final class AWSUsageTracker {
             "IpPermissions.1.IpRanges.1.Description": "dev_mon RDP \(dateStr)"
         ])
         if let err = err {
+            ActionLog.record(.aws, action: "ingress.add", target: groupId, result: .failure, detail: err)
             return (.closed, err)
         }
         await loadSecurityGroup(groupId: groupId)   // 刷新规则缓存，供规则列表使用
         rdpIngress[groupId] = .open
+        ActionLog.record(.aws, action: "ingress.add", target: groupId,
+                         result: .success, detail: "RDP tcp 3389 · \(ip)/32")
         return (.open, Strings.awsRdpAdded)
     }
 
@@ -923,6 +945,8 @@ final class AWSUsageTracker {
         let (_, err) = await ec2Call(action: "AuthorizeSecurityGroupIngress",
                                      params: Self.ingressParams(groupId: groupId, rule: rule))
         if err == nil { await loadSecurityGroup(groupId: groupId) }
+        ActionLog.record(.aws, action: "ingress.add", target: groupId,
+                         success: err == nil, message: err ?? Self.ruleSummary(rule))
         return err
     }
 
@@ -933,10 +957,13 @@ final class AWSUsageTracker {
         let (_, err) = await ec2Call(action: "RevokeSecurityGroupIngress",
                                      params: Self.ingressParams(groupId: groupId, rule: rule))
         if err == nil { await loadSecurityGroup(groupId: groupId) }
+        ActionLog.record(.aws, action: "ingress.remove", target: groupId,
+                         success: err == nil, message: err ?? Self.ruleSummary(rule))
         return err
     }
 
     /// "Edit" = revoke the old rule spec, then authorize the new one.
+    /// 不单独记录：内部的 remove + add 两次调用已各自记入日志（一次编辑 = 一删一增两条）。
     @discardableResult
     func replaceIngressRule(_ old: AWSIngressRule, with new: AWSIngressRule,
                             groupId: String) async -> String? {

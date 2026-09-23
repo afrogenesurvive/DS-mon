@@ -147,13 +147,25 @@ final class SyncManager: @unchecked Sendable {
         } else {
             startTimer(interval: cfg.syncInterval)
         }
+        // 只记生命周期：周期性同步（每 interval 一次）不记，否则会把日志刷爆；
+        // 同步失败的细节另有 sync.log。
+        let mode = cfg.mode == .server ? "server" : "client"
+        Task { @MainActor in
+            ActionLog.record(.`internal`, action: "sync.start", target: mode,
+                             result: .success, source: .auto)
+        }
     }
 
     func stop() {
+        let wasActive = listener != nil || syncTimer != nil || _syncTask != nil
         listener?.cancel(); listener = nil
         syncTimer?.invalidate(); syncTimer = nil
         _syncTask?.cancel(); _syncTask = nil
         Task { @MainActor in self.observableStatus = .idle }
+        guard wasActive else { return }
+        Task { @MainActor in
+            ActionLog.record(.`internal`, action: "sync.stop", result: .success, source: .auto)
+        }
     }
 
     // MARK: - 服务器

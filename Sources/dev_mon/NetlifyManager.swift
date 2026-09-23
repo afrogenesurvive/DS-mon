@@ -433,12 +433,14 @@ final class NetlifyManager {
         if deploy.isError {
             AppAlertCenter.fire(.netlifyDeployFailed,
                                 title: Strings.netlifyDeployFailedTitle,
-                                body: String(format: Strings.netlifyDeployFailedBody, subject))
+                                body: String(format: Strings.netlifyDeployFailedBody, subject),
+                                subject: deploy.siteID ?? subject)
         } else if deploy.isReady, let prev = previous, prev.isReady == false {
             // 只有从非 ready → ready 才算新成功；restore 通知由 rollback 单独发。
             AppAlertCenter.fire(.netlifyDeployReady,
                                 title: Strings.netlifyDeployReadyTitle,
-                                body: String(format: Strings.netlifyDeployReadyBody, subject))
+                                body: String(format: Strings.netlifyDeployReadyBody, subject),
+                                subject: deploy.siteID ?? subject)
         }
     }
 
@@ -446,6 +448,12 @@ final class NetlifyManager {
 
     /// 触发选中站点的生产部署（用构建钩子）。clearCache 时重建缓存。
     func triggerDeploy(site: NetlifySite, clearCache: Bool, title: String?) async {
+        // 函数退出时统一记录（构建钩子的隐式创建在 ensureBuildHook 内单独记一条 auto）
+        defer {
+            ActionLog.record(.netlify, action: "deploy.trigger", target: site.id,
+                             success: actionSuccess,
+                             message: clearCache ? "clear_cache · \(actionMessage ?? "")" : (actionMessage ?? ""))
+        }
         guard let hook = await ensureBuildHook(siteID: site.id, branch: site.repoBranch) else { return }
         isWorking = true
         actionMessage = nil
@@ -483,6 +491,10 @@ final class NetlifyManager {
 
     /// 回滚/重启到旧部署（restore 使其成为线上版本）。
     func rollbackToDeploy(_ deploy: NetlifyDeploy, siteID: String) async {
+        defer {
+            ActionLog.record(.netlify, action: "deploy.rollback", target: deploy.id,
+                             success: actionSuccess, message: actionMessage)
+        }
         isWorking = true
         actionMessage = nil
         suppressAlertUntil = Date().addingTimeInterval(30)
@@ -505,6 +517,10 @@ final class NetlifyManager {
 
     /// 锁定 / 解锁部署（锁住当前线上部署可停止自动发布；解锁恢复自动发布）。
     func setDeployLocked(_ deploy: NetlifyDeploy, locked: Bool, siteID: String) async {
+        defer {
+            ActionLog.record(.netlify, action: locked ? "deploy.lock" : "deploy.unlock", target: deploy.id,
+                             success: actionSuccess, message: actionMessage)
+        }
         isWorking = true
         actionMessage = nil
         defer { isWorking = false }
@@ -528,7 +544,8 @@ final class NetlifyManager {
         lastNotifyFiredAt = Date()
         AppAlertCenter.fire(.netlifyDeployRolledBack,
                             title: Strings.netlifyDeployRolledBackTitle,
-                            body: Strings.netlifyDeployRolledBackBody)
+                            body: Strings.netlifyDeployRolledBackBody,
+                            subject: deploy.id)
     }
 
     // MARK: - Build hooks
@@ -547,14 +564,22 @@ final class NetlifyManager {
                                         branch: dict["branch"] as? String,
                                         url: dict["url"] as? String)
             buildHooks.insert(hook, at: 0)
+            // 隐式副作用：用户只点了一次「部署」，这里却创建了一个构建钩子，必须留痕。
+            ActionLog.record(.netlify, action: "buildhook.create", target: siteID,
+                             result: .success, source: .auto,
+                             detail: "branch=\(hook.branch ?? "-")")
             return hook
         } catch let e as NetlifyError {
             actionSuccess = false
             actionMessage = e.localizedDescription
+            ActionLog.record(.netlify, action: "buildhook.create", target: siteID,
+                             result: .failure, source: .auto, detail: actionMessage ?? "")
             return nil
         } catch {
             actionSuccess = false
             actionMessage = NetlifyError.networkError(error.localizedDescription).localizedDescription
+            ActionLog.record(.netlify, action: "buildhook.create", target: siteID,
+                             result: .failure, source: .auto, detail: actionMessage ?? "")
             return nil
         }
     }
@@ -563,6 +588,10 @@ final class NetlifyManager {
 
     /// 在选中账户创建空白站点（可选自定义子域名）。
     func createSite(name: String) async -> NetlifySite? {
+        defer {
+            ActionLog.record(.netlify, action: "site.create", target: name,
+                             success: actionSuccess, message: actionMessage)
+        }
         guard let slug = selectedAccount?.slug else {
             actionMessage = NetlifyError.noAccount.localizedDescription
             actionSuccess = false
@@ -595,6 +624,11 @@ final class NetlifyManager {
     /// 把本地文件夹打成 zip 后推送为新部署（create + deploy 的可靠路径）。
     /// 需要在站点已存在（新站点先 createSite）时调用。
     func deployLocalFolder(siteID: String, folderURL: URL, siteNameForTitle: String) async -> NetlifyDeploy? {
+        defer {
+            ActionLog.record(.netlify, action: "deploy.upload_folder", target: siteID,
+                             success: actionSuccess,
+                             message: "\(folderURL.lastPathComponent) · \(actionMessage ?? "")")
+        }
         let zipURL = Self.makeZipURL()
         isWorking = true
         actionMessage = nil

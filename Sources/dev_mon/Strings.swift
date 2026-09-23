@@ -11,7 +11,6 @@ extension Notification.Name {
     static let providerChanged = Notification.Name("providerChanged")
     static let seatRegistryChanged = Notification.Name("seatRegistryChanged")
     static let peakSettingsDidChange = Notification.Name("peakSettingsDidChange")
-    static let unreadDotDidChange = Notification.Name("unreadDotDidChange")
     static let popoverResizeRequested = Notification.Name("popoverResizeRequested")
     /// 弹窗显示/隐藏（object 为 NSNumber(Bool)）：用于「正在看通知页」的已读判定。
     static let popoverVisibilityDidChange = Notification.Name("popoverVisibilityDidChange")
@@ -102,7 +101,6 @@ enum Strings {
         static let localDBsNeo4jUser = "local_dbs_neo4j_user"
         static let localDBsNeo4jPassword = "local_dbs_neo4j_password"
         static let showPeakDot = "show_peak_dot"
-        static let showUnreadDot = "show_unread_dot"
         // Repo Data Stores（仓库数据存储）
         static let repoStoresEnabled = "repo_stores_enabled"
         static let repoStoresNotifyEnabled = "repo_stores_notification_enabled"
@@ -183,7 +181,6 @@ enum Strings {
     static var peakMenuActive: String { isZH ? "高峰剩 %@" : "Peak %@ left" }
     static var peakMenuPending: String { isZH ? "%@ 后高峰" : "Peak in %@" }
     static var peakDotLabel: String { isZH ? "高峰/低谷状态点" : "Peak Status Dot" }
-    static var unreadDotLabel: String { isZH ? "未读通知红点" : "Unread Notification Dot" }
     static var peakNotifyLabel: String { isZH ? "高峰/低谷切换通知" : "Peak Transition Notification" }
     static var peakNotifyTitle: String { isZH ? "DeepSeek 高峰时段开始" : "DeepSeek Peak started" }
     static var peakNotifyBody: String { isZH ? "高峰计费已开始（价格为低谷的 2 倍）" : "Peak pricing is now active (2× off-peak)." }

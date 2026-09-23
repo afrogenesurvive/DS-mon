@@ -279,14 +279,15 @@ final class CloudflareTunnelManager {
         guard tunnelAlertEnabled, Date() > (suppressAlertUntil ?? .distantPast) else { return }
         if let t = lastDownFiredAt, Date().timeIntervalSince(t) < Self.alertCooldown { return }
         lastDownFiredAt = Date()
-        AppAlertCenter.fire(.tunnelDown, title: Strings.tunnelDownTitle, body: body)
+        AppAlertCenter.fire(.tunnelDown, title: Strings.tunnelDownTitle, body: body, subject: actionTarget)
     }
 
     private func fireRestoredIfAllowed() {
         guard tunnelAlertEnabled, Date() > (suppressAlertUntil ?? .distantPast) else { return }
         if let t = lastRestoredFiredAt, Date().timeIntervalSince(t) < Self.alertCooldown { return }
         lastRestoredFiredAt = Date()
-        AppAlertCenter.fire(.tunnelRestored, title: Strings.tunnelRestoredTitle, body: Strings.tunnelRestoredBody)
+        AppAlertCenter.fire(.tunnelRestored, title: Strings.tunnelRestoredTitle,
+                            body: Strings.tunnelRestoredBody, subject: actionTarget)
     }
 
     /// 本地守护进程探测（pgrep；后台执行，无需权限）。
@@ -524,6 +525,17 @@ final class CloudflareTunnelManager {
     /// 启动 cloudflared 隧道服务。
     /// 流程：kickstart 一次 → 轮询等进程起来；仅当数秒后仍未运行（例如本启动会话
     /// 尚未 bootstrap 该 plist）才用 bootstrap 补一次 —— 避免每次都弹多次管理员密码。
+    /// 操作日志的作用对象：优先隧道名（可读），否则隧道 id。
+    private var actionTarget: String {
+        selectedTunnel?.name ?? selectedTunnel?.id ?? tunnelID ?? "cloudflared"
+    }
+
+    /// 记录一次隧道守护进程操作（结果取 `finishAdmin` / `runAdminCommand` 落下的状态）。
+    private func logAdmin(_ action: String) {
+        ActionLog.record(.cloudflare, action: action, target: actionTarget,
+                         success: actionSuccess, message: actionMessage)
+    }
+
     func startTunnel() async {
         isWorking = true
         suppressAlertUntil = Date().addingTimeInterval(30)
@@ -531,6 +543,7 @@ final class CloudflareTunnelManager {
         guard FileManager.default.fileExists(atPath: plist) else {
             await finishAdmin(ok: false,
                               message: CloudflareError.adminFailed(Strings.cloudflareDaemonNotInstalled).localizedDescription)
+            logAdmin("tunnel.start")
             return
         }
         let daemon = "system/\(Self.serviceLabel)"
@@ -544,6 +557,7 @@ final class CloudflareTunnelManager {
         }
         await finishAdmin(ok: running,
                           message: running ? Strings.cloudflareDaemonOk : Strings.cloudflareDaemonNotRunning)
+        logAdmin("tunnel.start")
         if running {
             // 拉取 API 状态，刷新 Overview 的隧道健康/连接数。
             refresh()
@@ -557,6 +571,7 @@ final class CloudflareTunnelManager {
         let stopped = await waitForDaemon(running: false, attempts: 6)
         await finishAdmin(ok: stopped,
                           message: stopped ? Strings.cloudflareDaemonOk : Strings.cloudflareDaemonStillRunning)
+        logAdmin("tunnel.stop")
     }
 
     func restartTunnel() async {
@@ -567,6 +582,7 @@ final class CloudflareTunnelManager {
         let running = await waitForDaemon(running: true, attempts: 20)
         await finishAdmin(ok: running,
                           message: running ? Strings.cloudflareDaemonOk : Strings.cloudflareDaemonNotRunning)
+        logAdmin("tunnel.restart")
         if running {
             refresh()
         }
@@ -616,6 +632,8 @@ final class CloudflareTunnelManager {
            !AppConfig.appOwnedPortIsAuthenticated(port) {
             actionSuccess = false
             actionMessage = String(format: Strings.publishBlockedNoToken, "\(port)")
+            ActionLog.record(.cloudflare, action: "hostname.add", target: Self.hostTarget(hostname, path),
+                             success: false, message: actionMessage, blocked: true)
             return
         }
         await mutateIngress { rules in
@@ -628,7 +646,15 @@ final class CloudflareTunnelManager {
         if actionSuccess {
             await ensureDNS(hostname: hostname)
         }
+        ActionLog.record(.cloudflare, action: "hostname.add", target: Self.hostTarget(hostname, path),
+                         success: actionSuccess, message: actionMessage)
         refresh()
+    }
+
+    /// 日志作用对象：`hostname` 或 `hostname/path`
+    private static func hostTarget(_ hostname: String, _ path: String?) -> String {
+        guard let path, !path.isEmpty else { return hostname }
+        return hostname + path
     }
 
     /// 把新规则插到结尾的 catch-all（没有 hostname 的那条）之前，保持「具体规则在前、兜底在后」。
@@ -658,6 +684,8 @@ final class CloudflareTunnelManager {
             let stillPublished = ingress.contains { $0.hostname == hostname }
             if !stillPublished { await removeDNS(hostname: hostname) }
         }
+        ActionLog.record(.cloudflare, action: "hostname.remove", target: Self.hostTarget(hostname, path),
+                         success: actionSuccess, message: actionMessage)
         refresh()
     }
 
@@ -758,6 +786,11 @@ final class CloudflareTunnelManager {
     // MARK: - Private IP routes
 
     func addIPRoute(network: String, comment: String) async {
+        // 函数退出时统一记录（含 guard 提前 return 的失败路径）
+        defer {
+            ActionLog.record(.cloudflare, action: "route.add", target: network,
+                             success: actionSuccess, message: actionMessage)
+        }
         guard let acct = accountID, let tid = tunnelID else {
             actionMessage = CloudflareError.noTunnel.localizedDescription
             actionSuccess = false
@@ -791,6 +824,11 @@ final class CloudflareTunnelManager {
     }
 
     func removeIPRoute(network: String) async {
+        // 函数退出时统一记录（含 guard 提前 return 的失败路径）
+        defer {
+            ActionLog.record(.cloudflare, action: "route.remove", target: network,
+                             success: actionSuccess, message: actionMessage)
+        }
         guard let acct = accountID, let tid = tunnelID else { return }
         isWorking = true
         actionMessage = nil

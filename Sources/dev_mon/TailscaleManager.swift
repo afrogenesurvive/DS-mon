@@ -296,7 +296,8 @@ final class TailscaleManager {
         guard notifyEnabled, Date() > (suppressAlertUntil ?? .distantPast) else { return }
         if let t = lastDownFiredAt, Date().timeIntervalSince(t) < Self.alertCooldown { return }
         lastDownFiredAt = Date()
-        AppAlertCenter.fire(.tailscaleDown, title: Strings.tailscaleDownTitle, body: Strings.tailscaleDownBody)
+        AppAlertCenter.fire(.tailscaleDown, title: Strings.tailscaleDownTitle,
+                            body: Strings.tailscaleDownBody, subject: tailnetName)
     }
 
     private func fireRestoredIfAllowed() {
@@ -304,7 +305,7 @@ final class TailscaleManager {
         if let t = lastRestoredFiredAt, Date().timeIntervalSince(t) < Self.alertCooldown { return }
         lastRestoredFiredAt = Date()
         AppAlertCenter.fire(.tailscaleRestored, title: Strings.tailscaleRestoredTitle,
-                            body: Strings.tailscaleRestoredBody)
+                            body: Strings.tailscaleRestoredBody, subject: tailnetName)
     }
 
     // MARK: - 完整刷新
@@ -387,6 +388,8 @@ final class TailscaleManager {
            !AppConfig.appOwnedPortIsAuthenticated(appPort) {
             actionSuccess = false
             actionMessage = String(format: Strings.publishBlockedNoToken, "\(appPort)")
+            ActionLog.record(.tailscale, action: "funnel.add", target: target, success: false,
+                             message: actionMessage, blocked: true)
             return
         }
         await runMutation(["funnel", "--bg", "--yes", "--https=\(port)", target],
@@ -415,6 +418,14 @@ final class TailscaleManager {
     private func runMutation(_ args: [String], success: String, isFunnelCommand: Bool) async {
         isWorking = true
         actionMessage = nil
+        // 函数退出时统一记录。三种结局：待授权（blocked）/ 成功 / 失败。
+        // 待授权时 CLI 会打印授权链接，链接**不进日志**，只记 tailscaleEnableRequired。
+        var outcome: ActionResult = .failure
+        defer {
+            ActionLog.record(.tailscale, action: Self.mutationAction(args),
+                             target: Self.mutationTarget(args),
+                             result: outcome, detail: actionMessage ?? "")
+        }
         let timeout = Self.mutationTimeout
         let result = await Task.detached(priority: .userInitiated) {
             ProcessRunner.runTailscale(args, timeout: timeout)
@@ -429,18 +440,40 @@ final class TailscaleManager {
             if isFunnelCommand { funnelEnableURL = url } else { serveEnableURL = url }
             actionSuccess = false
             actionMessage = Strings.tailscaleEnableRequired
+            outcome = .blocked
             return
         }
         if result.status == 0 {
             if isFunnelCommand { funnelEnableURL = nil } else { serveEnableURL = nil }
             actionSuccess = true
             actionMessage = success
+            outcome = .success
             suppressAlertUntil = Date().addingTimeInterval(30)
             refresh()
             return
         }
         actionSuccess = false
         actionMessage = output.isEmpty ? Strings.tailscaleCommandTimedOut : output
+    }
+
+    /// 从 CLI 参数推断动作名（runMutation 是 serve / funnel 的唯一出口）。
+    private static func mutationAction(_ args: [String]) -> String {
+        let isFunnel = args.first == "funnel"
+        if args.contains("off") { return isFunnel ? "funnel.remove" : "serve.remove" }
+        if args.contains("reset") { return "funnel.reset" }
+        return isFunnel ? "funnel.add" : "serve.add"
+    }
+
+    /// 从 CLI 参数提取作用对象：新增时是目标地址，删除/重置时是端口 / 路径。
+    private static func mutationTarget(_ args: [String]) -> String {
+        if let last = args.last, !last.hasPrefix("--"), last != "off", last != "reset" {
+            return last
+        }
+        let flags = args.filter {
+            $0.hasPrefix("--https=") || $0.hasPrefix("--http=")
+                || $0.hasPrefix("--tcp=") || $0.hasPrefix("--set-path=")
+        }
+        return flags.isEmpty ? (args.first ?? "") : flags.joined(separator: " ")
     }
 
     // MARK: - CLI 采集（nonisolated：在后台线程执行阻塞的 Process）

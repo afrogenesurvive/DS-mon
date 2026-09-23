@@ -42,7 +42,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ProxyServer.shared.stop()
         // 立即落盘 UI 状态，避免丢掉 300ms 防抖窗口内的页签 / 折叠改动
         UIStateStore.shared.flush()
-        Task { await UsageStore.shared.close() }
+        // 操作日志同理：先把待写事件落盘，再关库（同一个 Task，顺序有保证）
+        Task {
+            await ActionLog.flushPending()
+            await UsageStore.shared.close()
+        }
     }
 
     private func restoreProxy() {

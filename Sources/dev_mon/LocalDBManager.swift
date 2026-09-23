@@ -334,7 +334,8 @@ final class LocalDBManager {
         lastDownFiredAt[id] = Date()
         AppAlertCenter.fire(.dbDown,
                             title: String(format: Strings.dbDownTitle, name),
-                            body: String(format: Strings.dbDownBody, name))
+                            body: String(format: Strings.dbDownBody, name),
+                            subject: id.rawValue)
     }
 
     private func fireRestoredIfAllowed(_ id: LocalDBID, name: String) {
@@ -343,7 +344,8 @@ final class LocalDBManager {
         lastRestoredFiredAt[id] = Date()
         AppAlertCenter.fire(.dbRestored,
                             title: String(format: Strings.dbRestoredTitle, name),
-                            body: String(format: Strings.dbRestoredBody, name))
+                            body: String(format: Strings.dbRestoredBody, name),
+                            subject: id.rawValue)
     }
 
     // MARK: - Start / Stop（brew services）
@@ -421,12 +423,16 @@ final class LocalDBManager {
                 state.error = text
                 actionMessage = text
                 actionSuccess = false
+                ActionLog.record(.databases, action: "db.trust_tap", target: id.rawValue,
+                                 result: .failure, detail: text)
                 return
             }
             // 清掉失败状态但保留待重试动作，然后重跑它。
             state.failure = nil
             state.error = nil
             actionMessage = nil
+            ActionLog.record(.databases, action: "db.trust_tap", target: id.rawValue,
+                             result: .success, detail: "brew trust \(formula)")
             retryLastAction(id)
         }
     }
@@ -442,6 +448,12 @@ final class LocalDBManager {
             return
         }
         Task {
+            // 函数退出时统一记录：结果取端口轮询后的 actionSuccess / actionMessage，
+            // 与界面上显示的一致（brew 成功但端口没起来 = 失败）。
+            defer {
+                ActionLog.record(.databases, action: "db.start", target: id.rawValue,
+                                 success: actionSuccess, message: actionMessage)
+            }
             let verb = id.startPersistsAtLogin ? "start" : "run"
             guard await runBrewServiceAction(verb, id, brew: brew) else { return }
             clearFailure(id)
@@ -489,6 +501,10 @@ final class LocalDBManager {
             return
         }
         Task {
+            defer {
+                ActionLog.record(.databases, action: "db.stop", target: id.rawValue,
+                                 success: actionSuccess, message: actionMessage)
+            }
             guard await runBrewServiceAction("stop", id, brew: brew) else { return }
             clearFailure(id)
             var stillRunning = true

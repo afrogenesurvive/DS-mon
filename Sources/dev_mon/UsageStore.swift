@@ -323,6 +323,20 @@ actor UsageStore {
             cost REAL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage_log(timestamp);
+        CREATE TABLE IF NOT EXISTS action_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            uuid TEXT NOT NULL,
+            timestamp REAL NOT NULL,
+            service TEXT NOT NULL,
+            action TEXT NOT NULL,
+            target TEXT NOT NULL DEFAULT '',
+            result TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT '',
+            detail TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_action_ts ON action_log(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_action_service ON action_log(service, timestamp);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_action_uuid ON action_log(uuid);
         """
         sqlite3_exec(handle, createSQL, nil, nil, nil)
         sqlite3_exec(handle, "CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_dedup ON usage_log(timestamp, model, provider_id, prompt_tokens, completion_tokens)", nil, nil, nil)
@@ -495,6 +509,90 @@ actor UsageStore {
             sqlite3_clear_bindings(stmt)
         }
         sqlite3_exec(db, "COMMIT", nil, nil, nil)
+    }
+
+    // MARK: - 操作日志（action_log）
+
+    private static let actionColumns = "uuid, timestamp, service, action, target, result, source, detail"
+    private static let actionValues = "?, ?, ?, ?, ?, ?, ?, ?"
+
+    private func bindAction(_ stmt: OpaquePointer, _ event: ActionEvent) {
+        sqlite3_bind_text(stmt, 1, event.uuid, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_double(stmt, 2, event.timestamp.timeIntervalSince1970)
+        sqlite3_bind_text(stmt, 3, event.service.rawValue, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(stmt, 4, event.action, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(stmt, 5, event.target, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(stmt, 6, event.result.rawValue, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(stmt, 7, event.source.rawValue, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(stmt, 8, event.detail, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+    }
+
+    /// 写入一条操作记录（uuid 重复时忽略）
+    func insertAction(_ event: ActionEvent) {
+        guard let db else { return }
+        let sql = "INSERT OR IGNORE INTO action_log (\(Self.actionColumns)) VALUES (\(Self.actionValues));"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(stmt) }
+        bindAction(stmt!, event)
+        sqlite3_step(stmt)
+    }
+
+    /// 批量写入（`ActionLog` 的合并落盘走这里）
+    func insertActions(_ events: [ActionEvent]) {
+        guard let db, !events.isEmpty else { return }
+        let sql = "INSERT OR IGNORE INTO action_log (\(Self.actionColumns)) VALUES (\(Self.actionValues));"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
+        for event in events {
+            bindAction(stmt!, event)
+            sqlite3_step(stmt!)
+            sqlite3_reset(stmt)
+            sqlite3_clear_bindings(stmt)
+        }
+        sqlite3_exec(db, "COMMIT", nil, nil, nil)
+    }
+
+    /// 读取操作记录（新→旧）。`service` 为 nil = 全部；`limit` <= 0 = 不限。
+    func actionEvents(service: ActionService? = nil, limit: Int = 0) -> [ActionEvent] {
+        guard let db else { return [] }
+        let hasLimit = limit > 0
+        let sql = """
+        SELECT uuid, timestamp, service, action, target, result, source, detail
+        FROM action_log
+        WHERE 1=1\(service != nil ? " AND service = ?" : "")
+        ORDER BY timestamp DESC\(hasLimit ? " LIMIT ?" : "");
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        var bindIdx: Int32 = 1
+        if let service {
+            sqlite3_bind_text(stmt, bindIdx, service.rawValue, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            bindIdx += 1
+        }
+        if hasLimit { sqlite3_bind_int(stmt, bindIdx, Int32(limit)) }
+        defer { sqlite3_finalize(stmt) }
+
+        var results: [ActionEvent] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let serviceRaw = sqlite3_column_text(stmt, 2).map({ String(cString: $0) }),
+                  let service = ActionService(rawValue: serviceRaw) else { continue }
+            let resultRaw = sqlite3_column_text(stmt, 5).map { String(cString: $0) } ?? ""
+            let sourceRaw = sqlite3_column_text(stmt, 6).map { String(cString: $0) } ?? ""
+            results.append(ActionEvent(
+                uuid: sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? "",
+                timestamp: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1)),
+                service: service,
+                action: sqlite3_column_text(stmt, 3).map { String(cString: $0) } ?? "",
+                target: sqlite3_column_text(stmt, 4).map { String(cString: $0) } ?? "",
+                result: ActionResult(rawValue: resultRaw) ?? .failure,
+                source: ActionSource(rawValue: sourceRaw) ?? .user,
+                detail: sqlite3_column_text(stmt, 7).map { String(cString: $0) } ?? ""
+            ))
+        }
+        return results
     }
 
     func recentRecords(limit: Int = 5, providerId: String? = nil, since: Date? = nil) -> [UsageRecord] {

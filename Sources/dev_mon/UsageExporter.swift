@@ -5,10 +5,35 @@ import UniformTypeIdentifiers
 // MARK: - 导出数据模型（verbose）
 
 struct UsageExportPayload: Codable {
+    /// 信封：格式标识 / 版本 / 导出时间
+    let app: AppInfoExport
+    /// 全部 LLM 用量（v5 起归入 llm_activity）
+    let llmActivity: LlmActivityExport
+    /// 服务 / 模块操作与通知（v5 新增）
+    let serviceActivity: ServiceActivityExport
+    let cloud: CloudUsageExport?
+
+    /// 只有分组键用 snake_case，其余键名保持不变。
+    /// 不能用 `keyEncodingStrategy = .convertToSnakeCase`：那会把已有键一起改名
+    /// （byRepo → by_repo、sourceIP → source_ip……）。
+    private enum CodingKeys: String, CodingKey {
+        case app
+        case llmActivity = "llm_activity"
+        case serviceActivity = "service_activity"
+        case cloud
+    }
+}
+
+/// 信封：格式标识 + 版本 + 导出时间 + 应用版本。
+struct AppInfoExport: Codable {
     let format: String
     let formatVersion: Int
     let exportedAt: Date
     let appVersion: String
+}
+
+/// 全部 LLM 用量：汇总 / 周期 / 时间桶 breakdown / 按提供商 / 按来源 / 按仓库 / 原始记录。
+struct LlmActivityExport: Codable {
     let summary: PeriodSummary
     let periods: Periods
     let breakdowns: Breakdowns
@@ -17,7 +42,38 @@ struct UsageExportPayload: Codable {
     /// 按本地仓库聚合（usage_log.repo）
     let byRepo: [RepoUsageExport]
     let records: [UsageRecord]
-    let cloud: CloudUsageExport?
+}
+
+/// 服务 / 模块操作与通知。每个数组内按时间新→旧。
+struct ServiceActivityExport: Codable {
+    let aws: [ActionEvent]
+    let cloudflare: [ActionEvent]
+    let netlify: [ActionEvent]
+    let databases: [ActionEvent]
+    let repoStores: [ActionEvent]
+    let tailscale: [ActionEvent]
+    /// dev_mon 自身模块：代理、同步、席位检查、提供商切换
+    let appModules: [ActionEvent]
+    let notifications: [ActionEvent]
+
+    /// 导出键名是 `internal`；Swift 属性避开 `internal` 关键字。
+    private enum CodingKeys: String, CodingKey {
+        case aws, cloudflare, netlify, databases, repoStores, tailscale, notifications
+        case appModules = "internal"
+    }
+
+    init(_ events: [ActionEvent]) {
+        var buckets: [ActionService: [ActionEvent]] = [:]
+        for event in events { buckets[event.service, default: []].append(event) }
+        aws = buckets[.aws] ?? []
+        cloudflare = buckets[.cloudflare] ?? []
+        netlify = buckets[.netlify] ?? []
+        databases = buckets[.databases] ?? []
+        repoStores = buckets[.repoStores] ?? []
+        tailscale = buckets[.tailscale] ?? []
+        appModules = buckets[ActionService.`internal`] ?? []
+        notifications = buckets[.notifications] ?? []
+    }
 }
 
 struct PeriodSummary: Codable {
@@ -115,13 +171,16 @@ struct TokenBarExport: Codable {
     let hitTokens: Int
     let outTokens: Int
     let requestCount: Int
+    /// 该时间桶内有请求的 provider id（逗号连接，已排序；无则空字符串）
+    let providerIds: String
 
-    init(_ t: TokenBar) {
+    init(_ t: TokenBar, providerIds: String) {
         label = t.label
         missTokens = t.missTokens
         hitTokens = t.hitTokens
         outTokens = t.outTokens
         requestCount = t.requestCount
+        self.providerIds = providerIds
     }
 }
 
@@ -483,6 +542,8 @@ struct RepoUsageExport: Codable {
     let cachedTokens: Int
     let totalCost: Double
     let lastTimestamp: Date
+    /// 该仓库用过的 provider id（逗号连接，已排序；无则空字符串）
+    let providerIds: String
 }
 
 struct AWSExport: Codable {
@@ -582,9 +643,12 @@ struct GitHubExport: Codable {
 /// - v3：cloud 加入 cloudflare / netlify / localDBs / repoStores 快照 + byRepo 聚合
 /// - v4：cloud 加入 **tailscale** 快照；records 每条带 cost；allTime / byRepo 的成本改用
 ///       落库的 `usage_log.cost`，与 periods / bySource 的 `SUM(cost)` 口径一致
+/// - v5：信封归入 `app`；LLM 相关字段归入 `llm_activity`，新增 `service_activity`
+///       （服务操作 + 全部通知，落库 `action_log`）；breakdowns / byRepo 每条新增
+///       `providerIds`；所有时间改为 `DD-MM-YYYY HH:MM:SS GMT±H[:MM]`（本地时间 + 时区）
 enum UsageExporter {
 
-    private static let exportFormatVersion = 4
+    private static let exportFormatVersion = 5
 
     /// 弹出保存面板并把完整用量数据导出为 JSON
     @MainActor
@@ -601,7 +665,12 @@ enum UsageExporter {
                 let payload = await buildPayload()
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-                encoder.dateEncodingStrategy = .iso8601
+                // 统一时间格式的唯一出口：走 ActionLog.format(_:) 才能把时区后缀带上
+                // （`.formatted(...)` 只会输出格式化器自己的 dateFormat，不带 GMT 偏移）。
+                encoder.dateEncodingStrategy = .custom { date, encoder in
+                    var container = encoder.singleValueContainer()
+                    try container.encode(ActionLog.format(date))
+                }
                 guard let data = try? encoder.encode(payload) else { return }
                 try? data.write(to: url, options: .atomic)
                 // 含 sourceIP / repo / userAgent，导出后收紧到 0600
@@ -625,19 +694,14 @@ enum UsageExporter {
         let monthly = await store.queryMonthly(limit: 12)
         let allRecords = await store.queryRecords(since: .distantPast)
         let bySource = await store.aggregateBySourceIP()
+        let actions = await store.actionEvents()
         let hourly = await store.queryHourlyBreakdown()
         let weekDays = await store.queryDailyBreakdown()
         let monthWeeks = await store.queryWeeklyBreakdown()
 
-        let today = daily.first.map(AggregatedUsageExport.init)
-        let week = weekly.first.map(AggregatedUsageExport.init)
-        let month = monthly.first.map(AggregatedUsageExport.init)
-        let allTime = aggregate(allRecords)
-
-        var providers: [ProviderExport] = []
-
         // 收集所有提供商：注册提供商 ∪ 数据中实际出现的 providerId。
         // 跳过空 provider_id（旧版行仍计入全局汇总与 records），确保导出覆盖全部提供商。
+        // 放在 breakdown 之前：breakdowns 的 providerIds 也用它。
         var providerIDs: [String] = []
         for p in ProviderManager.shared.providers where !providerIDs.contains(p.id) {
             providerIDs.append(p.id)
@@ -645,6 +709,25 @@ enum UsageExporter {
         for r in allRecords where !r.providerId.isEmpty && !providerIDs.contains(r.providerId) {
             providerIDs.append(r.providerId)
         }
+
+        // breakdowns 是跨提供商的聚合；按 provider 重跑同一查询、按 label 合并出
+        // 「该时间桶内有请求的 provider id」。数值仍用不带过滤的那份，导出数字不变。
+        let hourlyProviders = await providerIDsByLabel(base: hourly, providerIDs: providerIDs) {
+            await store.queryHourlyBreakdown(providerId: $0)
+        }
+        let weekDayProviders = await providerIDsByLabel(base: weekDays, providerIDs: providerIDs) {
+            await store.queryDailyBreakdown(providerId: $0)
+        }
+        let monthWeekProviders = await providerIDsByLabel(base: monthWeeks, providerIDs: providerIDs) {
+            await store.queryWeeklyBreakdown(providerId: $0)
+        }
+
+        let today = daily.first.map(AggregatedUsageExport.init)
+        let week = weekly.first.map(AggregatedUsageExport.init)
+        let month = monthly.first.map(AggregatedUsageExport.init)
+        let allTime = aggregate(allRecords)
+
+        var providers: [ProviderExport] = []
 
         for pid in providerIDs {
             let name = ProviderManager.shared.providers.first { $0.id == pid }?.name ?? pid
@@ -680,44 +763,74 @@ enum UsageExporter {
 
         // 按本地仓库聚合（usage_log.repo；未标注仓库的请求不计入）
         let byRepo: [RepoUsageExport] = {
-            var agg: [String: (count: Int, total: Int, cached: Int, cost: Double, last: Date)] = [:]
+            var agg: [String: (count: Int, total: Int, cached: Int, cost: Double, last: Date, providers: Set<String>)] = [:]
             for r in allRecords {
                 guard let repo = r.repo, !repo.isEmpty else { continue }
                 let cost = recordCost(of: r)
-                var entry = agg[repo] ?? (0, 0, 0, 0, Date.distantPast)
+                var entry = agg[repo] ?? (0, 0, 0, 0, Date.distantPast, [])
                 entry.count += 1
                 entry.total += r.totalTokens
                 entry.cached += r.cachedTokens
                 entry.cost += cost
+                if !r.providerId.isEmpty { entry.providers.insert(r.providerId) }
                 if r.timestamp > entry.last { entry.last = r.timestamp }
                 agg[repo] = entry
             }
             return agg.map {
                 RepoUsageExport(repo: $0.key, requestCount: $0.value.count, totalTokens: $0.value.total,
                                 cachedTokens: $0.value.cached, totalCost: $0.value.cost,
-                                lastTimestamp: $0.value.last)
+                                lastTimestamp: $0.value.last,
+                                providerIds: $0.value.providers.sorted().joined(separator: ","))
             }
             .sorted { $0.totalCost > $1.totalCost }
         }()
 
         return UsageExportPayload(
-            format: "dev-mon-usage-export",
-            formatVersion: exportFormatVersion,
-            exportedAt: Date(),
-            appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev",
-            summary: PeriodSummary(today: today, week: week, month: month, allTime: allTime),
-            periods: Periods(daily: daily.map(AggregatedUsageExport.init),
-                             weekly: weekly.map(AggregatedUsageExport.init),
-                             monthly: monthly.map(AggregatedUsageExport.init)),
-            breakdowns: Breakdowns(todayByHour: hourly.map(TokenBarExport.init),
-                                   weekByDay: weekDays.map(TokenBarExport.init),
-                                   monthByWeek: monthWeeks.map(TokenBarExport.init)),
-            providers: providers,
-            bySource: bySource.map(SourceUsageExport.init),
-            byRepo: byRepo,
-            records: allRecords,
+            app: AppInfoExport(
+                format: "dev-mon-usage-export",
+                formatVersion: exportFormatVersion,
+                exportedAt: Date(),
+                appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+            ),
+            llmActivity: LlmActivityExport(
+                summary: PeriodSummary(today: today, week: week, month: month, allTime: allTime),
+                periods: Periods(daily: daily.map(AggregatedUsageExport.init),
+                                 weekly: weekly.map(AggregatedUsageExport.init),
+                                 monthly: monthly.map(AggregatedUsageExport.init)),
+                breakdowns: Breakdowns(todayByHour: hourly.map { TokenBarExport($0, providerIds: hourlyProviders[$0.label] ?? "") },
+                                       weekByDay: weekDays.map { TokenBarExport($0, providerIds: weekDayProviders[$0.label] ?? "") },
+                                       monthByWeek: monthWeeks.map { TokenBarExport($0, providerIds: monthWeekProviders[$0.label] ?? "") }),
+                providers: providers,
+                bySource: bySource.map(SourceUsageExport.init),
+                byRepo: byRepo,
+                records: allRecords
+            ),
+            serviceActivity: ServiceActivityExport(actions),
             cloud: cloud
         )
+    }
+
+    /// 给每根柱子标上「该时间桶内有请求的 provider id」（逗号连接，已排序）。
+    ///
+    /// 三个 breakdown 的时间窗与标签都由日期推导、与 provider 无关，所以对每个 provider
+    /// 重跑同一个查询后按 label 合并即可对齐；数值仍用不带过滤的那份（`base`），
+    /// 保证导出的数字与 v4 完全一致，只多出 `providerIds` 字段。
+    @MainActor
+    private static func providerIDsByLabel(base: [TokenBar],
+                                           providerIDs: [String],
+                                           fetch: (String) async -> [TokenBar]) async -> [String: String] {
+        var byLabel: [String: [String]] = [:]
+        for pid in providerIDs {
+            for bar in await fetch(pid) where bar.requestCount > 0 {
+                byLabel[bar.label, default: []].append(pid)
+            }
+        }
+        var out: [String: String] = [:]
+        for bar in base {
+            guard let ids = byLabel[bar.label], !ids.isEmpty else { continue }
+            out[bar.label] = ids.sorted().joined(separator: ",")
+        }
+        return out
     }
 
     /// 单条记录的成本。
@@ -858,7 +971,6 @@ enum ConfigExporter {
             Strings.Keys.awsEnabled,
             Strings.Keys.awsMaxCredits,
             Strings.Keys.showPeakDot,
-            Strings.Keys.showUnreadDot,
             Strings.Keys.peakNotificationEnabled,
             // 计费时段规则的抓取间隔（小时）——缓存下来的规则本身是运行时状态，不导出
             PeakRulesStore.intervalKey,
