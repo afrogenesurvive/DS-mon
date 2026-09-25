@@ -33,6 +33,9 @@ const BLOCKERS = [
   { name: "TA1 license string", re: /TA1\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\./ },
   { name: "raw private key file", re: /^\s*[A-Za-z0-9_-]{43}\s*$/ },
   { name: "raw padded key file", re: /^\s*[A-Za-z0-9+/]{43}=\s*$/ },
+  // 席位声明的密码校验器：pkm 只导出布尔值，真出现 scrypt$… 就是有人把值拄了出来。
+  { name: "scrypt password verifier", re: /scrypt\$\d+\$\d+\$\d+\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+/ },
+  { name: "claim verifier field", re: /"pwdv"\s*:\s*"[^"]+"/ },
 ];
 
 /** Suspicious but sometimes legitimate (placeholders, docs, paths, tests). */
@@ -71,6 +74,10 @@ const PATH_BLOCKLIST = [
   /\.env\.[A-Za-z]+$/,
   /\.key$/,
   /\.p12$/,
+  /\.pem$/,
+  /\.asc$/,
+  /\.jks$/,
+  /\.keystore$/,
   /(^|\/)config\.json$/,
 ];
 
@@ -79,6 +86,8 @@ const TEXT_EXT = new Set([
   ".md", ".txt", ".json", ".jsonl", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx",
   ".swift", ".py", ".sh", ".bash", ".zsh", ".yml", ".yaml", ".toml", ".plist",
   ".html", ".css", ".sql", ".env", ".example", ".cfg", ".ini", ".gitignore", "",
+  // 密钥容器：内容其实是文本，不列进来就永远不会被读到 —— 一份 TA1 就长这样。
+  ".key", ".pem", ".asc", ".p12", ".jks", ".keystore",
 ]);
 
 function gitTrackedFiles(dir) {

@@ -69,9 +69,14 @@ enum ProcessRunner {
 
     /// 同步运行 `launchPath`，最多等 `timeout` 秒（超时会 terminate）。
     /// 返回终止码 + stdout/stderr 文本。stdout/stderr 并行读取，避免管道缓冲死锁。
+    ///
+    /// `stdin` 非空时写入子进程标准输入并**立即关闭写端** —— 这一步在等待退出之前完成，
+    /// 否则“读到 EOF 才返回”的子命令（如 pkm 的 `--password-stdin`）会一直阻塞到超时。
+    /// 只适合小载荷：内容超过管道缓冲区且子进程不读时，写入会阻塞且不受 `timeout` 约束。
     @discardableResult
     static func run(launchPath: String, args: [String], timeout: TimeInterval = 15,
-                    extraEnvironment: [String: String] = [:]) -> (status: Int32, stdout: String, stderr: String)
+                    extraEnvironment: [String: String] = [:],
+                    stdin: String? = nil) -> (status: Int32, stdout: String, stderr: String)
     {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: launchPath)
@@ -82,6 +87,14 @@ enum ProcessRunner {
         let err = Pipe()
         p.standardOutput = out
         p.standardError = err
+
+        let input: Pipe? = stdin == nil ? nil : Pipe()
+        if let input {
+            // 子进程可能先退出（参数错误等），此时写入会收到 SIGPIPE 而直接终止本进程。
+            // 只对这一个 fd 关掉该信号，不动全局 handler。
+            fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+            p.standardInput = input
+        }
 
         let outSink = Sink()
         let errSink = Sink()
@@ -104,6 +117,12 @@ enum ProcessRunner {
             try p.run()
         } catch {
             return (2, "", "failed to launch \(launchPath): \(error.localizedDescription)")
+        }
+
+        // 写完并关闭写端必须发生在 sem.wait 之前：读到 EOF 才会返回的子命令否则会死锁。
+        if let input, let payload = stdin {
+            try? input.fileHandleForWriting.write(contentsOf: Data(payload.utf8))
+            try? input.fileHandleForWriting.close()
         }
 
         let sem = DispatchSemaphore(value: 0)
@@ -131,11 +150,12 @@ enum ProcessRunner {
 
     /// 异步运行（切到后台线程），避免阻塞主线程；常用于 brew services 等耗时命令。
     static func runAsync(launchPath: String, args: [String], timeout: TimeInterval = 15,
-                         extraEnvironment: [String: String] = [:]) async -> (status: Int32, stdout: String, stderr: String)
+                         extraEnvironment: [String: String] = [:],
+                         stdin: String? = nil) async -> (status: Int32, stdout: String, stderr: String)
     {
         await Task.detached(priority: .userInitiated) {
             run(launchPath: launchPath, args: args, timeout: timeout,
-                extraEnvironment: extraEnvironment)
+                extraEnvironment: extraEnvironment, stdin: stdin)
         }.value
     }
 

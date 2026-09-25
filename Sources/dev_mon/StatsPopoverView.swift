@@ -248,6 +248,8 @@ struct StatsPopoverView: View {
     @State private var scaleDragStart: CGFloat?
     @State private var licenseSeats: [SeatRecord] = []
     @State private var licenseFilter: LicenseSeatFilter = .valid
+    /// 席位检索：可输入席位标识片段，也可粘贴完整邮箱做精确反查。
+    @State private var licenseQuery: String = ""
 
     // AWS 页子页签（Overview / Instances）与实例操作状态
     private var awsSubTab: Int {
@@ -1458,10 +1460,25 @@ struct StatsPopoverView: View {
     }
 
     private var filteredLicenseSeats: [SeatRecord] {
+        let scoped: [SeatRecord]
         switch licenseFilter {
-        case .valid: return licenseSeats.filter { !$0.revoked && !$0.isExpired }
-        case .revoked: return licenseSeats.filter { $0.revoked }
-        case .expired: return licenseSeats.filter { !$0.revoked && $0.isExpired }
+        case .valid: scoped = licenseSeats.filter { !$0.revoked && !$0.isExpired }
+        case .revoked: scoped = licenseSeats.filter { $0.revoked }
+        case .expired: scoped = licenseSeats.filter { !$0.revoked && $0.isExpired }
+        }
+
+        let query = licenseQuery.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return scoped }
+
+        // 粘贴完整邮箱时走一次身份反查：大小写与前后空格不会漏，且命中就是那一个席位。
+        // 反查读的是实时状态而 scoped 是快照，两者不一致时退回下面的子串匹配。
+        if let resolved = SeatRegistry.shared.seat(forEmail: query),
+           scoped.contains(where: { $0.id == resolved.id }) {
+            return [resolved]
+        }
+        return scoped.filter {
+            $0.sub.localizedCaseInsensitiveContains(query)
+                || ($0.email ?? "").localizedCaseInsensitiveContains(query)
         }
     }
 
@@ -1494,6 +1511,10 @@ struct StatsPopoverView: View {
             }
             .pickerStyle(.segmented)
             .font(.system(size: 8))
+
+            TextField(Strings.licenseSeatSearchPlaceholder, text: $licenseQuery)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 9))
 
             if licenseSeats.isEmpty {
                 HStack(spacing: 6) {

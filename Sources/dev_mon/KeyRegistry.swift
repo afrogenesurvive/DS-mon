@@ -4,6 +4,9 @@ import Foundation
 ///
 /// 字段与 personal_key_manager 导出的 `export/devmon.json` 对齐；`issuedAt` 为新增，
 /// 其余派生字段（registryId / registryName / ringPublicKey）在解码 bundle 时回填。
+///
+/// `email` / `hasPassword` 是主密钥签名的声明（claims）在包里的投影 —— 用于显示与反查。
+/// 它是**镜像而非证据**：需要证明身份时应交给 pkm 校验证书，不要相信这里的值。
 struct SeatRecord: Codable, Sendable, Identifiable, Equatable {
     var sub: String
     var kid: String
@@ -17,6 +20,14 @@ struct SeatRecord: Codable, Sendable, Identifiable, Equatable {
     var revokedAt: String?
     var expired: Bool?
     var expiredAt: String?
+
+    // ── 席位声明（claims）：主密钥签名的可选身份信息 ──
+    /// 席位绑定的邮箱。声明出现之前签发的密钥导出为 null，因此必须容忍缺失与 null 两种形式。
+    var email: String?
+    /// 该席位是否设置了密码校验器 —— 只导出布尔值，verifier 永不出库。
+    var hasPassword: Bool?
+    /// 声明最后一次写入时间（ISO-8601；仅在设置了声明时存在，未设置时整个键缺失）。
+    var claimsUpdatedAt: String?
 
     // ── 由 bundle 回填的上下文（不属于席位本身的持久字段）──
     var registryId: String?
@@ -36,6 +47,7 @@ struct SeatRecord: Codable, Sendable, Identifiable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case sub, kid, exp, revoked, issuedAt, expUtc, revokedAt, expired, expiredAt
+        case email, hasPassword, claimsUpdatedAt
         case registryId, registryName, ringPublicKey
     }
 
@@ -59,6 +71,9 @@ struct SeatRecord: Codable, Sendable, Identifiable, Equatable {
         revokedAt = (try? c.decodeIfPresent(String.self, forKey: .revokedAt)) ?? nil
         expired = (try? c.decodeIfPresent(Bool.self, forKey: .expired)) ?? nil
         expiredAt = (try? c.decodeIfPresent(String.self, forKey: .expiredAt)) ?? nil
+        email = (try? c.decodeIfPresent(String.self, forKey: .email)) ?? nil
+        hasPassword = (try? c.decodeIfPresent(Bool.self, forKey: .hasPassword)) ?? nil
+        claimsUpdatedAt = (try? c.decodeIfPresent(String.self, forKey: .claimsUpdatedAt)) ?? nil
         registryId = (try? c.decodeIfPresent(String.self, forKey: .registryId)) ?? nil
         registryName = (try? c.decodeIfPresent(String.self, forKey: .registryName)) ?? nil
         ringPublicKey = (try? c.decodeIfPresent(String.self, forKey: .ringPublicKey)) ?? nil

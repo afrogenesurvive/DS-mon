@@ -147,6 +147,29 @@ final class SeatRegistry: @unchecked Sendable {
         }
     }
 
+    /// 按邮箱反查席位（身份反查）。多个席位共用同一邮箱时返回先找到的那个。
+    ///
+    /// 邮箱来自主密钥签名的声明，但这里只是**镜像**：未登记、邮箱为空或席位没有声明时返回
+    /// nil，调用方按“未知身份”处理。结论若依赖身份，请交给 pkm 校验证书（`pkm creds-test`）。
+    func seat(forEmail email: String) -> SeatRecord? {
+        let needle = email.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !needle.isEmpty else { return nil }
+        return lock.withLock {
+            for registry in _bundle.registries {
+                let match = registry.allSeats.first {
+                    ($0.email ?? "").trimmingCharacters(in: .whitespaces).lowercased() == needle
+                }
+                if let seat = match {
+                    var copy = seat
+                    copy.registryId = registry.id
+                    copy.registryName = registry.name
+                    return copy
+                }
+            }
+            return nil
+        }
+    }
+
     // MARK: - 注册表镜像文件（可选）
 
     func setFilePath(_ path: String) {
@@ -567,6 +590,8 @@ final class SeatRegistry: @unchecked Sendable {
     /// - 密钥环元数据：任一来源提供即采用（先到先得，nil 不覆盖非 nil）；
     /// - 席位：**吊销优先**（任一来源吊销即吊销，取最早的 `revokedAt`），其次取更紧的
     ///   `exp`（0 = 不限，非 0 中较小者更紧），`issuedAt` 取最早的非空值。
+    /// - 席位声明（email / hasPassword / claimsUpdatedAt）：与状态无关，独立合并 ——
+    ///   email 取第一个非空值，hasPassword 任一为真即为真，claimsUpdatedAt 取最新。
     ///
     /// 席位按 sub 在注册表内去重：同一 sub 出现在不同 ring 时保留先出现的 ring。
     static func mergeSnapshots(_ snapshots: [SourceSnapshot]) -> RegistryBundle {
@@ -664,6 +689,13 @@ final class SeatRegistry: @unchecked Sendable {
             out.expiredAt = source.expiredAt
         }
         out.issuedAt = [a.issuedAt, b.issuedAt].compactMap { $0 }.min() ?? out.issuedAt
+        // 声明字段与席位状态无关，不能跟着“较严格”的一方走：先取到非空者胜出，
+        // hasPassword 任一为真即为真，claimsUpdatedAt 取最新。否则合并会悄悄丢掉身份信息。
+        out.email = out.email ?? a.email ?? b.email
+        let passwordFlags = [out.hasPassword, a.hasPassword, b.hasPassword].compactMap { $0 }
+        if !passwordFlags.isEmpty { out.hasPassword = passwordFlags.contains(true) }
+        out.claimsUpdatedAt = [out.claimsUpdatedAt, a.claimsUpdatedAt, b.claimsUpdatedAt]
+            .compactMap { $0 }.max() ?? out.claimsUpdatedAt
         return out
     }
 

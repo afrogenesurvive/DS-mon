@@ -506,6 +506,21 @@ enum Strings {
     static var licenseIssueCopied: String { isZH ? "已复制" : "Copied" }
     static var licenseIssueClose: String { isZH ? "完成" : "Done" }
     static var licenseIssueFailed: String { isZH ? "签发失败" : "Issue failed" }
+    static var licenseIssueEmailLabel: String { isZH ? "邮箱（可选）" : "Email (optional)" }
+    static var licenseIssueEmailHint: String {
+        isZH ? "写入密钥的签名声明，用于按地址反查身份。留空则不写入声明。"
+             : "A signed claim stored in the key, for looking the seat up by address. Leave it empty for no claim."
+    }
+    static var licenseIssuePasswordLabel: String { isZH ? "密码（可选）" : "Password (optional)" }
+    static var licenseIssuePasswordConfirmLabel: String { isZH ? "确认密码" : "Confirm password" }
+    static var licenseIssuePasswordHint: String {
+        isZH ? "留空即不设密码：密钥照旧可用于加密配置，只是没有密码校验器。"
+             : "Leave both empty for no password: the key still encrypts config, it just has no password verifier."
+    }
+    static var licenseIssuePasswordMismatch: String { isZH ? "两次输入的密码不一致" : "Passwords do not match" }
+    static func licenseIssuePasswordTooShort(_ minimum: Int) -> String {
+        isZH ? "密码至少需要 \(minimum) 个字符" : "Password must be at least \(minimum) characters"
+    }
 
     static var licenseRevokeAction: String { isZH ? "吊销" : "Revoke" }
     static func licenseRevokeConfirmTitle(_ sub: String) -> String {
@@ -523,6 +538,22 @@ enum Strings {
         isZH ? "已吊销 \(sub)，共 \(blocked) 个席位被阻止" : "Revoked \(sub) — \(blocked) seat(s) blocked"
     }
     static var licenseRevokeFailed: String { isZH ? "吊销失败" : "Revoke failed" }
+
+    // MARK: License — 席位声明（claims）
+
+    /// 席位行上的密码标记。中英文都刻意取短，避免挤掉旁边的状态徽章。
+    static var licensePasswordBadge: String { isZH ? "密码" : "pw" }
+    static var licenseClaimEmailLabel: String { isZH ? "邮箱声明" : "Email claim" }
+    static var licenseClaimPasswordSet: String { isZH ? "已设置密码" : "Password set" }
+    static var licenseClaimsNone: String { isZH ? "未设置声明" : "No claims" }
+    static var licenseClaimsResignNote: String {
+        isZH ? "重新签发声明不会让旧密钥失效：旧密钥仍然可用，只是不带声明。"
+             : "Re-signing claims does not invalidate the old key: it keeps working, it just carries no claims."
+    }
+
+    // MARK: License — 席位检索
+
+    static var licenseSeatSearchPlaceholder: String { isZH ? "席位标识或邮箱" : "Seat id or email" }
 
     // MARK: License — 密钥管理器工具
 

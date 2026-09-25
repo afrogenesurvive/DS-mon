@@ -34,6 +34,17 @@ enum KeyManager {
         var ok: Bool { status == 0 }
     }
 
+    /// pkm 的席位声明（claims）摘要：邮箱 + 是否设置了密码。
+    /// 密码只以布尔值表态 —— 校验器（pwdv）永不出库，也不需要出库。
+    struct Claims: Sendable, Decodable {
+        let email: String?
+        let hasPassword: Bool?
+    }
+
+    /// pkm 对密码长度的下限（`src/creds.mjs` 的 `PASSWORD_MIN_LENGTH`）。
+    /// 本地先拦一道，省掉一次注定失败的子进程往返。
+    static let passwordMinLength = 8
+
     struct IssuedKey: Sendable, Identifiable {
         let registry: String
         let sub: String
@@ -41,6 +52,8 @@ enum KeyManager {
         let exp: Int
         let issuedAt: String?
         let licenseKey: String
+        /// 本次签发实际写入的声明；未提供邮箱与密码时为 nil。
+        let claims: Claims?
 
         var id: String { "\(registry)|\(sub)" }
     }
@@ -132,13 +145,16 @@ enum KeyManager {
 
     // MARK: - 执行
 
-    static func run(_ args: [String], timeout: TimeInterval = 30) async throws -> CommandResult {
+    /// 执行 pkm。`stdin` 非空时写入子进程标准输入并立即关闭写端 —— pkm 的
+    /// `--password-stdin` 会一直读到 EOF，不关闭写端会让它阻塞到超时。
+    static func run(_ args: [String], timeout: TimeInterval = 30,
+                    stdin: String? = nil) async throws -> CommandResult {
         guard toolExists() else { throw KeyManagerError.toolMissing(scriptPath) }
         guard let node = nodePath() else { throw KeyManagerError.nodeMissing }
 
         let script = scriptPath
         let raw = await Task.detached(priority: .userInitiated) {
-            ProcessRunner.run(launchPath: node, args: [script] + args, timeout: timeout)
+            ProcessRunner.run(launchPath: node, args: [script] + args, timeout: timeout, stdin: stdin)
         }.value
 
         return CommandResult(status: raw.status, stdout: raw.stdout, stderr: raw.stderr)
@@ -167,6 +183,7 @@ enum KeyManager {
         let exp: Int
         let issuedAt: String?
         let licenseKey: String
+        let claims: Claims?
     }
 
     private struct RevokePayload: Decodable {
@@ -178,18 +195,26 @@ enum KeyManager {
     }
 
     /// 签发一个席位密钥（`--json` 输出被解析为 `IssuedKey`）。
-    static func issue(registry: String, sub: String, exp: String, kid: String?) async throws -> IssuedKey {
+    ///
+    /// `email` / `password` 是可选声明：两者都为空时签发的是一个没有声明的席位，这本身是
+    /// 合法状态。密码走 `--password-stdin` —— argv 对同机任何进程的 `ps` 都可见。
+    static func issue(registry: String, sub: String, exp: String, kid: String?,
+                      email: String?, password: String?) async throws -> IssuedKey {
         var args = ["issue", registry, sub, "--exp", exp, "--json"]
         if let kid, !kid.isEmpty { args += ["--kid", kid] }
+        if let email, !email.isEmpty { args += ["--email", email] }
+        // 空密码绝不能当成“要设密码”：pkm 会明确拒绝空值，而“没有密码”是合法状态。
+        if password != nil { args += ["--password-stdin"] }
 
-        let result = try await run(args)
+        let result = try await run(args, stdin: password.map { $0 + "\n" })
         guard result.ok else { throw KeyManagerError.commandFailed(failureMessage(result)) }
 
         guard let payload = try? JSONDecoder().decode(IssuePayload.self, from: Data(result.stdout.utf8)) else {
             throw KeyManagerError.decodeFailed(Strings.licenseIssueDecodeFailed)
         }
         return IssuedKey(registry: payload.registry, sub: payload.sub, kid: payload.kid,
-                         exp: payload.exp, issuedAt: payload.issuedAt, licenseKey: payload.licenseKey)
+                         exp: payload.exp, issuedAt: payload.issuedAt, licenseKey: payload.licenseKey,
+                         claims: payload.claims)
     }
 
     /// 吊销一个席位。

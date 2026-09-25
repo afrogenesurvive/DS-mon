@@ -88,8 +88,9 @@ struct LicenseSettingsView: View {
             reload()
         }
         .sheet(isPresented: $showIssueSheet) {
-            IssueKeySheet(registries: registries) { registry, sub, exp, kid in
-                await issue(registry: registry, sub: sub, exp: exp, kid: kid)
+            IssueKeySheet(registries: registries) { registry, sub, exp, kid, email, password in
+                await issue(registry: registry, sub: sub, exp: exp, kid: kid,
+                            email: email, password: password)
             }
         }
         .sheet(item: $issuedKey) { key in
@@ -278,6 +279,14 @@ struct LicenseSettingsView: View {
                     Text(Strings.licenseCountdown(seat.exp))
                         .font(.caption2)
                         .foregroundColor(seat.revoked ? .red : .secondary)
+                    // 席位标识本身就是邮箱时不重复显示：二者通常相同，无条件加一列只是噪音。
+                    if let claimEmail = displayEmail(seat) {
+                        Text(claimEmail)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                 }
             }
 
@@ -286,6 +295,16 @@ struct LicenseSettingsView: View {
             if busy == seat.sub {
                 ProgressView().controlSize(.small)
             } else {
+                if seat.hasPassword == true {
+                    Text(Strings.licensePasswordBadge)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.secondary.opacity(0.12))
+                        .cornerRadius(4)
+                }
+
                 Text(seat.revoked ? Strings.licenseRevokedBadge : Strings.licenseActiveBadge)
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundColor(seat.revoked ? .red : .green)
@@ -309,6 +328,14 @@ struct LicenseSettingsView: View {
         .padding(6)
         .background(seat.revoked ? Color.red.opacity(0.06) : Color.gray.opacity(0.06))
         .cornerRadius(6)
+    }
+
+    /// 与 sub 不同的邮箱才算额外信息：相同（忽略大小写）或为空时返回 nil。
+    private func displayEmail(_ seat: SeatRecord) -> String? {
+        let value = (seat.email ?? "").trimmingCharacters(in: .whitespaces)
+        guard !value.isEmpty else { return nil }
+        let seatID = seat.sub.trimmingCharacters(in: .whitespaces)
+        return value.lowercased() == seatID.lowercased() ? nil : value
     }
 
     // MARK: - Actions
@@ -717,12 +744,14 @@ struct LicenseSettingsView: View {
         }
     }
 
-    private func issue(registry: String, sub: String, exp: String, kid: String?) async {
+    private func issue(registry: String, sub: String, exp: String, kid: String?,
+                       email: String?, password: String?) async {
         busy = sub
         actionError = nil
         actionInfo = nil
         do {
-            let issued = try await KeyManager.issue(registry: registry, sub: sub, exp: exp, kid: kid)
+            let issued = try await KeyManager.issue(registry: registry, sub: sub, exp: exp,
+                                                    kid: kid, email: email, password: password)
             _ = KeyManager.reloadFromExport()
             reload()
             issuedKey = issued
@@ -757,8 +786,9 @@ struct LicenseSettingsView: View {
 
 private struct IssueKeySheet: View {
     let registries: [LicenseRegistry]
-    /// (registryId, sub, exp, kid) —— exp 为日期字符串或 "unlimited"
-    let onSubmit: (String, String, String, String?) async -> Void
+    /// (registryId, sub, exp, kid, email, password) —— exp 为日期字符串或 "unlimited"；
+    /// email / password 为 nil 表示不写入对应声明（没有声明的席位是合法状态）。
+    let onSubmit: (String, String, String, String?, String?, String?) async -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var registryId: String = ""
@@ -766,6 +796,11 @@ private struct IssueKeySheet: View {
     @State private var sub: String = ""
     @State private var expDate: String = ""
     @State private var unlimited: Bool = false
+    @State private var email: String = ""
+    @State private var password: String = ""
+    @State private var passwordConfirm: String = ""
+    /// 上一次自动填入的邮箱：只有用户没改动过时才允许被 sub 覆盖。
+    @State private var lastDerivedEmail: String = ""
 
     private var selectedRegistry: LicenseRegistry? {
         registries.first { $0.id == registryId }
@@ -804,7 +839,22 @@ private struct IssueKeySheet: View {
                 TextField(Strings.licenseIssueSubPlaceholder, text: $sub)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.caption, design: .monospaced))
+                    .onChange(of: sub) { _, _ in prefillEmailFromSub() }
             }
+
+            HStack(spacing: 8) {
+                Text(Strings.licenseIssueEmailLabel).font(.caption).foregroundColor(.secondary)
+                    .frame(width: 110, alignment: .leading)
+                // 占位符与席位标识共用：二者通常就是同一个邮箱。
+                TextField(Strings.licenseIssueSubPlaceholder, text: $email)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+            }
+
+            Text(Strings.licenseIssueEmailHint)
+                .font(.caption2).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, 118)
 
             HStack(spacing: 8) {
                 Text(Strings.licenseIssueExpLabel).font(.caption).foregroundColor(.secondary)
@@ -818,6 +868,37 @@ private struct IssueKeySheet: View {
                     .font(.caption)
             }
 
+            HStack(spacing: 8) {
+                Text(Strings.licenseIssuePasswordLabel).font(.caption).foregroundColor(.secondary)
+                    .frame(width: 110, alignment: .leading)
+                SecureField("", text: $password)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+            }
+
+            HStack(spacing: 8) {
+                Text(Strings.licenseIssuePasswordConfirmLabel).font(.caption).foregroundColor(.secondary)
+                    .frame(width: 110, alignment: .leading)
+                SecureField("", text: $passwordConfirm)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+            }
+
+            if passwordMismatch {
+                Text(Strings.licenseIssuePasswordMismatch)
+                    .font(.caption2).foregroundColor(.red)
+                    .padding(.leading, 118)
+            } else if passwordTooShort {
+                Text(Strings.licenseIssuePasswordTooShort(KeyManager.passwordMinLength))
+                    .font(.caption2).foregroundColor(.red)
+                    .padding(.leading, 118)
+            } else {
+                Text(Strings.licenseIssuePasswordHint)
+                    .font(.caption2).foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 118)
+            }
+
             HStack {
                 Spacer()
                 Button(Strings.licenseIssueCancel) { dismiss() }
@@ -827,13 +908,17 @@ private struct IssueKeySheet: View {
                     let target = registryId
                     let seat = sub
                     let ring = kid
+                    let claim = normalisedEmail
+                    // 空密码一律当作“不设密码”，绝不把空值发给 pkm（它会明确拒绝）。
+                    let secret = password.isEmpty ? nil : password
+                    // 明文密码的使命到此为止：显式清掉，不依赖 SwiftUI 何时销毁视图。
+                    password = ""
+                    passwordConfirm = ""
                     dismiss()
-                    Task { await onSubmit(target, seat, exp, ring.isEmpty ? nil : ring) }
+                    Task { await onSubmit(target, seat, exp, ring.isEmpty ? nil : ring, claim, secret) }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(sub.trimmingCharacters(in: .whitespaces).isEmpty
-                          || registryId.isEmpty
-                          || (!unlimited && expDate.trimmingCharacters(in: .whitespaces).isEmpty))
+                .disabled(!canSubmit)
             }
         }
         .padding(20)
@@ -848,6 +933,44 @@ private struct IssueKeySheet: View {
 
     private func resetKid() {
         kid = selectedRegistry?.rings.first?.kid ?? ""
+    }
+
+    /// 留空 = 不写入声明；填入则去空白 + 小写化，与 pkm 的规范化保持一致。
+    /// 这里不做邮箱格式校验 —— 那是 pkm 的职责，本地另立一套规则容易和它对不上。
+    private var normalisedEmail: String? {
+        let value = email.trimmingCharacters(in: .whitespaces).lowercased()
+        return value.isEmpty ? nil : value
+    }
+
+    /// 只填了其中一格也算不一致：否则“填了密码却忘了确认”会静默变成不设密码。
+    private var passwordMismatch: Bool {
+        let hasAny = !password.isEmpty || !passwordConfirm.isEmpty
+        return hasAny && password != passwordConfirm
+    }
+
+    private var passwordTooShort: Bool {
+        !password.isEmpty && password.count < KeyManager.passwordMinLength
+    }
+
+    private var canSubmit: Bool {
+        !sub.trimmingCharacters(in: .whitespaces).isEmpty
+            && !registryId.isEmpty
+            && (unlimited || !expDate.trimmingCharacters(in: .whitespaces).isEmpty)
+            && !passwordMismatch
+            && !passwordTooShort
+    }
+
+    /// 席位标识看起来像邮箱时返回小写化后的值，否则返回空串。
+    private func mailboxCandidate(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespaces).lowercased()
+        return trimmed.contains("@") ? trimmed : ""
+    }
+
+    /// 席位标识常常就是邮箱：只在用户没自己改过时，跟着 sub 同步一遍。
+    private func prefillEmailFromSub() {
+        let derived = mailboxCandidate(sub)
+        if email.isEmpty || email == lastDerivedEmail { email = derived }
+        lastDerivedEmail = derived
     }
 }
 
@@ -873,6 +996,7 @@ private struct IssuedKeySheet: View {
                     .font(.caption2).foregroundColor(.secondary)
                 Text("\(Strings.licenseIssuedAtLabel): \(Strings.licenseIssuedOn(key.issuedAt))")
                     .font(.caption2).foregroundColor(.secondary)
+                claimRows
             }
 
             ScrollView {
@@ -889,6 +1013,10 @@ private struct IssuedKeySheet: View {
 
             Text(Strings.licenseIssueCopyHint)
                 .font(.caption2).foregroundColor(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(Strings.licenseClaimsResignNote)
+                .font(.caption2).foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack {
@@ -908,6 +1036,27 @@ private struct IssuedKeySheet: View {
         }
         .padding(20)
         .frame(width: 520)
+    }
+
+    /// 声明一行一个。都没有时明确写“未设置声明”，而不是留空 —— 留空读起来像信息缺失。
+    @ViewBuilder
+    private var claimRows: some View {
+        let claims = key.claims
+        let claimEmail = (claims?.email ?? "").trimmingCharacters(in: .whitespaces)
+        if claimEmail.isEmpty && claims?.hasPassword != true {
+            Text(Strings.licenseClaimsNone)
+                .font(.caption2).foregroundColor(.secondary)
+        } else {
+            if !claimEmail.isEmpty {
+                Text("\(Strings.licenseClaimEmailLabel): \(claimEmail)")
+                    .font(.caption2).foregroundColor(.secondary)
+                    .textSelection(.enabled)
+            }
+            if claims?.hasPassword == true {
+                Text(Strings.licenseClaimPasswordSet)
+                    .font(.caption2).foregroundColor(.secondary)
+            }
+        }
     }
 }
 
