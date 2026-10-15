@@ -8,6 +8,28 @@ private struct SourceRow: Identifiable, Equatable {
     var path: String
 }
 
+/// 已揭示的席位密钥。
+///
+/// `id` 与 `SeatRecord.id` 同构（注册表 + sub）—— 同一个 sub 可以同时存在于两个注册表，
+/// 只按 sub 去重会在两个注册表里指向同一行。
+private struct RevealedSeatKey: Identifiable, Sendable {
+    let registryId: String
+    let kid: String
+    let sub: String
+    let filePath: String
+    let licenseKey: String
+
+    var id: String { "\(registryId)|\(sub)" }
+
+    init(file: KeyManager.SeatKeyFile) {
+        registryId = file.registryId
+        kid = file.kid
+        sub = file.sub
+        filePath = file.url.path
+        licenseKey = file.licenseKey
+    }
+}
+
 /// 许可设置：注册表 ▸ 密钥环 ▸ 密钥 三级折叠树，并支持签发 / 吊销。
 ///
 /// - 读取：解析密钥管理器导出的 devmon.json（见 `SeatRegistry`）
@@ -28,6 +50,9 @@ struct LicenseSettingsView: View {
     @State private var toolPath: String = KeyManager.toolRoot
     @State private var writable: Bool = KeyManager.isWritable()
     @State private var toolProblem: String? = KeyManager.unavailableReason()
+    /// 密钥管理器脚本是否存在。揭示密钥只读本机 `.key` 文件、不需要 node，
+    /// 所以它和 `writable`（能否签发 / 吊销）是两个独立的开关。
+    @State private var toolPresent: Bool = KeyManager.toolExists()
 
     @State private var checkResult: String?
     @State private var checkError: String?
@@ -40,6 +65,8 @@ struct LicenseSettingsView: View {
     @State private var actionError: String?
     @State private var actionInfo: String?
     @State private var issuedKey: KeyManager.IssuedKey?
+    /// 从席位列表揭示出来的密钥（非 nil 时打开展示弹窗）。
+    @State private var revealedKey: RevealedSeatKey?
 
     // MARK: - 折叠状态
 
@@ -95,6 +122,9 @@ struct LicenseSettingsView: View {
         }
         .sheet(item: $issuedKey) { key in
             IssuedKeySheet(key: key)
+        }
+        .sheet(item: $revealedKey) { revealed in
+            RevealedKeySheet(revealed: revealed)
         }
         .sheet(item: $revokeTarget) { seat in
             RevokeSheet(seat: seat, reason: $revokeReason) {
@@ -312,6 +342,17 @@ struct LicenseSettingsView: View {
                     .padding(.vertical, 2)
                     .background((seat.revoked ? Color.red : Color.green).opacity(0.12))
                     .cornerRadius(4)
+
+                // 揭示密钥只读本机文件，与能否签发 / 吊销无关（只读机器上也能用）。
+                if toolPresent, seat.registryId != nil {
+                    Button {
+                        revealKey(seat)
+                    } label: {
+                        Image(systemName: "doc.on.doc").font(.caption2)
+                    }
+                    .buttonStyle(.bordered)
+                    .help(Strings.licenseRevealKeyAction)
+                }
 
                 if writable && !seat.revoked {
                     Button {
@@ -727,6 +768,7 @@ struct LicenseSettingsView: View {
 
     private func refreshToolState() {
         writable = KeyManager.isWritable()
+        toolPresent = KeyManager.toolExists()
         toolProblem = KeyManager.unavailableReason()
     }
 
@@ -779,6 +821,25 @@ struct LicenseSettingsView: View {
             actionError = error.localizedDescription
         }
         busy = nil
+    }
+
+    /// 从本机密钥库读出席位密钥并展示。
+    ///
+    /// 纯本地文件读取：不调用 pkm、不签发、不吊销，也不改动任何文件。
+    /// 席位若来自另一台机器的镜像包，本机没有它的 `.key`，这里会给出明确提示。
+    private func revealKey(_ seat: SeatRecord) {
+        guard let registryId = seat.registryId else {
+            actionError = Strings.licenseRevealKeyMissing(seat.sub)
+            return
+        }
+        actionError = nil
+        actionInfo = nil
+        do {
+            let file = try KeyManager.readSeatKey(registryId: registryId, kid: seat.kid, sub: seat.sub)
+            revealedKey = RevealedSeatKey(file: file)
+        } catch {
+            actionError = error.localizedDescription
+        }
     }
 }
 
@@ -974,33 +1035,47 @@ private struct IssueKeySheet: View {
     }
 }
 
-// MARK: - 新密钥展示（仅一次）
+// MARK: - 密钥展示（签发一次 / 从席位列表揭示）
 
-private struct IssuedKeySheet: View {
-    let key: KeyManager.IssuedKey
+/// 展示一段 TA1 许可串并附复制按钮。
+///
+/// 签发弹窗与「揭示席位密钥」共用这套外观，避免把「等宽滚动框 + 复制反馈」写两遍；
+/// 需要显示的信息不同，所以 `details` 交给调用方。
+private struct LicenseKeySheet<Details: View>: View {
+    let title: String
+    let icon: String
+    let iconColor: Color
+    let licenseKey: String
+    let hint: String
+    let footerNote: String?
+    let details: Details
 
     @Environment(\.dismiss) private var dismiss
     @State private var copied = false
 
+    init(title: String, icon: String, iconColor: Color, licenseKey: String,
+         hint: String, footerNote: String? = nil,
+         @ViewBuilder details: () -> Details) {
+        self.title = title
+        self.icon = icon
+        self.iconColor = iconColor
+        self.licenseKey = licenseKey
+        self.hint = hint
+        self.footerNote = footerNote
+        self.details = details()
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 6) {
-                Image(systemName: "key.fill").foregroundColor(.green)
-                Text(Strings.licenseIssueDone).font(.body).bold()
+                Image(systemName: icon).foregroundColor(iconColor)
+                Text(title).font(.body).bold()
             }
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text("\(Strings.licenseIssueSubLabel): \(key.sub)")
-                    .font(.caption).monospaced()
-                Text("\(Strings.licenseRegistryLabel): \(key.registry) · kid: \(key.kid)")
-                    .font(.caption2).foregroundColor(.secondary)
-                Text("\(Strings.licenseIssuedAtLabel): \(Strings.licenseIssuedOn(key.issuedAt))")
-                    .font(.caption2).foregroundColor(.secondary)
-                claimRows
-            }
+            VStack(alignment: .leading, spacing: 3) { details }
 
             ScrollView {
-                Text(key.licenseKey)
+                Text(licenseKey)
                     .font(.system(size: 10, design: .monospaced))
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1011,20 +1086,20 @@ private struct IssuedKeySheet: View {
             .background(Color.gray.opacity(0.10))
             .cornerRadius(6)
 
-            Text(Strings.licenseIssueCopyHint)
+            Text(hint)
                 .font(.caption2).foregroundColor(.orange)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text(Strings.licenseClaimsResignNote)
-                .font(.caption2).foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            if let footerNote {
+                Text(footerNote)
+                    .font(.caption2).foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             HStack {
                 Spacer()
                 Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(key.licenseKey, forType: .string)
-                    copied = true
+                    copyKey()
                 } label: {
                     Label(copied ? Strings.licenseIssueCopied : Strings.licenseIssueCopy,
                           systemImage: copied ? "checkmark" : "doc.on.doc")
@@ -1036,6 +1111,36 @@ private struct IssuedKeySheet: View {
         }
         .padding(20)
         .frame(width: 520)
+    }
+
+    /// 复制并额外标记为「隐藏」类型：许可串是持有者凭证，剪贴板管理器不该把它归档。
+    /// 其余位置的复制按钮没有这个标记 —— 这里是唯一有实际影响的一处。
+    private func copyKey() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(licenseKey, forType: .string)
+        pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+        copied = true
+    }
+}
+
+/// 签发结果（密钥在这一步自动展示一次）。
+private struct IssuedKeySheet: View {
+    let key: KeyManager.IssuedKey
+
+    var body: some View {
+        LicenseKeySheet(title: Strings.licenseIssueDone, icon: "key.fill", iconColor: .green,
+                        licenseKey: key.licenseKey,
+                        hint: Strings.licenseIssueCopyHint,
+                        footerNote: Strings.licenseClaimsResignNote) {
+            Text("\(Strings.licenseIssueSubLabel): \(key.sub)")
+                .font(.caption).monospaced()
+            Text("\(Strings.licenseRegistryLabel): \(key.registry) · kid: \(key.kid)")
+                .font(.caption2).foregroundColor(.secondary)
+            Text("\(Strings.licenseIssuedAtLabel): \(Strings.licenseIssuedOn(key.issuedAt))")
+                .font(.caption2).foregroundColor(.secondary)
+            claimRows
+        }
     }
 
     /// 声明一行一个。都没有时明确写“未设置声明”，而不是留空 —— 留空读起来像信息缺失。
@@ -1056,6 +1161,28 @@ private struct IssuedKeySheet: View {
                 Text(Strings.licenseClaimPasswordSet)
                     .font(.caption2).foregroundColor(.secondary)
             }
+        }
+    }
+}
+
+/// 从席位列表揭示出来的密钥（只读本机密钥库 —— 不签发、不吊销）。
+private struct RevealedKeySheet: View {
+    let revealed: RevealedSeatKey
+
+    var body: some View {
+        LicenseKeySheet(title: Strings.licenseRevealKeyTitle, icon: "doc.on.doc.fill",
+                        iconColor: .blue, licenseKey: revealed.licenseKey,
+                        hint: Strings.licenseRevealKeyHint,
+                        footerNote: Strings.licenseRevealKeyFooter) {
+            Text("\(Strings.licenseIssueSubLabel): \(revealed.sub)")
+                .font(.caption).monospaced()
+            Text("\(Strings.licenseRegistryLabel): \(revealed.registryId) · kid: \(revealed.kid)")
+                .font(.caption2).foregroundColor(.secondary)
+            Text("\(Strings.licenseRevealKeyFileLabel): \(revealed.filePath)")
+                .font(.caption2).foregroundColor(.secondary)
+                .textSelection(.enabled)
+                .lineLimit(2)
+                .truncationMode(.middle)
         }
     }
 }

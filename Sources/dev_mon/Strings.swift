@@ -498,9 +498,11 @@ enum Strings {
     static var licenseIssueCancel: String { isZH ? "取消" : "Cancel" }
     static func licenseIssueBusy(_ sub: String) -> String { isZH ? "正在签发 \(sub)…" : "Issuing \(sub)…" }
     static var licenseIssueDone: String { isZH ? "密钥已签发" : "Key issued" }
+    /// 签发后自动展示一次；但席位列表里可以再揭示（见 `licenseRevealKey*`），
+    /// 所以措辞不再承诺「仅此一次 / 无法再次查看」。
     static var licenseIssueCopyHint: String {
-        isZH ? "这是唯一一次显示完整密钥。请立即复制并交给席位使用者——关闭后无法再次查看。"
-             : "This is the only time the full key is shown. Copy it now — it cannot be viewed again."
+        isZH ? "请立即复制并交给席位使用者。关闭后仍可在席位列表里重新揭示该密钥。"
+             : "Copy it now and hand it to the seat holder. You can reveal it again from the seat list."
     }
     static var licenseIssueCopy: String { isZH ? "复制密钥" : "Copy Key" }
     static var licenseIssueCopied: String { isZH ? "已复制" : "Copied" }
@@ -520,6 +522,27 @@ enum Strings {
     static var licenseIssuePasswordMismatch: String { isZH ? "两次输入的密码不一致" : "Passwords do not match" }
     static func licenseIssuePasswordTooShort(_ minimum: Int) -> String {
         isZH ? "密码至少需要 \(minimum) 个字符" : "Password must be at least \(minimum) characters"
+    }
+
+    // MARK: License — 揭示席位密钥（从本机密钥库读取，只读）
+
+    static var licenseRevealKeyTitle: String { isZH ? "席位密钥" : "Seat Key" }
+    static var licenseRevealKeyAction: String { isZH ? "揭示密钥" : "Reveal Key" }
+    static var licenseRevealKeyFileLabel: String { isZH ? "文件" : "File" }
+    static var licenseRevealKeyHint: String {
+        isZH ? "从本机密钥库读取的完整密钥 —— 它等同于席位凭证，复制后请勿留在剪贴板或转交无关人员。"
+             : "The full key, read from the local key store. It is the seat credential — don't leave it on the clipboard or share it beyond the seat holder."
+    }
+    static var licenseRevealKeyFooter: String {
+        isZH ? "已吊销 / 已过期的席位仍保留密钥文件（归档但不删除）；能否使用由验证方按吊销名单判定。"
+             : "A revoked or expired seat keeps its key file (archived, never deleted); whether it works is decided by the verifier against the revocation list."
+    }
+    static func licenseRevealKeyMissing(_ sub: String) -> String {
+        isZH ? "本机密钥库里没有 \(sub) 的密钥文件（席位可能来自另一台机器的镜像包）。"
+             : "No key file for \(sub) in the local key store — the seat may come from a bundle mirrored from another machine."
+    }
+    static func licenseRevealKeyUnreadable(_ path: String) -> String {
+        isZH ? "无法读取密钥文件：\(path)" : "Could not read the key file: \(path)"
     }
 
     static var licenseRevokeAction: String { isZH ? "吊销" : "Revoke" }

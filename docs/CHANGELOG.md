@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.4.0-1] — 2026-10-15
+
+### Added
+
+- **席位列表可以直接揭示并复制该席位的密钥。** 密钥不在导出包里——`export/devmon.json` 只有元数据，
+  而 TA1 许可串的第 4 段是**每次签发随机生成**的 Ed25519 种子（pkm 的 `mintLicense` 直接
+  `generateKeyPairSync`），既不是从主密钥派生、也无法重算，本机唯一的副本就是密钥库里的
+  `registries/<dir>/<kid>/{issued,revoked,expired}/<sub>.key`。因此这是**只读本机文件**：
+  `KeyManager.readSeatKey` 先读 `registries/registry.json`，把导出包里的注册表 `id` 映射到磁盘目录
+  `dir`（`pkm registry create` 在目录名冲突时会追加 `-2`，两者因此可能不同；索引读不到时退回
+  `dir == id`），再按 `issued → revoked → expired` 顺序探测——该顺序与 pkm 的 `KINDS` 一致，
+  因为已吊销 / 已过期的密钥文件是**归档而非删除**，只找 `issued/` 会让大量历史席位报「找不到」。
+  `kid` 为空或为 `(unknown ring)` 哨兵值（孤儿行没有对应目录）直接跳过；解析结果必须落在
+  `<toolRoot>/registries` 之内——`sub` 是逐字拼进文件名的，而导出包虽经签名却仍在本机用户手里，
+  少了这层包含检查就存在 `../` 逃逸。找不到文件时给明确提示而非报错：席位可能来自另一台机器的
+  镜像包。整条路径不启动 node、不调用 pkm，所以该按钮的开关是 `toolExists()` 而非 `isWritable()`：
+  只读机器上也能揭示密钥，只是不能签发。**不需要改动 pkm。**
+- **签发弹窗与揭示共用一套展示组件。** `IssuedKeySheet` 抽出为泛型 `LicenseKeySheet`
+  （标题 / 图标 / 提示 / 脚注 + `@ViewBuilder` 详情行），两处共用「等宽滚动框 + 复制反馈」，
+  避免同一段外观写两遍；揭示弹窗额外显示密钥文件路径，且**不提供**签发 / 吊销入口。
+  席位行的按钮以 `SeatRecord.id`（注册表 + `sub`）作为忙碌键——吊销按钮此前用 `busy == seat.sub`，
+  而同一个 `sub` 可以同时存在于两个注册表。
+
+### Changed
+
+- **签发后的提示不再承诺「仅此一次」。** `licenseIssueCopyHint` 原文是「这是唯一一次显示完整密钥……
+  关闭后无法再次查看」，而席位列表现在可以重新揭示，这句话会变成假话；改为说明「关闭后仍可在席位
+  列表里重新揭示」。
+- **密钥复制额外标记为「隐藏」剪贴板类型。** 写入 `org.nspasteboard.ConcealedType`，让剪贴板管理器
+  不把它归档——许可串是持有者凭证，这是本项目唯一一处为此加标记的复制按钮，与其余位置
+  （令牌 / 域名 / 实例地址）故意不一致。
+
 ## [0.3.10-1] — 2026-09-24
 
 ### Added

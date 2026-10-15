@@ -16,6 +16,10 @@ enum KeyManager {
         case nodeMissing
         case commandFailed(String)
         case decodeFailed(String)
+        /// 本机密钥库里没有该席位的 `<sub>.key`（席位可能来自另一台机器的镜像包）。
+        case seatKeyMissing(String)
+        /// 密钥文件存在但读不出来（权限 / 编码）。
+        case seatKeyUnreadable(String)
 
         var errorDescription: String? {
             switch self {
@@ -23,6 +27,8 @@ enum KeyManager {
             case .nodeMissing: return Strings.licenseNodeMissing
             case .commandFailed(let msg): return msg
             case .decodeFailed(let msg): return msg
+            case .seatKeyMissing(let sub): return Strings.licenseRevealKeyMissing(sub)
+            case .seatKeyUnreadable(let path): return Strings.licenseRevealKeyUnreadable(path)
             }
         }
     }
@@ -86,6 +92,91 @@ enum KeyManager {
 
     static func toolExists() -> Bool {
         FileManager.default.fileExists(atPath: scriptPath)
+    }
+
+    // MARK: - 席位密钥文件（揭示 / 复制）
+
+    /// pkm 存储的注册表索引（`registries/registry.json`）。
+    ///
+    /// 导出包里只有 `id`，磁盘目录却是 `dir` —— `pkm registry create` 在目录名冲突时
+    /// 会追加 `-2` 后缀（见 pkm `src/registry.mjs` → `createRegistry`），两者因此可能不同。
+    private struct RegistryIndexFile: Decodable {
+        struct Entry: Decodable {
+            let id: String
+            let dir: String?
+        }
+        let registries: [Entry]
+    }
+
+    /// pkm 存储的注册表根目录（`<toolRoot>/registries`）。
+    static var registriesRoot: String { "\(toolRoot)/registries" }
+
+    /// 注册表 id 对应的磁盘目录名。先读索引文件（权威），读不到再退回 `dir == id`。
+    static func registryDirectory(id: String) -> String? {
+        let wanted = id.trimmingCharacters(in: .whitespaces)
+        guard !wanted.isEmpty else { return nil }
+        let indexURL = URL(fileURLWithPath: ("\(registriesRoot)/registry.json" as NSString).expandingTildeInPath)
+        if let data = try? Data(contentsOf: indexURL),
+           let index = try? JSONDecoder().decode(RegistryIndexFile.self, from: data),
+           let entry = index.registries.first(where: { $0.id.lowercased() == wanted.lowercased() }) {
+            let dir = (entry.dir ?? "").trimmingCharacters(in: .whitespaces)
+            return dir.isEmpty ? wanted : dir
+        }
+        return wanted
+    }
+
+    /// 归档目录顺序与 pkm 的 `KINDS` 一致（`src/ledger.mjs`）：现行 → 已吊销 → 已过期。
+    /// 已吊销 / 已过期的密钥文件被归档但**从不删除**，所以三处都要找。
+    private static let seatKeyKinds = ["issued", "revoked", "expired"]
+
+    /// 一个已定位的席位密钥文件。
+    struct SeatKeyFile: Sendable {
+        let url: URL
+        let registryId: String
+        let kid: String
+        let sub: String
+        /// 去掉 pkm 写入的结尾换行后的 TA1 许可串。
+        let licenseKey: String
+    }
+
+    /// 定位席位密钥文件（`<sub>.key`）。只读本机文件，不调用 node / pkm。
+    ///
+    /// 找不到时返回 nil —— 席位可能来自另一台机器的镜像包，本机根本没有它的 `.key`。
+    static func seatKeyFileURL(registryId: String, kid: String, sub: String) -> URL? {
+        let seat = sub.trimmingCharacters(in: .whitespaces)
+        let ring = kid.trimmingCharacters(in: .whitespaces)
+        // 孤儿行（kid 不在 ring.json 里）在 UI 上是 `(unknown ring)`，没有对应目录。
+        guard !seat.isEmpty, !ring.isEmpty, ring != "(unknown ring)",
+              let dir = registryDirectory(id: registryId) else { return nil }
+
+        let root = URL(fileURLWithPath: (registriesRoot as NSString).expandingTildeInPath)
+            .standardizedFileURL
+        let base = root.appendingPathComponent(dir).appendingPathComponent(ring)
+
+        for kind in seatKeyKinds {
+            let candidate = base
+                .appendingPathComponent(kind)
+                .appendingPathComponent("\(seat).key")
+                .standardizedFileURL
+            // `sub` 是逐字拼进文件名的，而导出包虽经签名却仍在本机用户手里 ——
+            // 因此解析结果必须留在存储目录内，防止 `../` 逃逸。
+            guard candidate.path.hasPrefix(root.path + "/") else { continue }
+            if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+        }
+        return nil
+    }
+
+    /// 读取一个席位的密钥文件（揭示 / 复制用）。
+    static func readSeatKey(registryId: String, kid: String, sub: String) throws -> SeatKeyFile {
+        guard let url = seatKeyFileURL(registryId: registryId, kid: kid, sub: sub) else {
+            throw KeyManagerError.seatKeyMissing(sub)
+        }
+        guard let raw = try? String(contentsOf: url, encoding: .utf8) else {
+            throw KeyManagerError.seatKeyUnreadable(url.path)
+        }
+        let key = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { throw KeyManagerError.seatKeyUnreadable(url.path) }
+        return SeatKeyFile(url: url, registryId: registryId, kid: kid, sub: sub, licenseKey: key)
     }
 
     // MARK: - Node 解析
