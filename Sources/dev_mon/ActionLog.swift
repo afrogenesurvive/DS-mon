@@ -17,6 +17,7 @@ enum ActionService: String, Sendable, Codable, CaseIterable {
     case databases      // 本地 MongoDB / MySQL / Neo4j（brew services）
     case repoStores     // 仓库自带的数据存储（备份等）
     case tailscale
+    case gcp            // Google Cloud（项目 / 实例 / IAM / Pub/Sub / Apps）
     case notifications  // 全部通知
     case `internal`     // dev_mon 自身的模块：代理、同步、席位检查、提供商切换
 }

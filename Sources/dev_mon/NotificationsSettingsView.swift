@@ -13,6 +13,8 @@ struct NotificationsSettingsView: View {
     @AppStorage(Strings.Keys.localDBsNotifyEnabled) private var localDBsAlert: Bool = true
     @AppStorage(Strings.Keys.repoStoresNotifyEnabled) private var repoStoresAlert: Bool = true
     @AppStorage(Strings.Keys.awsRunNotifyEnabled) private var awsRunAlert: Bool = true
+    @AppStorage(Strings.Keys.gcpAlwaysFreeNotifyEnabled) private var gcpAlwaysFreeAlert: Bool = true
+    @AppStorage(Strings.Keys.gcpKeyRotationNotifyEnabled) private var gcpKeyRotationAlert: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -36,6 +38,18 @@ struct NotificationsSettingsView: View {
                     color: .orange,
                     label: Strings.notifyAWSRunningLabel,
                     hint: Strings.notifyAWSRunningHint)
+
+                row(isOn: $gcpAlwaysFreeAlert,
+                    icon: "gauge.with.dots.needle.50percent",
+                    color: .blue,
+                    label: Strings.gcpAlwaysFreeNotifyLabel,
+                    hint: Strings.gcpAlwaysFreeNotifyHint)
+
+                row(isOn: $gcpKeyRotationAlert,
+                    icon: "key.slash",
+                    color: .red,
+                    label: Strings.gcpKeyRotationNotifyLabel,
+                    hint: Strings.gcpKeyRotationNotifyHint)
 
                 row(isOn: $balanceAlert,
                     icon: "yensign.circle.fill",

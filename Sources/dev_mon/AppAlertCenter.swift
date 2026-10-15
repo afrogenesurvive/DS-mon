@@ -22,6 +22,8 @@ enum AppAlertKind: String, Codable {
     case netlifyDeployRolledBack // Netlify 回滚成功
     case balanceWarning     // 余额进入预警区间
     case lowBalance         // 余额不足
+    case gcpAlwaysFreeWarning // GCP Always Free 额度接近上限
+    case gcpKeyRotation     // GCP 用户托管服务账号密钥即将/已经超过 90 天
     case test               // 测试通知（设置 → 通知「发送测试通知」）
 }
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.1-1] — 2026-10-15
+
+### Added
+
+- **GCP 集成（Google Cloud）。** 新增 GCP 追踪器 + 设置里的服务区段（设置 → 服务 → Google Cloud）与弹窗的第 10 个页签（GCP）。粘贴服务账号密钥 JSON（`client_email` + `private_key`，AES-GCM 加密存入 SecureStore，绝不落盘明文），逗号分隔项目 ID 列表即可使用。认证走 RS256 JWT → OAuth2 访问令牌（Security 框架签名，CryptoKit 无 RSA），令牌缓存并在 401 时自动刷新重试一次；默认只读作用域 `cloud-platform.read-only`，开启动作开关后才升级为 `cloud-platform`。
+- **六类清单**：项目（`cloudresourcemanager`）、已启用 API（`serviceusage`，按需拉取以避开其读取配额）、计算实例 + Always Free 跟踪（`compute` aggregated/instances，e2-micro ×1 额度）、IAM 服务账号 + 用户托管密钥 + 策略绑定（`iam` + `getIamPolicy`）、Pub/Sub 主题与订阅、Apps（Cloud Run 服务 + App Engine 服务/版本）。
+- **安全动作（默认关闭）**：实例启动/停止/重启、Pub/Sub 发布、API 启用/停用——分别由设置里的三个开关控制，每个动作都在真正执行点写入 `action_log`（导出到 `service_activity.gcp[]`）。
+- **告警**：GCP 免费额度预警 + 用户托管密钥超过 90 天的轮换提醒（通知页可单独开关）。
+- 导出新增 `cloud.gcp` 快照与 `service_activity.gcp` 分桶。
+
 ## [0.4.0-1] — 2026-10-15
 
 ### Added

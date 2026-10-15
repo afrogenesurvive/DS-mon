@@ -23,6 +23,7 @@ final class UIStateStore: ObservableObject, @unchecked Sendable {
         static let cloudflareSubTab = "tab.cloudflare"
         static let tailscaleSubTab  = "tab.tailscale"
         static let dbSubTab         = "tab.db"
+        static let gcpSubTab        = "tab.gcp"
         static let settingsTab      = "tab.settings"
 
         // 视图模式：图表 ↔ 列表

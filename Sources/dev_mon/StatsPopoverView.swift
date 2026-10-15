@@ -17,6 +17,26 @@ private struct AWSConfirmRequest: Identifiable {
     var id: String { instanceId }
 }
 
+// MARK: - GCP 操作确认（Compute start/stop/reset / API enable/disable）
+
+private struct GCPConfirmRequest: Identifiable {
+    enum Kind {
+        case start(project: String, zone: String, name: String)
+        case stop(project: String, zone: String, name: String)
+        case reset(project: String, zone: String, name: String)
+        case apiToggle(project: String, service: String, enable: Bool)
+    }
+    let kind: Kind
+    var id: String {
+        switch kind {
+        case .start(let p, _, let n): return "gcp-start-\(p)-\(n)"
+        case .stop(let p, _, let n): return "gcp-stop-\(p)-\(n)"
+        case .reset(let p, _, let n): return "gcp-reset-\(p)-\(n)"
+        case .apiToggle(let p, let s, let e): return "gcp-api-\(p)-\(s)-\(e)"
+        }
+    }
+}
+
 // MARK: - Cloudflare 操作确认（Start / Stop / 删除路由）
 
 private struct CFConfirmRequest: Identifiable {
@@ -310,6 +330,21 @@ struct StatsPopoverView: View {
     @State private var netlifySearchText = ""
     @State private var awsInstanceSearchText = ""
     @State private var cfHostnameSearchText = ""
+
+    // GCP 页状态（子页签 / 项目选择 / 确认 / 发布表单）
+    private var gcpSubTab: Int {
+        get { uiState.int(UIStateStore.Key.gcpSubTab) }
+        nonmutating set { uiState.setInt(UIStateStore.Key.gcpSubTab, newValue: newValue) }
+    }
+    @State private var gcpSelectedProject: String = ""
+    @State private var gcpConfirmRequest: GCPConfirmRequest?
+    @State private var gcpConfirmShown = false
+    @State private var gcpActionMessage: String?
+    @State private var gcpActionSuccess = true
+    @State private var gcpPending: Set<String> = []
+    @State private var gcpPublishTopic: String = ""
+    @State private var gcpPublishMessage: String = ""
+    @State private var gcpPublishShown = false
     /// Netlify 部署历史是否展开（持久化）
     private var netlifyDeploysExpanded: Bool {
         get { uiState.bool(UIStateStore.Key.netlifyDeploys) }
@@ -459,6 +494,8 @@ struct StatsPopoverView: View {
             } else if selectedTab == 2 {
                 // GitHub 页自行管理布局：页内子页签（Actions / 仓库）+ 独立滚动
                 gitHubTabContent
+            } else if selectedTab == 9 {
+                gcpTabContent
             } else {
                 ScrollView { licenseTabContent }
             }
@@ -1401,7 +1438,7 @@ struct StatsPopoverView: View {
     // MARK: - Tab Bar
 
     private var tabBar: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 3) {
             tabButton(symbol: "brain.head.profile", tag: 0, tooltip: Strings.usageTabTooltip)
             tabButton(symbol: "key.fill", tag: 1, tooltip: Strings.licenseTabTooltip)
             tabButton(assetName: "github", symbol: "chevron.left.forwardslash.chevron.right", tag: 2, tooltip: Strings.githubTabTooltip)
@@ -1410,6 +1447,7 @@ struct StatsPopoverView: View {
             tabButton(assetName: "netlify", symbol: "diamond.fill", tag: 6, tooltip: Strings.netlifyTabTooltip)
             tabButton(symbol: "cylinder.split.1x2", tag: 7, tooltip: Strings.localDBsTabTooltip)
             tabButton(symbol: "network", tag: 8, tooltip: Strings.tailscaleTabTooltip)
+            tabButton(symbol: "globe.americas.fill", tag: 9, tooltip: Strings.gcpTabTooltip)
             alertsTabButton
             Spacer()
         }
@@ -1422,7 +1460,7 @@ struct StatsPopoverView: View {
         return Button(action: { selectedTab = tag }) {
             BrandTabIcon(assetName: assetName, symbol: symbol, size: 13)
                 .foregroundColor(active ? .white : .secondary)
-                .frame(width: 30, height: 24)
+                .frame(width: 26, height: 24)
                 .background(active ? Color.blue : Color.clear)
                 .cornerRadius(6)
                 .contentShape(Rectangle())
@@ -4893,7 +4931,7 @@ struct StatsPopoverView: View {
             Image(systemName: "bell.fill")
                 .font(.system(size: 13))
                 .foregroundColor(active ? .white : .secondary)
-                .frame(width: 30, height: 24)
+                .frame(width: 26, height: 24)
                 .background(active ? Color.blue : Color.clear)
                 .cornerRadius(6)
                 .contentShape(Rectangle())
@@ -5002,6 +5040,8 @@ struct StatsPopoverView: View {
         case .storeDegraded: return "shippingbox.fill"
         case .storeRestored: return "checkmark.seal.fill"
         case .awsInstanceLongRunning: return "clock.badge.exclamationmark"
+        case .gcpAlwaysFreeWarning: return "gauge.with.dots.needle.50percent"
+        case .gcpKeyRotation: return "key.slash"
         case .netlifyDeployReady: return "checkmark.circle.fill"
         case .netlifyDeployFailed: return "exclamationmark.triangle.fill"
         case .netlifyDeployRolledBack: return "arrow.uturn.backward.circle.fill"
@@ -5019,7 +5059,565 @@ struct StatsPopoverView: View {
         case .tunnelDown, .lowBalance, .netlifyDeployFailed, .dbDown, .storeDegraded,
              .tailscaleDown: return .red
         case .awsInstanceLongRunning: return .orange
+        case .gcpAlwaysFreeWarning: return .orange
+        case .gcpKeyRotation: return .red
         case .test: return .purple
+        }
+    }
+
+    // MARK: - GCP Tab
+
+    private var gcpTabContent: some View {
+        VStack(spacing: 0) {
+            if stats.gcp.isLoading {
+                Spacer(minLength: 40)
+                HStack { Spacer(); ProgressView().scaleEffect(1.2); Spacer() }
+                Spacer(minLength: 40)
+            } else if !stats.gcp.isEnabled {
+                Spacer(minLength: 40)
+                VStack(spacing: 8) {
+                    Image(systemName: "globe.americas.fill").font(.title2).foregroundColor(.secondary)
+                    Text(Strings.gcpNotConfigured).font(.caption).foregroundColor(.secondary)
+                }
+                Spacer(minLength: 40)
+            } else {
+                gcpSubTabBar
+                Divider().padding(.horizontal, 14)
+                ScrollView {
+                    Group {
+                        switch gcpSubTab {
+                        case 1: gcpProjectsPane
+                        case 2: gcpAPIsPane
+                        case 3: gcpComputePane
+                        case 4: gcpIAMPane
+                        case 5: gcpPubSubPane
+                        case 6: gcpAppsPane
+                        default: gcpOverviewPane
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    if let err = stats.gcp.errorMessage {
+                        Text(err).font(.caption).foregroundColor(.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 14).padding(.bottom, 8)
+                    }
+                    if let msg = gcpActionMessage {
+                        Text(msg).font(.caption).foregroundColor(gcpActionSuccess ? .green : .orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 14).padding(.bottom, 8)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .alert(Strings.gcpConfirmTitle, isPresented: $gcpConfirmShown, presenting: gcpConfirmRequest) { req in
+            Button(Strings.cancel, role: .cancel) {}
+            Button(gcpConfirmButtonLabel) { performGCP(req) }
+        } message: { req in
+            Text(gcpConfirmMessage(req))
+        }
+        .sheet(isPresented: $gcpPublishShown) {
+            gcpPublishSheet
+        }
+    }
+
+    private var gcpSubTabBar: some View {
+        HStack(spacing: 4) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    gcpSubTabButton(Strings.gcpSubTabOverview, tag: 0)
+                    gcpSubTabButton(Strings.gcpSubTabProjects, tag: 1)
+                    gcpSubTabButton(Strings.gcpSubTabAPIs, tag: 2)
+                    gcpSubTabButton(Strings.gcpSubTabCompute, tag: 3)
+                    gcpSubTabButton(Strings.gcpSubTabIAM, tag: 4)
+                    gcpSubTabButton(Strings.gcpSubTabPubSub, tag: 5)
+                    gcpSubTabButton(Strings.gcpSubTabApps, tag: 6)
+                }
+            }
+            Button {
+                stats.gcp.refresh()
+            } label: {
+                Image(systemName: "arrow.clockwise").font(.system(size: 10))
+            }
+            .buttonStyle(.plain)
+            .modifier(HoverTooltip(text: Strings.gcpRefreshAction, position: .below))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 4)
+    }
+
+    private func gcpSubTabButton(_ title: String, tag: Int) -> some View {
+        let active = gcpSubTab == tag
+        return Button(action: { gcpSubTab = tag }) {
+            Text(title)
+                .font(.system(size: 10, weight: active ? .semibold : .regular))
+                .foregroundColor(active ? .white : .secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(active ? Color.blue : Color.clear)
+                .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .modifier(HoverTooltip(text: title, position: .below))
+    }
+
+    private var gcpStatusText: String {
+        let af = stats.gcp.alwaysFree
+        if af.isWithinFreeTier { return Strings.gcpFreeStatus }
+        if af.isWarning { return Strings.gcpWarningStatus }
+        return Strings.gcpExceededStatus
+    }
+
+    private var gcpStatusColor: Color {
+        let af = stats.gcp.alwaysFree
+        if af.isWithinFreeTier { return .green }
+        if af.isWarning { return .orange }
+        return .red
+    }
+
+    // MARK: GCP — Overview
+
+    private var gcpOverviewPane: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            let af = stats.gcp.alwaysFree
+            cloudRow(icon: "server.rack", color: .blue,
+                     label: Strings.gcpAlwaysFreeLabel,
+                     value: String(format: Strings.gcpAlwaysFreeFormat, af.runningInstances, af.limitInstances),
+                     progress: af.usagePercentage / 100,
+                     progressColor: af.isWarning ? .orange : .green)
+            HStack(spacing: 6) {
+                Image(systemName: "building.2").font(.system(size: 8)).foregroundColor(.blue).frame(width: 14)
+                Text(Strings.gcpProjectsLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                Spacer()
+                Text("\(stats.gcp.projects.count)").font(.system(size: 9).monospacedDigit())
+            }
+            HStack(spacing: 6) {
+                Image(systemName: "desktopcomputer").font(.system(size: 8)).foregroundColor(.purple).frame(width: 14)
+                Text(Strings.gcpInstancesLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                Spacer()
+                Text(String(format: Strings.gcpInstancesFormat,
+                            stats.gcp.instances.count,
+                            stats.gcp.instances.filter { $0.isRunning }.count))
+                    .font(.system(size: 9).monospacedDigit())
+            }
+            HStack(spacing: 6) {
+                Image(systemName: "person.crop.circle").font(.system(size: 8)).foregroundColor(.teal).frame(width: 14)
+                Text(Strings.gcpSAsLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                Spacer()
+                Text("\(stats.gcp.serviceAccounts.count)").font(.system(size: 9).monospacedDigit())
+            }
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.up.message").font(.system(size: 8)).foregroundColor(.orange).frame(width: 14)
+                Text(Strings.gcpTopicsLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                Spacer()
+                Text("\(stats.gcp.topics.count)").font(.system(size: 9).monospacedDigit())
+            }
+            HStack(spacing: 6) {
+                Image(systemName: "app.badge").font(.system(size: 8)).foregroundColor(.indigo).frame(width: 14)
+                Text(Strings.gcpRunLabel).font(.system(size: 9)).foregroundColor(.secondary)
+                Spacer()
+                Text("\(stats.gcp.runServices.count)").font(.system(size: 9).monospacedDigit())
+            }
+            HStack(spacing: 6) {
+                Image(systemName: "info.circle").font(.system(size: 8)).foregroundColor(gcpStatusColor).frame(width: 14)
+                Text(gcpStatusText).font(.system(size: 8)).foregroundColor(gcpStatusColor)
+            }
+            HStack(spacing: 6) {
+                Image(systemName: "clock").font(.system(size: 8)).foregroundColor(.secondary).frame(width: 14)
+                Text(String(format: "%@ %@", Strings.gcpLastUpdate, stats.gcp.lastUpdate))
+                    .font(.system(size: 8)).foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    // MARK: GCP — Projects
+
+    private var gcpProjectsPane: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if stats.gcp.projects.isEmpty {
+                gcpEmptyRow(Strings.gcpNoProjects)
+            } else {
+                ForEach(stats.gcp.projects) { p in
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Circle().fill(p.state == "ACTIVE" ? Color.green : Color.gray).frame(width: 6, height: 6)
+                            Text(p.name).font(.system(size: 9, weight: .semibold))
+                            Spacer()
+                            Text(p.state).font(.system(size: 8)).foregroundColor(.secondary)
+                        }
+                        HStack(spacing: 6) {
+                            Text(p.id).font(.system(size: 8, design: .monospaced)).foregroundColor(.secondary)
+                            Spacer()
+                            if !p.number.isEmpty {
+                                Text("\(Strings.gcpProjectNumberLabel): \(p.number)")
+                                    .font(.system(size: 8)).foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    // MARK: GCP — APIs
+
+    private var gcpAPIsPane: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if stats.gcp.projects.isEmpty {
+                gcpEmptyRow(Strings.gcpNoProjects)
+            } else {
+                Picker("", selection: $gcpSelectedProject) {
+                    ForEach(stats.gcp.projects.map(\.id), id: \.self) { Text($0).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .onAppear {
+                    if gcpSelectedProject.isEmpty { gcpSelectedProject = stats.gcp.projects.first?.id ?? "" }
+                }
+                .onChange(of: stats.gcp.projects.count) { _, _ in
+                    if gcpSelectedProject.isEmpty { gcpSelectedProject = stats.gcp.projects.first?.id ?? "" }
+                }
+                let services = stats.gcp.apiServices[gcpSelectedProject] ?? []
+                if services.isEmpty {
+                    Button {
+                        stats.gcp.loadAPIs(force: true)
+                    } label: {
+                        Label(Strings.gcpRefreshAction, systemImage: "arrow.clockwise").font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                } else {
+                    ForEach(services) { svc in
+                        HStack(spacing: 6) {
+                            Circle().fill(svc.isEnabled ? Color.green : Color.gray).frame(width: 6, height: 6)
+                            Text(svc.shortName).font(.system(size: 8, design: .monospaced))
+                                .lineLimit(1).truncationMode(.middle)
+                            Spacer()
+                            Text(svc.isEnabled ? Strings.gcpAPIEnabled : Strings.gcpAPIDisabled)
+                                .font(.system(size: 8)).foregroundColor(svc.isEnabled ? .green : .secondary)
+                            if stats.gcp.apiActionsEnabled {
+                                Button(svc.isEnabled ? Strings.gcpAPIDisableAction : Strings.gcpAPIEnableAction) {
+                                    beginGCPConfirm(.apiToggle(project: gcpSelectedProject, service: svc.id, enable: !svc.isEnabled))
+                                }
+                                .buttonStyle(.plain)
+                                .font(.system(size: 8))
+                                .foregroundColor(.blue)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .onAppear { stats.gcp.loadAPIs() }
+        .padding(.vertical, 4)
+    }
+
+    // MARK: GCP — Compute
+
+    private var gcpComputePane: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if stats.gcp.instances.isEmpty {
+                gcpEmptyRow(Strings.gcpComputeEmpty)
+            } else {
+                ForEach(stats.gcp.instances) { inst in
+                    HStack(spacing: 6) {
+                        Circle().fill(gcpInstanceColor(inst)).frame(width: 6, height: 6)
+                        Text(inst.id).font(.system(size: 8, design: .monospaced))
+                            .lineLimit(1).truncationMode(.middle)
+                        Spacer()
+                        Text(gcpInstanceStateText(inst)).font(.system(size: 8)).foregroundColor(gcpInstanceColor(inst))
+                        if stats.gcp.computeActionsEnabled {
+                            if inst.isStopped {
+                                gcpActionButton(Strings.gcpStartAction) {
+                                    beginGCPConfirm(.start(project: inst.project, zone: inst.zone, name: inst.id))
+                                }
+                            } else if inst.isRunning {
+                                gcpActionButton(Strings.gcpStopAction) {
+                                    beginGCPConfirm(.stop(project: inst.project, zone: inst.zone, name: inst.id))
+                                }
+                                gcpActionButton(Strings.gcpResetAction) {
+                                    beginGCPConfirm(.reset(project: inst.project, zone: inst.zone, name: inst.id))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func gcpInstanceColor(_ inst: GCPInstance) -> Color {
+        inst.isRunning ? .green : (inst.isStopped ? .gray : .orange)
+    }
+
+    private func gcpInstanceStateText(_ inst: GCPInstance) -> String {
+        inst.isRunning ? Strings.gcpStateRunning : (inst.isStopped ? Strings.gcpStateStopped : Strings.gcpStateOther)
+    }
+
+    // MARK: GCP — IAM
+
+    private var gcpIAMPane: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if stats.gcp.serviceAccounts.isEmpty && stats.gcp.policyBindings.isEmpty {
+                gcpEmptyRow(Strings.gcpIamEmpty)
+            } else {
+                if !stats.gcp.serviceAccounts.isEmpty {
+                    gcpSectionHeader(Strings.gcpSAsLabel)
+                    ForEach(stats.gcp.serviceAccounts) { sa in
+                        HStack(spacing: 6) {
+                            Image(systemName: "person.crop.circle").font(.system(size: 8)).foregroundColor(.teal).frame(width: 14)
+                            Text(sa.email).font(.system(size: 8, design: .monospaced))
+                                .lineLimit(1).truncationMode(.middle)
+                            Spacer()
+                        }
+                    }
+                }
+                if !stats.gcp.userManagedKeys.isEmpty {
+                    gcpSectionHeader(Strings.gcpKeysLabel)
+                    ForEach(stats.gcp.userManagedKeys) { key in
+                        HStack(spacing: 6) {
+                            let old = (key.ageDays ?? 0) >= 90
+                            Image(systemName: old ? "key.slash" : "key").font(.system(size: 8))
+                                .foregroundColor(old ? .red : .secondary).frame(width: 14)
+                            if let age = key.ageDays {
+                                Text(String(format: Strings.gcpKeyAgeFormat, key.id, age))
+                                    .font(.system(size: 8, design: .monospaced))
+                            } else {
+                                Text(key.id).font(.system(size: 8, design: .monospaced))
+                            }
+                            Spacer()
+                        }
+                    }
+                }
+                if !stats.gcp.policyBindings.isEmpty {
+                    gcpSectionHeader(Strings.gcpBindingsLabel)
+                    ForEach(stats.gcp.policyBindings) { b in
+                        HStack(alignment: .top, spacing: 6) {
+                            Text(b.roleDisplay).font(.system(size: 8, design: .monospaced))
+                                .frame(width: 90, alignment: .leading)
+                                .lineLimit(1).truncationMode(.middle)
+                            Text(b.members.joined(separator: ", "))
+                                .font(.system(size: 8)).foregroundColor(.secondary).lineLimit(2)
+                            Spacer()
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    // MARK: GCP — Pub/Sub
+
+    private var gcpPubSubPane: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if stats.gcp.topics.isEmpty && stats.gcp.subscriptions.isEmpty {
+                gcpEmptyRow(Strings.gcpPubSubEmpty)
+            } else {
+                if !stats.gcp.topics.isEmpty {
+                    gcpSectionHeader(Strings.gcpTopicsLabel)
+                    ForEach(stats.gcp.topics) { t in
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.up.message").font(.system(size: 8)).foregroundColor(.orange).frame(width: 14)
+                            Text(t.shortName).font(.system(size: 8, design: .monospaced))
+                                .lineLimit(1).truncationMode(.middle)
+                            Spacer()
+                            if stats.gcp.pubsubPublishEnabled {
+                                gcpActionButton(Strings.gcpPublishAction) {
+                                    gcpPublishTopic = t.name
+                                    gcpPublishMessage = ""
+                                    gcpPublishShown = true
+                                }
+                            }
+                        }
+                    }
+                }
+                if !stats.gcp.subscriptions.isEmpty {
+                    gcpSectionHeader(Strings.gcpSubscriptionsLabel)
+                    ForEach(stats.gcp.subscriptions) { s in
+                        HStack(spacing: 6) {
+                            Image(systemName: "envelope").font(.system(size: 8)).foregroundColor(.blue).frame(width: 14)
+                            Text(s.shortName).font(.system(size: 8, design: .monospaced))
+                                .lineLimit(1).truncationMode(.middle)
+                            Spacer()
+                            Text(s.shortTopic).font(.system(size: 8)).foregroundColor(.secondary).lineLimit(1)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var gcpPublishSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(String(format: "%@: %@", Strings.gcpPublishTitle,
+                        gcpPublishTopic.components(separatedBy: "/").last ?? gcpPublishTopic))
+                .font(.headline)
+            Text(Strings.gcpPublishMessageLabel).font(.caption).foregroundColor(.secondary)
+            TextEditor(text: $gcpPublishMessage)
+                .font(.system(.caption, design: .monospaced))
+                .frame(height: 90)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
+            HStack {
+                Spacer()
+                Button(Strings.cancel) { gcpPublishShown = false }.buttonStyle(.bordered)
+                Button(Strings.gcpPublishAction) { performGCPPublish() }.buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20)
+        .frame(width: 320)
+    }
+
+    @MainActor
+    private func performGCPPublish() {
+        let parts = gcpPublishTopic.components(separatedBy: "/")
+        guard parts.count >= 4, parts[0] == "projects", parts[2] == "topics" else {
+            gcpActionSuccess = false
+            gcpActionMessage = Strings.gcpNoProjects
+            gcpPublishShown = false
+            return
+        }
+        let project = parts[1]
+        let topic = parts[3]
+        let message = gcpPublishMessage
+        gcpPublishShown = false
+        Task {
+            let err = await stats.gcp.publish(project, topic: topic, message: message)
+            gcpActionSuccess = err == nil
+            gcpActionMessage = err
+        }
+    }
+
+    // MARK: GCP — Apps
+
+    private var gcpAppsPane: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if stats.gcp.runServices.isEmpty && stats.gcp.appEngineServices.isEmpty {
+                gcpEmptyRow(Strings.gcpAppsEmpty)
+            } else {
+                if !stats.gcp.runServices.isEmpty {
+                    gcpSectionHeader(Strings.gcpRunLabel)
+                    ForEach(stats.gcp.runServices) { s in
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: 6) {
+                                Circle().fill(Color.green).frame(width: 6, height: 6)
+                                Text(s.name).font(.system(size: 9, weight: .semibold))
+                                Spacer()
+                                Text(s.region).font(.system(size: 8)).foregroundColor(.secondary)
+                            }
+                            if !s.url.isEmpty {
+                                Text(s.url).font(.system(size: 8)).foregroundColor(.blue)
+                                    .lineLimit(1).truncationMode(.middle)
+                            }
+                        }
+                    }
+                }
+                if !stats.gcp.appEngineServices.isEmpty {
+                    gcpSectionHeader(Strings.gcpAppEngineLabel)
+                    ForEach(stats.gcp.appEngineServices) { s in
+                        HStack(spacing: 6) {
+                            Image(systemName: "square.stack.3d.up").font(.system(size: 8)).foregroundColor(.indigo).frame(width: 14)
+                            Text(s.name).font(.system(size: 9, weight: .semibold))
+                            Spacer()
+                            Text("v: \(s.versions.count)").font(.system(size: 8)).foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    // MARK: GCP — helpers / confirm
+
+    private func gcpEmptyRow(_ text: String) -> some View {
+        HStack { Spacer(); Text(text).font(.caption).foregroundColor(.secondary); Spacer() }
+            .padding(.vertical, 12)
+    }
+
+    private func gcpSectionHeader(_ text: String) -> some View {
+        Text(text).font(.system(size: 9, weight: .semibold)).foregroundColor(.secondary).padding(.top, 4)
+    }
+
+    private func gcpActionButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .buttonStyle(.plain)
+            .font(.system(size: 8))
+            .foregroundColor(.blue)
+    }
+
+    private func beginGCPConfirm(_ kind: GCPConfirmRequest.Kind) {
+        gcpConfirmRequest = GCPConfirmRequest(kind: kind)
+        gcpConfirmShown = true
+    }
+
+    private var gcpConfirmButtonLabel: String {
+        guard let req = gcpConfirmRequest else { return Strings.cancel }
+        switch req.kind {
+        case .start: return Strings.gcpStartAction
+        case .stop: return Strings.gcpStopAction
+        case .reset: return Strings.gcpResetAction
+        case .apiToggle(_, _, let enable): return enable ? Strings.gcpAPIEnableAction : Strings.gcpAPIDisableAction
+        }
+    }
+
+    private func gcpConfirmMessage(_ req: GCPConfirmRequest) -> String {
+        switch req.kind {
+        case .start(_, _, let n): return String(format: Strings.gcpStartConfirmMessage, n)
+        case .stop(_, _, let n): return String(format: Strings.gcpStopConfirmMessage, n)
+        case .reset(_, _, let n): return String(format: Strings.gcpResetConfirmMessage, n)
+        case .apiToggle(_, let s, _): return s
+        }
+    }
+
+    @MainActor
+    private func performGCP(_ req: GCPConfirmRequest) {
+        gcpActionMessage = nil
+        switch req.kind {
+        case .start(let p, let z, let n):
+            let key = "\(p)/\(n)"
+            guard !gcpPending.contains(key) else { return }
+            gcpPending.insert(key)
+            Task {
+                let err = await stats.gcp.startInstance(p, zone: z, name: n)
+                gcpPending.remove(key)
+                gcpActionSuccess = err == nil
+                gcpActionMessage = err
+            }
+        case .stop(let p, let z, let n):
+            let key = "\(p)/\(n)"
+            guard !gcpPending.contains(key) else { return }
+            gcpPending.insert(key)
+            Task {
+                let err = await stats.gcp.stopInstance(p, zone: z, name: n)
+                gcpPending.remove(key)
+                gcpActionSuccess = err == nil
+                gcpActionMessage = err
+            }
+        case .reset(let p, let z, let n):
+            let key = "\(p)/\(n)"
+            guard !gcpPending.contains(key) else { return }
+            gcpPending.insert(key)
+            Task {
+                let err = await stats.gcp.resetInstance(p, zone: z, name: n)
+                gcpPending.remove(key)
+                gcpActionSuccess = err == nil
+                gcpActionMessage = err
+            }
+        case .apiToggle(let p, let s, let enable):
+            let key = "api-\(p)-\(s)"
+            guard !gcpPending.contains(key) else { return }
+            gcpPending.insert(key)
+            Task {
+                let err = await stats.gcp.setAPIAction(p, service: s, enable: enable)
+                gcpPending.remove(key)
+                gcpActionSuccess = err == nil
+                gcpActionMessage = err
+            }
         }
     }
 

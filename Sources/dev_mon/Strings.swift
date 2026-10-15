@@ -93,6 +93,15 @@ enum Strings {
         // Tailscale（本机 tailnet 状态 + serve / funnel）
         static let tailscaleEnabled = "tailscale_enabled"
         static let tailscaleNotifyEnabled = "tailscale_notification_enabled"
+        // Google Cloud（GCP）
+        static let gcpEnabled = "gcp_enabled"
+        static let gcpServiceAccountJSON = "gcp_service_account_json"
+        static let gcpProjectIds = "gcp_project_ids"
+        static let gcpComputeActionsEnabled = "gcp_compute_actions_enabled"
+        static let gcpApiActionsEnabled = "gcp_api_actions_enabled"
+        static let gcpPubsubPublishEnabled = "gcp_pubsub_publish_enabled"
+        static let gcpAlwaysFreeNotifyEnabled = "gcp_always_free_notification_enabled"
+        static let gcpKeyRotationNotifyEnabled = "gcp_key_rotation_notification_enabled"
         // Local DBs（本地数据库监控）
         static let localDBsEnabled = "local_dbs_enabled"
         static let localDBsNotifyEnabled = "local_dbs_down_notification_enabled"
@@ -309,6 +318,16 @@ enum Strings {
     static var notifyAWSRunningHint: String {
         isZH ? "实例连续运行超过 30 分钟时提醒，之后每 30 分钟重复一次（停止后重新计时）"
              : "Alert once an instance has been running for 30 minutes, then repeat every 30 minutes (re-arms after it stops)"
+    }
+    static var gcpAlwaysFreeNotifyLabel: String { isZH ? "GCP 免费额度预警" : "GCP always-free warning" }
+    static var gcpAlwaysFreeNotifyHint: String {
+        isZH ? "接近或超过 Always Free 实例额度时提醒"
+             : "Alert when approaching or exceeding the always-free instance limit"
+    }
+    static var gcpKeyRotationNotifyLabel: String { isZH ? "GCP 密钥轮换提醒" : "GCP key-rotation reminder" }
+    static var gcpKeyRotationNotifyHint: String {
+        isZH ? "用户托管服务账号密钥超过 90 天时提醒"
+             : "Alert when a user-managed service-account key exceeds 90 days"
     }
     static var awsRunningTitle: String { isZH ? "EC2 实例仍在运行" : "EC2 instance still running" }
     static func awsRunningBody(_ name: String, _ instanceId: String, _ elapsed: String) -> String {
@@ -755,6 +774,7 @@ enum Strings {
     static var licenseTabTooltip: String { isZH ? "许可证席位与有效期" : "License seats & expiry" }
     static var githubTabTooltip: String { isZH ? "GitHub Actions 用量与仓库" : "GitHub Actions usage & repositories" }
     static var awsTabTooltip: String { isZH ? "AWS 免费套餐与费用" : "AWS free tier & costs" }
+    static var gcpTabTooltip: String { isZH ? "GCP 项目 / 实例 / IAM / Pub/Sub / Apps" : "GCP projects, instances, IAM, Pub/Sub & apps" }
     static var cloudflareTabTooltip: String { isZH ? "Cloudflare 隧道状态与路由" : "Cloudflare tunnel status & routes" }
     static var netlifyTabTooltip: String { isZH ? "Netlify 站点与部署" : "Netlify sites & deploys" }
     static var localDBsTabTooltip: String { isZH ? "本地数据库状态与库列表" : "Local databases — status & DBs" }
@@ -927,6 +947,94 @@ enum Strings {
     static var awsRulePortRequired: String { isZH ? "请输入起始和结束端口" : "Enter From and To ports" }
     static var awsRuleSourceRequired: String { isZH ? "请输入来源（CIDR 或 sg-*）" : "Enter a source (CIDR or sg-*)" }
     static var awsPermHint: String { isZH ? "实例管理需在 IAM 策略中授予 ec2:DescribeSecurityGroups、ec2:StartInstances、ec2:StopInstances、ec2:AuthorizeSecurityGroupIngress、ec2:RevokeSecurityGroupIngress" : "Instance controls need ec2:DescribeSecurityGroups, ec2:StartInstances, ec2:StopInstances, ec2:AuthorizeSecurityGroupIngress, ec2:RevokeSecurityGroupIngress in your IAM policy" }
+
+    // MARK: - ☁️ GCP
+    static var gcpSection: String { isZH ? "Google Cloud" : "Google Cloud" }
+    static var gcpToggle: String { isZH ? "启用 GCP 追踪" : "Enable GCP Tracking" }
+    static var gcpServiceAccountLabel: String { isZH ? "服务账号 JSON" : "Service-account JSON" }
+    static var gcpServiceAccountHint: String { isZH ? "粘贴服务账号密钥 JSON（含 client_email 与 private_key）。密钥经 AES-GCM 加密存入 SecureStore，绝不落盘明文" : "Paste the service-account key JSON (client_email + private_key). Stored AES-GCM encrypted; never written to disk in plain text" }
+    static var gcpProjectIdsLabel: String { isZH ? "项目 ID 列表" : "Project IDs" }
+    static var gcpProjectIdsHint: String { isZH ? "逗号分隔，如 my-project-1,my-project-2" : "Comma-separated, e.g. my-project-1,my-project-2" }
+    static var gcpComputeActionsLabel: String { isZH ? "允许实例操作（启动/停止/重启）" : "Allow instance actions (start/stop/reset)" }
+    static var gcpApiActionsLabel: String { isZH ? "允许启用/停用 API" : "Allow API enable/disable" }
+    static var gcpPubsubPublishLabel: String { isZH ? "允许 Pub/Sub 发布" : "Allow Pub/Sub publish" }
+    static var gcpPermHint: String { isZH ? "读取需 roles/viewer（或各服务的只读角色）；实例操作需 compute.instances.start/stop/reset；启用 API 需 serviceusage.services.enable；发布需 pubsub.topics.publish" : "Reads need roles/viewer (or per-service read roles); instance actions need compute.instances.start/stop/reset; API enable needs serviceusage.services.enable; publish needs pubsub.topics.publish" }
+
+    // —— GCP 子页签 ——
+    static var gcpSubTabOverview: String { isZH ? "概览" : "Overview" }
+    static var gcpSubTabProjects: String { isZH ? "项目" : "Projects" }
+    static var gcpSubTabAPIs: String { isZH ? "API" : "APIs" }
+    static var gcpSubTabCompute: String { isZH ? "计算" : "Compute" }
+    static var gcpSubTabIAM: String { "IAM" }
+    static var gcpSubTabPubSub: String { "Pub/Sub" }
+    static var gcpSubTabApps: String { isZH ? "应用" : "Apps" }
+
+    // —— GCP 概览 ——
+    static var gcpProjectsLabel: String { isZH ? "项目" : "Projects" }
+    static var gcpInstancesLabel: String { isZH ? "实例" : "Instances" }
+    static var gcpInstancesFormat: String { isZH ? "%d 个（%d 运行）" : "%d (%d running)" }
+    static var gcpAlwaysFreeLabel: String { isZH ? "Always Free 实例" : "Always Free instances" }
+    static var gcpAlwaysFreeFormat: String { isZH ? "%d / %d 个 e2-micro" : "%d / %d e2-micro" }
+    static var gcpFreeStatus: String { isZH ? "✅ 在免费额度内" : "✅ Within always-free" }
+    static var gcpWarningStatus: String { isZH ? "⚠️ 接近免费额度上限" : "⚠️ Approaching always-free limit" }
+    static var gcpExceededStatus: String { isZH ? "❌ 超出免费额度" : "❌ Exceeded always-free" }
+    static var gcpAlwaysFreeTitle: String { isZH ? "GCP 免费额度预警" : "GCP always-free warning" }
+    static var gcpAlwaysFreeBody: String { isZH ? "接近或超过 Always Free 实例额度" : "Approaching or exceeding the always-free instance limit" }
+
+    // —— GCP 项目 ——
+    static var gcpProjectNumberLabel: String { isZH ? "项目编号" : "Project number" }
+    static var gcpProjectStateLabel: String { isZH ? "状态" : "State" }
+
+    // —— GCP API ——
+    static var gcpAPIsEmpty: String { isZH ? "该项目暂无可读 API" : "No APIs readable for this project" }
+    static var gcpAPIEnableAction: String { isZH ? "启用" : "Enable" }
+    static var gcpAPIDisableAction: String { isZH ? "停用" : "Disable" }
+    static var gcpAPIEnabled: String { isZH ? "已启用" : "Enabled" }
+    static var gcpAPIDisabled: String { isZH ? "已停用" : "Disabled" }
+
+    // —— GCP 计算 ——
+    static var gcpComputeEmpty: String { isZH ? "该项目暂无 Compute 实例" : "No Compute instances in this project" }
+    static var gcpStartAction: String { isZH ? "启动" : "Start" }
+    static var gcpStopAction: String { isZH ? "停止" : "Stop" }
+    static var gcpResetAction: String { isZH ? "重启" : "Reset" }
+    static var gcpConfirmTitle: String { isZH ? "确认 GCP 操作" : "Confirm GCP action" }
+    static var gcpStartConfirmMessage: String { isZH ? "启动实例 %@？" : "Start instance %@?" }
+    static var gcpStopConfirmMessage: String { isZH ? "停止实例 %@？" : "Stop instance %@?" }
+    static var gcpResetConfirmMessage: String { isZH ? "重启实例 %@？" : "Reset instance %@?" }
+    static var gcpStateRunning: String { isZH ? "运行中" : "Running" }
+    static var gcpStateStopped: String { isZH ? "已停止" : "Stopped" }
+    static var gcpStateOther: String { isZH ? "其他" : "Other" }
+    static var gcpZoneLabel: String { isZH ? "区域" : "Zone" }
+
+    // —— GCP IAM ——
+    static var gcpSAsLabel: String { isZH ? "服务账号" : "Service accounts" }
+    static var gcpKeysLabel: String { isZH ? "用户托管密钥" : "User-managed keys" }
+    static var gcpKeyAgeFormat: String { isZH ? "%@ · %d 天" : "%@ · %d days" }
+    static var gcpBindingsLabel: String { isZH ? "IAM 绑定" : "IAM bindings" }
+    static var gcpIamEmpty: String { isZH ? "该项目暂无服务账号" : "No service accounts in this project" }
+    static var gcpKeyRotationTitle: String { isZH ? "GCP 服务账号密钥老化" : "GCP service-account key aging" }
+    static var gcpKeyRotationBody: String { isZH ? "用户托管密钥 %@ 已使用 %d 天，建议轮换" : "User-managed key %@ is %d days old — consider rotating" }
+
+    // —— GCP Pub/Sub ——
+    static var gcpTopicsLabel: String { isZH ? "主题" : "Topics" }
+    static var gcpSubscriptionsLabel: String { isZH ? "订阅" : "Subscriptions" }
+    static var gcpPublishAction: String { isZH ? "发布消息" : "Publish" }
+    static var gcpPublishTitle: String { isZH ? "发布到主题" : "Publish to topic" }
+    static var gcpPublishMessageLabel: String { isZH ? "消息内容" : "Message" }
+    static var gcpPubSubEmpty: String { isZH ? "该项目暂无主题或订阅" : "No topics or subscriptions in this project" }
+
+    // —— GCP Apps ——
+    static var gcpRunLabel: String { isZH ? "Cloud Run 服务" : "Cloud Run services" }
+    static var gcpAppEngineLabel: String { isZH ? "App Engine 服务" : "App Engine services" }
+    static var gcpAppsEmpty: String { isZH ? "该项目暂无 Cloud Run / App Engine 服务" : "No Cloud Run / App Engine services in this project" }
+    static var gcpUrlLabel: String { "URL" }
+    static var gcpRegionLabel: String { isZH ? "区域" : "Region" }
+
+    // —— GCP 通用 ——
+    static var gcpNotConfigured: String { isZH ? "请先在 设置→服务 配置 GCP" : "Configure GCP in Settings → Services" }
+    static var gcpRefreshAction: String { isZH ? "刷新" : "Refresh" }
+    static var gcpNoProjects: String { isZH ? "尚未配置项目" : "No projects configured" }
+    static var gcpLastUpdate: String { isZH ? "更新于" : "Updated" }
 
     // MARK: - ☁️ Cloudflare
     static var cloudflareTabTitle: String { isZH ? "Cloudflare" : "Cloudflare" }

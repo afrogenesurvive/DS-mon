@@ -49,6 +49,7 @@ struct ServiceActivityExport: Codable {
     let aws: [ActionEvent]
     let cloudflare: [ActionEvent]
     let netlify: [ActionEvent]
+    let gcp: [ActionEvent]
     let databases: [ActionEvent]
     let repoStores: [ActionEvent]
     let tailscale: [ActionEvent]
@@ -58,7 +59,7 @@ struct ServiceActivityExport: Codable {
 
     /// 导出键名是 `internal`；Swift 属性避开 `internal` 关键字。
     private enum CodingKeys: String, CodingKey {
-        case aws, cloudflare, netlify, databases, repoStores, tailscale, notifications
+        case aws, cloudflare, netlify, gcp, databases, repoStores, tailscale, notifications
         case appModules = "internal"
     }
 
@@ -68,6 +69,7 @@ struct ServiceActivityExport: Codable {
         aws = buckets[.aws] ?? []
         cloudflare = buckets[.cloudflare] ?? []
         netlify = buckets[.netlify] ?? []
+        gcp = buckets[.gcp] ?? []
         databases = buckets[.databases] ?? []
         repoStores = buckets[.repoStores] ?? []
         tailscale = buckets[.tailscale] ?? []
@@ -196,6 +198,8 @@ struct CloudUsageExport: Codable {
     let repoStores: RepoStoresExport?
     // v4 新增（同样是可选项：v3 及更早的文件解码时缺省为 nil）
     let tailscale: TailscaleExport?
+    // v5 新增（可选项）
+    let gcp: GCPExport?
 }
 
 // MARK: Cloudflare
@@ -373,6 +377,51 @@ struct RepoStoreExport: Codable {
     let relPath: String
     let sizeBytes: Int64?
     let sensitive: Bool
+}
+
+// MARK: GCP
+
+/// GCP 快照（v5 新增）。只含清单级摘要，不含任何凭据。
+struct GCPExport: Codable {
+    let enabled: Bool
+    let projects: [GCPProjectExport]
+    let instanceCount: Int
+    let runningInstances: Int
+    let alwaysFreeRunning: Int
+    let alwaysFreeLimit: Int
+    let serviceAccountCount: Int
+    let userManagedKeyCount: Int
+    let topicCount: Int
+    let subscriptionCount: Int
+    let runServiceCount: Int
+    let appEngineServiceCount: Int
+    let lastUpdate: String
+
+    @MainActor
+    init(_ gcp: GCPTracker) {
+        enabled = gcp.isEnabled
+        projects = gcp.projects.map {
+            GCPProjectExport(id: $0.id, number: $0.number, name: $0.name, state: $0.state)
+        }
+        instanceCount = gcp.instances.count
+        runningInstances = gcp.instances.filter { $0.isRunning }.count
+        alwaysFreeRunning = gcp.alwaysFree.runningInstances
+        alwaysFreeLimit = gcp.alwaysFree.limitInstances
+        serviceAccountCount = gcp.serviceAccounts.count
+        userManagedKeyCount = gcp.userManagedKeys.count
+        topicCount = gcp.topics.count
+        subscriptionCount = gcp.subscriptions.count
+        runServiceCount = gcp.runServices.count
+        appEngineServiceCount = gcp.appEngineServices.count
+        lastUpdate = gcp.lastUpdate
+    }
+}
+
+struct GCPProjectExport: Codable {
+    let id: String
+    let number: String
+    let name: String
+    let state: String
 }
 
 // MARK: Tailscale
@@ -757,7 +806,8 @@ enum UsageExporter {
                 netlify: NetlifyExport(s.netlify),
                 localDBs: LocalDBsExport(s.localDBs),
                 repoStores: RepoStoresExport(s.repoStores),
-                tailscale: TailscaleExport(s.tailscale)
+                tailscale: TailscaleExport(s.tailscale),
+                gcp: GCPExport(s.gcp)
             )
         }()
 
