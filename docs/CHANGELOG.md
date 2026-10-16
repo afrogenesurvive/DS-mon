@@ -1,10 +1,26 @@
 # Changelog
 
+## [0.4.1-2] — 2026-10-16
+
+### Added
+
+- **每个已启用 API 的指标表。** 展开 API 行即可看到该 API 在所选时间窗口内的请求量、5xx 错误数与平均延迟（Cloud Monitoring `serviceruntime` 指标），行尾显示请求数徽标；时间范围可选 1 小时 / 6 小时 / 24 小时 / 7 天 / 30 天。
+- **已启用 API 列表可折叠**：逐行展开与「全部展开 / 全部折叠」，每个 API 前带绿色启用状态点。
+- GCP 页签加入 Google「G」图标。
+
+### Fixed
+
+- **GCP 指标此前始终为空。** Monitoring 查询缺少 `crossSeriesReducer`（没有它 `groupByFields` 会被忽略，按服务合并失效），且延迟指标为 DELTA DISTRIBUTION，`ALIGN_MEAN` 不适用于 DELTA 指标会直接返回 400——改为 `ALIGN_SUM` + `REDUCE_SUM` 后按服务正确聚合。
+
+### Changed
+
+- OAuth 作用域固定为 `cloud-platform`（此前默认 `cloud-platform.read-only`）：Cloud Resource Manager 等 API 只接受完整作用域，只读语义改由服务账号的 IAM 角色强制。
+
 ## [0.4.1-1] — 2026-10-15
 
 ### Added
 
-- **GCP 集成（Google Cloud）。** 新增 GCP 追踪器 + 设置里的服务区段（设置 → 服务 → Google Cloud）与弹窗的第 10 个页签（GCP）。粘贴服务账号密钥 JSON（`client_email` + `private_key`，AES-GCM 加密存入 SecureStore，绝不落盘明文），逗号分隔项目 ID 列表即可使用。认证走 RS256 JWT → OAuth2 访问令牌（Security 框架签名，CryptoKit 无 RSA），令牌缓存并在 401 时自动刷新重试一次；默认只读作用域 `cloud-platform.read-only`，开启动作开关后才升级为 `cloud-platform`。
+- **GCP 集成（Google Cloud）。** 新增 GCP 追踪器 + 设置里的服务区段（设置 → 服务 → Google Cloud）与弹窗的第 10 个页签（GCP）。粘贴服务账号密钥 JSON（`client_email` + `private_key`，AES-GCM 加密存入 SecureStore，绝不落盘明文），逗号分隔项目 ID 列表即可使用。认证走 RS256 JWT → OAuth2 访问令牌（Security 框架签名，CryptoKit 无 RSA），令牌缓存并在 401 时自动刷新重试一次；OAuth 作用域为 `cloud-platform`（只读由服务账号的 IAM 角色强制）。
 - **六类清单**：项目（`cloudresourcemanager`）、已启用 API（`serviceusage`，按需拉取以避开其读取配额）、计算实例 + Always Free 跟踪（`compute` aggregated/instances，e2-micro ×1 额度）、IAM 服务账号 + 用户托管密钥 + 策略绑定（`iam` + `getIamPolicy`）、Pub/Sub 主题与订阅、Apps（Cloud Run 服务 + App Engine 服务/版本）。
 - **安全动作（默认关闭）**：实例启动/停止/重启、Pub/Sub 发布、API 启用/停用——分别由设置里的三个开关控制，每个动作都在真正执行点写入 `action_log`（导出到 `service_activity.gcp[]`）。
 - **告警**：GCP 免费额度预警 + 用户托管密钥超过 90 天的轮换提醒（通知页可单独开关）。

@@ -952,7 +952,7 @@ enum Strings {
     static var gcpSection: String { isZH ? "Google Cloud" : "Google Cloud" }
     static var gcpToggle: String { isZH ? "启用 GCP 追踪" : "Enable GCP Tracking" }
     static var gcpServiceAccountLabel: String { isZH ? "服务账号 JSON" : "Service-account JSON" }
-    static var gcpServiceAccountHint: String { isZH ? "粘贴服务账号密钥 JSON（含 client_email 与 private_key）。密钥经 AES-GCM 加密存入 SecureStore，绝不落盘明文" : "Paste the service-account key JSON (client_email + private_key). Stored AES-GCM encrypted; never written to disk in plain text" }
+    static var gcpServiceAccountHint: String { isZH ? "粘贴**完整的**下载密钥 JSON（多行原样，含 client_email 与 private_key）。密钥经 AES-GCM 加密存入 SecureStore，绝不落盘明文" : "Paste the **full** downloaded key JSON verbatim (multi-line; contains client_email + private_key). Stored AES-GCM encrypted; never written to disk in plain text" }
     static var gcpProjectIdsLabel: String { isZH ? "项目 ID 列表" : "Project IDs" }
     static var gcpProjectIdsHint: String { isZH ? "逗号分隔，如 my-project-1,my-project-2" : "Comma-separated, e.g. my-project-1,my-project-2" }
     static var gcpComputeActionsLabel: String { isZH ? "允许实例操作（启动/停止/重启）" : "Allow instance actions (start/stop/reset)" }
@@ -991,6 +991,16 @@ enum Strings {
     static var gcpAPIDisableAction: String { isZH ? "停用" : "Disable" }
     static var gcpAPIEnabled: String { isZH ? "已启用" : "Enabled" }
     static var gcpAPIDisabled: String { isZH ? "已停用" : "Disabled" }
+    static var gcpReqCountFormat: String { isZH ? "%d 次" : "%d req" }
+    static var gcpMetricsNote: String { isZH ? "按 API 的请求量（需启用 Cloud Monitoring 并授予 monitoring.viewer 角色）" : "Per-API request count (needs Cloud Monitoring enabled + the monitoring.viewer role)" }
+    static var gcpMetricsRequestsLabel: String { isZH ? "请求量" : "Requests" }
+    static var gcpMetricsErrorsLabel: String { isZH ? "错误" : "Errors" }
+    static var gcpMetricsLatencyLabel: String { isZH ? "平均延迟" : "Avg latency" }
+    static var gcpMetricsRangeLabel: String { isZH ? "时间范围" : "Range" }
+    static var gcpExpandAll: String { isZH ? "全部展开" : "Expand all" }
+    static var gcpCollapseAll: String { isZH ? "全部收起" : "Collapse all" }
+    static var gcpNoEnabledAPIs: String { isZH ? "暂无已启用的 API" : "No enabled APIs" }
+    static var gcpNoMetricsYet: String { isZH ? "该 API 暂无指标" : "No metrics for this API yet" }
 
     // —— GCP 计算 ——
     static var gcpComputeEmpty: String { isZH ? "该项目暂无 Compute 实例" : "No Compute instances in this project" }

@@ -424,7 +424,6 @@ private struct GCPSettingsView: View {
 
     @State private var gcpEnabled: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.gcpEnabled)
     @State private var saJSON: String = SecureStore.retrieve(key: Strings.Keys.gcpServiceAccountJSON) ?? ""
-    @State private var showSA: Bool = false
     @State private var projectIds: String = UserDefaults.standard.string(forKey: Strings.Keys.gcpProjectIds) ?? ""
     @State private var computeActions: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.gcpComputeActionsEnabled)
     @State private var apiActions: Bool = UserDefaults.standard.bool(forKey: Strings.Keys.gcpApiActionsEnabled)
@@ -452,31 +451,14 @@ private struct GCPSettingsView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(Strings.gcpServiceAccountLabel).font(.caption).foregroundColor(.secondary)
-                HStack(alignment: .top, spacing: 8) {
-                    Group {
-                        if showSA {
-                            TextEditor(text: $saJSON)
-                                .font(.system(.caption, design: .monospaced))
-                                .frame(minHeight: 90)
-                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
-                        } else {
-                            SecureField("...", text: $saJSON)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(.caption, design: .monospaced))
-                        }
-                    }
+                TextEditor(text: $saJSON)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(minHeight: 110)
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
                     .onChange(of: saJSON) { _, newVal in
                         SecureStore.save(key: Strings.Keys.gcpServiceAccountJSON, value: newVal)
                         if gcpEnabled { stats.gcp.refresh() }
                     }
-                    Button {
-                        showSA.toggle()
-                    } label: {
-                        Image(systemName: showSA ? "eye.slash" : "eye")
-                    }
-                    .buttonStyle(.bordered)
-                    .help(Strings.revealHint)
-                }
                 Text(Strings.gcpServiceAccountHint)
                     .font(.caption2).foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

@@ -4,7 +4,8 @@ import Foundation
 
 enum GCPError: LocalizedError {
     case invalidCredentials
-    case accessDenied
+    case noServiceAccount
+    case accessDenied(String)
     case networkError(String)
     case parseFailed
     case noProjects
@@ -14,12 +15,14 @@ enum GCPError: LocalizedError {
         switch self {
         case .invalidCredentials:
             return isZH
-                ? "GCP 服务账号 JSON 无效（需要 client_email 与 private_key）"
-                : "Invalid GCP service-account JSON (needs client_email and private_key)"
-        case .accessDenied:
+                ? "GCP 服务账号 JSON 无效——请粘贴完整的下载密钥文件（多行原样）"
+                : "Invalid GCP service-account JSON — paste the full downloaded key file verbatim"
+        case .noServiceAccount:
             return isZH
-                ? "权限不足（检查服务账号角色与已启用的 API）"
-                : "Insufficient permissions (check the service account role and enabled APIs)"
+                ? "请先粘贴服务账号 JSON（需要 client_email 与 private_key）"
+                : "Paste the service-account JSON first (needs client_email and private_key)"
+        case .accessDenied(let reason):
+            return reason
         case .networkError(let msg):
             return isZH ? "网络错误: \(msg)" : "Network error: \(msg)"
         case .parseFailed:
@@ -59,6 +62,44 @@ struct GCPApiService: Identifiable, Equatable, Sendable {
     let state: String   // ENABLED | DISABLED
     var shortName: String { id.replacingOccurrences(of: ".googleapis.com", with: "") }
     var isEnabled: Bool { state == "ENABLED" }
+}
+
+struct GCPApiMetric: Identifiable, Equatable, Sendable {
+    let service: String     // consumed API service name, e.g. compute.googleapis.com
+    let requests: Int64     // request count over the selected window (ALIGN_SUM)
+    let errors: Int64       // 5xx error count over the selected window (ALIGN_SUM)
+    let avgLatencyMs: Double // mean latency over the selected window (ALIGN_MEAN, seconds → ms)
+    var id: String { service }
+}
+
+/// 指标时间范围（与 GCP Metrics Explorer 类似，最长 30 天）。
+enum GCPMetricRange: String, CaseIterable, Identifiable, Sendable {
+    case hour = "3600"
+    case sixHours = "21600"
+    case day = "86400"
+    case week = "604800"
+    case month = "2592000"
+
+    var id: String { rawValue }
+    var seconds: TimeInterval { TimeInterval(rawValue) ?? 86400 }
+    var alignmentSeconds: Int {
+        switch self {
+        case .hour: return 60
+        case .sixHours: return 300
+        case .day: return 3600
+        case .week: return 21600
+        case .month: return 86400
+        }
+    }
+    var title: String {
+        switch self {
+        case .hour: return "1h"
+        case .sixHours: return "6h"
+        case .day: return "24h"
+        case .week: return "7d"
+        case .month: return "30d"
+        }
+    }
 }
 
 struct GCPInstance: Identifiable, Equatable, Sendable {

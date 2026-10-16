@@ -32,11 +32,25 @@ final class GCPTracker {
     private(set) var alwaysFree = GCPAlwaysFreeStatus.empty
 
     private(set) var isLoading = false
-    private(set) var errorMessage: String?
     private(set) var lastUpdate = "-"
+
+    // 每个面板各自的首个错误（API 未启用 / 权限不足时显示在对应面板的空态里）。
+    private(set) var projectsError: String?
+    private(set) var computeError: String?
+    private(set) var iamError: String?
+    private(set) var pubsubError: String?
+    private(set) var appsError: String?
+    private(set) var apisError: String?
+
+    // 按 API 的指标（Cloud Monitoring，按需加载）
+    private(set) var apiMetrics: [GCPApiMetric] = []
+    private(set) var metricsError: String?
+    /// 指标时间范围（默认 24h，最长 30 天）
+    private(set) var metricRange: GCPMetricRange = .day
 
     private var refreshTask: Task<Void, Never>?
     private var apiLoadTask: Task<Void, Never>?
+    private var metricsTask: Task<Void, Never>?
     /// OAuth2 令牌缓存（MainActor；刷新于到期前 60 秒）
     private var cachedToken: GCPAuth.Token?
 
@@ -71,11 +85,11 @@ final class GCPTracker {
         UserDefaults.standard.bool(forKey: Strings.Keys.gcpPubsubPublishEnabled)
     }
 
+    /// OAuth 作用域固定为 `cloud-platform`：只读由服务账号的 IAM 角色强制，
+    /// 而非 OAuth 作用域——Cloud Resource Manager 等 API 只接受完整作用域，
+    /// `cloud-platform.read-only` 会报 "insufficient authentication scopes"。
     private var scope: String {
-        if computeActionsEnabled || apiActionsEnabled || pubsubPublishEnabled {
-            return "https://www.googleapis.com/auth/cloud-platform"
-        }
-        return "https://www.googleapis.com/auth/cloud-platform.read-only"
+        "https://www.googleapis.com/auth/cloud-platform"
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -95,6 +109,7 @@ final class GCPTracker {
         Task { @MainActor [weak self] in
             self?.refreshTask?.cancel()
             self?.apiLoadTask?.cancel()
+            self?.metricsTask?.cancel()
         }
     }
 
@@ -114,35 +129,31 @@ final class GCPTracker {
     // MARK: - Refresh
 
     func refresh() {
-        guard isEnabled else {
-            errorMessage = GCPError.invalidCredentials.localizedDescription
-            return
-        }
+        guard isEnabled else { return }
         isLoading = true
-        errorMessage = nil
+        projectsError = nil
+        computeError = nil
+        iamError = nil
+        pubsubError = nil
+        appsError = nil
+        apisError = nil
         let client = GCPClient(saJSON: saJSON, scope: scope)
 
         Task { [weak self] in
             guard let self else { return }
-            var firstError: String?
 
             let projects = await self.fetchProjects(client)
-            if let err = projects.error { firstError = firstError ?? err }
             let ids = projects.projects.map(\.id)
-
             let instances = await self.fetchInstances(client, ids)
-            if let err = instances.error { firstError = firstError ?? err }
-
             let iam = await self.fetchIAM(client, ids)
-            if let err = iam.error { firstError = firstError ?? err }
-
             let pubsub = await self.fetchPubSub(client, ids)
-            if let err = pubsub.error { firstError = firstError ?? err }
-
             let apps = await self.fetchApps(client, ids)
-            if let err = apps.error { firstError = firstError ?? err }
 
-            self.errorMessage = firstError
+            self.projectsError = projects.error
+            self.computeError = instances.error
+            self.iamError = iam.error
+            self.pubsubError = pubsub.error
+            self.appsError = apps.error
             self.isLoading = false
             self.lastUpdate = Self.timeFormatter.string(from: Date())
             self.evaluateAlerts()
@@ -164,13 +175,16 @@ final class GCPTracker {
                 do {
                     let json = try await getJSON(client,
                         "https://serviceusage.googleapis.com/v1/projects/\(id)/services",
-                        query: [URLQueryItem(name: "pageSize", value: "200")])
+                        query: [
+                            URLQueryItem(name: "filter", value: "state:ENABLED"),
+                            URLQueryItem(name: "pageSize", value: "200"),
+                        ])
                     let services = (json["services"] as? [[String: Any]] ?? []).compactMap { s -> GCPApiService? in
                         let name = s["name"] as? String ?? ""
                         let short = name.components(separatedBy: "/").last ?? ""
                         guard !short.isEmpty else { return nil }
-                        let config = s["config"] as? [String: Any]
-                        let state = config?["state"] as? String ?? "UNKNOWN"
+                        // state 在 service 对象的顶层（config 里没有 state 字段）。
+                        let state = s["state"] as? String ?? "UNKNOWN"
                         return GCPApiService(id: short, name: short, state: state)
                     }.sorted { $0.id < $1.id }
                     result[id] = services
@@ -179,10 +193,118 @@ final class GCPTracker {
                 }
             }
             self.apiServices = result
-            if let firstError { self.errorMessage = firstError }
+            self.apisError = firstError
             self.lastUpdate = Self.timeFormatter.string(from: Date())
             self.apiLoadTask = nil
         }
+    }
+
+    /// 设置指标时间范围并重新加载。
+    func setMetricRange(_ range: GCPMetricRange) {
+        metricRange = range
+        loadAPIMetrics()
+    }
+
+    /// 按 API 的指标（请求量 / 5xx 错误 / 平均延迟，Cloud Monitoring）。按需加载（APIs 面板）。
+    func loadAPIMetrics() {
+        guard isEnabled else { return }
+        metricsTask?.cancel()
+        let range = metricRange
+        let client = GCPClient(saJSON: saJSON, scope: scope)
+        metricsTask = Task { [weak self] in
+            guard let self else { return }
+            var firstError: String?
+            var merged: [String: (requests: Double, errors: Double, latency: Double)] = [:]
+            for id in self.projectIDs {
+                do {
+                    let requests = try await self.monitoringValues(
+                        client, project: id,
+                        metricType: "serviceruntime.googleapis.com/api/request_count",
+                        aligner: "ALIGN_SUM", isDistribution: false,
+                        rangeSeconds: range.seconds, alignmentSeconds: range.alignmentSeconds)
+                    let errors = try await self.monitoringValues(
+                        client, project: id,
+                        metricType: "serviceruntime.googleapis.com/api/request_count",
+                        extraFilter: "5xx", aligner: "ALIGN_SUM", isDistribution: false,
+                        rangeSeconds: range.seconds, alignmentSeconds: range.alignmentSeconds)
+                    let latency = try await self.monitoringValues(
+                        client, project: id,
+                        metricType: "serviceruntime.googleapis.com/api/request_latencies",
+                        aligner: "ALIGN_SUM", isDistribution: true,
+                        rangeSeconds: range.seconds, alignmentSeconds: range.alignmentSeconds)
+                    let services = Set(requests.keys).union(errors.keys).union(latency.keys)
+                    for svc in services {
+                        var cur = merged[svc] ?? (0, 0, 0)
+                        cur.requests += requests[svc] ?? 0
+                        cur.errors += errors[svc] ?? 0
+                        cur.latency += latency[svc] ?? 0
+                        merged[svc] = cur
+                    }
+                } catch {
+                    firstError = firstError ?? self.localized(error)
+                }
+            }
+            guard !Task.isCancelled else { return }
+            self.apiMetrics = merged.map {
+                GCPApiMetric(service: $0.key,
+                             requests: Int64($0.value.requests),
+                             errors: Int64($0.value.errors),
+                             avgLatencyMs: $0.value.latency * 1000)
+            }.sorted { $0.service < $1.service }
+            self.metricsError = firstError
+            self.metricsTask = nil
+        }
+    }
+
+    /// 拉取单个 Monitoring 指标，按 `resource.labels.service` 分组，返回 service → 值。
+    private func monitoringValues(_ client: GCPClient, project: String,
+                                  metricType: String,
+                                  extraFilter: String = "",
+                                  aligner: String,
+                                  isDistribution: Bool,
+                                  rangeSeconds: TimeInterval,
+                                  alignmentSeconds: Int) async throws -> [String: Double] {
+        var filter = #"metric.type=""# + metricType + #"""#
+        if !extraFilter.isEmpty {
+            filter += #" AND metric.labels.response_code_class=""# + extraFilter + #"""#
+        }
+        let now = Date()
+        let start = now.addingTimeInterval(-rangeSeconds)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        let json = try await getJSON(client,
+            "https://monitoring.googleapis.com/v3/projects/\(project)/timeSeries",
+            query: [
+                URLQueryItem(name: "filter", value: filter),
+                URLQueryItem(name: "interval.startTime", value: formatter.string(from: start)),
+                URLQueryItem(name: "interval.endTime", value: formatter.string(from: now)),
+                URLQueryItem(name: "aggregation.alignmentPeriod", value: "\(alignmentSeconds)s"),
+                URLQueryItem(name: "aggregation.perSeriesAligner", value: aligner),
+                // `groupByFields` is ignored unless a cross-series reducer is set;
+                // REDUCE_SUM merges every method/credential series into one per service.
+                URLQueryItem(name: "aggregation.crossSeriesReducer", value: "REDUCE_SUM"),
+                URLQueryItem(name: "aggregation.groupByFields", value: "resource.labels.service"),
+            ])
+        var result: [String: Double] = [:]
+        for ts in (json["timeSeries"] as? [[String: Any]] ?? []) {
+            let resource = ts["resource"] as? [String: Any]
+            let labels = resource?["labels"] as? [String: Any]
+            guard let service = labels?["service"] as? String, !service.isEmpty else { continue }
+            var total: Double = 0
+            for point in (ts["points"] as? [[String: Any]] ?? []) {
+                let value = point["value"] as? [String: Any]
+                if isDistribution {
+                    if let mean = value?["mean"] as? Double { total += mean }
+                    else if let meanStr = value?["mean"] as? String, let m = Double(meanStr) { total += m }
+                } else {
+                    if let v = value?["int64Value"] as? String { total += Double(Int64(v) ?? 0) }
+                    else if let v = value?["int64Value"] as? Int64 { total += Double(v) }
+                    else if let v = value?["int64Value"] as? Double { total += v }
+                }
+            }
+            result[service, default: 0] += total
+        }
+        return result
     }
 
     // MARK: - Fetchers
@@ -203,7 +325,8 @@ final class GCPTracker {
                 firstError = firstError ?? localized(error)
             }
         }
-        return (result.sorted { $0.id < $1.id }, firstError)
+        self.projects = result.sorted { $0.id < $1.id }
+        return (self.projects, firstError)
     }
 
     private func fetchInstances(_ client: GCPClient, _ ids: [String]) async -> (instances: [GCPInstance], error: String?) {
@@ -508,10 +631,20 @@ final class GCPTracker {
         guard (200..<300).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? ""
             if http.statusCode == 401 || http.statusCode == 403 {
-                throw GCPError.accessDenied
+                throw GCPError.accessDenied(Self.errorReason(data, fallback: body))
             }
             throw GCPError.httpStatus(http.statusCode, body)
         }
+    }
+
+    /// 从 Google 的 403/401 JSON 里抽出真正缺失的权限（error.message）。
+    private static func errorReason(_ data: Data, fallback: String) -> String {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let error = json["error"] as? [String: Any],
+              let message = error["message"] as? String, !message.isEmpty else {
+            return fallback
+        }
+        return message.count > 300 ? String(message.prefix(300)) : message
     }
 
     private static func parseJSON(_ data: Data) throws -> [String: Any] {

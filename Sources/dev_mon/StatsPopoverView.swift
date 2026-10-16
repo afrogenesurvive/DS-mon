@@ -337,6 +337,8 @@ struct StatsPopoverView: View {
         nonmutating set { uiState.setInt(UIStateStore.Key.gcpSubTab, newValue: newValue) }
     }
     @State private var gcpSelectedProject: String = ""
+    @State private var gcpExpandedAPIs: Set<String> = []
+    @State private var gcpMetricRange: GCPMetricRange = .day
     @State private var gcpConfirmRequest: GCPConfirmRequest?
     @State private var gcpConfirmShown = false
     @State private var gcpActionMessage: String?
@@ -1447,7 +1449,7 @@ struct StatsPopoverView: View {
             tabButton(assetName: "netlify", symbol: "diamond.fill", tag: 6, tooltip: Strings.netlifyTabTooltip)
             tabButton(symbol: "cylinder.split.1x2", tag: 7, tooltip: Strings.localDBsTabTooltip)
             tabButton(symbol: "network", tag: 8, tooltip: Strings.tailscaleTabTooltip)
-            tabButton(symbol: "globe.americas.fill", tag: 9, tooltip: Strings.gcpTabTooltip)
+            tabButton(assetName: "gcp", symbol: "globe.americas.fill", tag: 9, tooltip: Strings.gcpTabTooltip)
             alertsTabButton
             Spacer()
         }
@@ -5097,11 +5099,6 @@ struct StatsPopoverView: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    if let err = stats.gcp.errorMessage {
-                        Text(err).font(.caption).foregroundColor(.orange)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 14).padding(.bottom, 8)
-                    }
                     if let msg = gcpActionMessage {
                         Text(msg).font(.caption).foregroundColor(gcpActionSuccess ? .green : .orange)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -5237,7 +5234,11 @@ struct StatsPopoverView: View {
     private var gcpProjectsPane: some View {
         VStack(alignment: .leading, spacing: 6) {
             if stats.gcp.projects.isEmpty {
-                gcpEmptyRow(Strings.gcpNoProjects)
+                if let err = stats.gcp.projectsError {
+                    gcpEmptyRow(err)
+                } else {
+                    gcpEmptyRow(Strings.gcpNoProjects)
+                }
             } else {
                 ForEach(stats.gcp.projects) { p in
                     VStack(alignment: .leading, spacing: 2) {
@@ -5280,38 +5281,126 @@ struct StatsPopoverView: View {
                 .onChange(of: stats.gcp.projects.count) { _, _ in
                     if gcpSelectedProject.isEmpty { gcpSelectedProject = stats.gcp.projects.first?.id ?? "" }
                 }
-                let services = stats.gcp.apiServices[gcpSelectedProject] ?? []
-                if services.isEmpty {
+                HStack(spacing: 6) {
+                    Text(Strings.gcpMetricsRangeLabel).font(.system(size: 8)).foregroundColor(.secondary)
+                    Spacer()
+                    Picker("", selection: $gcpMetricRange) {
+                        ForEach(GCPMetricRange.allCases) { range in
+                            Text(range.title).tag(range)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .onChange(of: gcpMetricRange) { _, newRange in
+                        stats.gcp.setMetricRange(newRange)
+                    }
+                }
+                let allServices = stats.gcp.apiServices[gcpSelectedProject] ?? []
+                let enabled = allServices.filter { $0.isEnabled }
+                if allServices.isEmpty {
                     Button {
                         stats.gcp.loadAPIs(force: true)
                     } label: {
                         Label(Strings.gcpRefreshAction, systemImage: "arrow.clockwise").font(.caption)
                     }
                     .buttonStyle(.bordered)
+                    if let err = stats.gcp.apisError {
+                        Text(err).font(.caption).foregroundColor(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else if enabled.isEmpty {
+                    gcpEmptyRow(Strings.gcpNoEnabledAPIs)
                 } else {
-                    ForEach(services) { svc in
-                        HStack(spacing: 6) {
-                            Circle().fill(svc.isEnabled ? Color.green : Color.gray).frame(width: 6, height: 6)
-                            Text(svc.shortName).font(.system(size: 8, design: .monospaced))
-                                .lineLimit(1).truncationMode(.middle)
-                            Spacer()
-                            Text(svc.isEnabled ? Strings.gcpAPIEnabled : Strings.gcpAPIDisabled)
-                                .font(.system(size: 8)).foregroundColor(svc.isEnabled ? .green : .secondary)
-                            if stats.gcp.apiActionsEnabled {
-                                Button(svc.isEnabled ? Strings.gcpAPIDisableAction : Strings.gcpAPIEnableAction) {
-                                    beginGCPConfirm(.apiToggle(project: gcpSelectedProject, service: svc.id, enable: !svc.isEnabled))
-                                }
-                                .buttonStyle(.plain)
-                                .font(.system(size: 8))
-                                .foregroundColor(.blue)
+                    let allExpanded = enabled.allSatisfy { gcpExpandedAPIs.contains($0.id) }
+                    HStack(spacing: 6) {
+                        Text(Strings.gcpAPIEnabled).font(.system(size: 8)).foregroundColor(.secondary)
+                        Spacer()
+                        Button(allExpanded ? Strings.gcpCollapseAll : Strings.gcpExpandAll) {
+                            if allExpanded {
+                                gcpExpandedAPIs.removeAll()
+                            } else {
+                                gcpExpandedAPIs = Set(enabled.map(\.id))
                             }
                         }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 8))
+                        .foregroundColor(.blue)
+                    }
+                    ForEach(enabled) { svc in
+                        gcpAPIRow(svc)
                     }
                 }
             }
+            if let err = stats.gcp.metricsError {
+                Text(err).font(.caption2).foregroundColor(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .onAppear { stats.gcp.loadAPIs() }
+        .onAppear {
+            stats.gcp.loadAPIs()
+            stats.gcp.loadAPIMetrics()
+        }
         .padding(.vertical, 4)
+    }
+
+    private func gcpAPIRow(_ svc: GCPApiService) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Button {
+                    if gcpExpandedAPIs.contains(svc.id) { gcpExpandedAPIs.remove(svc.id) }
+                    else { gcpExpandedAPIs.insert(svc.id) }
+                } label: {
+                    Image(systemName: gcpExpandedAPIs.contains(svc.id) ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 8)).foregroundColor(.secondary).frame(width: 12)
+                }
+                .buttonStyle(.plain)
+                Circle().fill(Color.green).frame(width: 6, height: 6)
+                Text(svc.shortName).font(.system(size: 8, design: .monospaced))
+                    .lineLimit(1).truncationMode(.middle)
+                Spacer()
+                if let m = stats.gcp.apiMetrics.first(where: { $0.service == svc.id }), m.requests > 0 {
+                    Text(String(format: Strings.gcpReqCountFormat, m.requests))
+                        .font(.system(size: 8)).foregroundColor(.secondary)
+                }
+                if stats.gcp.apiActionsEnabled {
+                    gcpActionButton(Strings.gcpAPIDisableAction) {
+                        beginGCPConfirm(.apiToggle(project: gcpSelectedProject, service: svc.id, enable: false))
+                    }
+                }
+            }
+            if gcpExpandedAPIs.contains(svc.id) {
+                gcpMetricsTable(svc)
+                    .padding(.leading, 18)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func gcpMetricsTable(_ svc: GCPApiService) -> some View {
+        let m = stats.gcp.apiMetrics.first(where: { $0.service == svc.id })
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 3) {
+                if let m {
+                    gcpMetricRow(Strings.gcpMetricsRequestsLabel, "\(m.requests)")
+                    gcpMetricRow(Strings.gcpMetricsErrorsLabel, "\(m.errors)")
+                    gcpMetricRow(Strings.gcpMetricsLatencyLabel, String(format: "%.0f ms", m.avgLatencyMs))
+                } else {
+                    Text(Strings.gcpNoMetricsYet).font(.caption2).foregroundColor(.secondary)
+                }
+            }
+            .padding(6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(height: 84)
+        .background(Color.secondary.opacity(0.06))
+        .cornerRadius(6)
+    }
+
+    private func gcpMetricRow(_ label: String, _ value: String) -> some View {
+        HStack(spacing: 6) {
+            Text(label).font(.system(size: 8)).foregroundColor(.secondary)
+            Spacer()
+            Text(value).font(.system(size: 8).monospacedDigit())
+        }
     }
 
     // MARK: GCP — Compute
@@ -5319,7 +5408,11 @@ struct StatsPopoverView: View {
     private var gcpComputePane: some View {
         VStack(alignment: .leading, spacing: 6) {
             if stats.gcp.instances.isEmpty {
-                gcpEmptyRow(Strings.gcpComputeEmpty)
+                if let err = stats.gcp.computeError {
+                    gcpEmptyRow(err)
+                } else {
+                    gcpEmptyRow(Strings.gcpComputeEmpty)
+                }
             } else {
                 ForEach(stats.gcp.instances) { inst in
                     HStack(spacing: 6) {
@@ -5415,7 +5508,11 @@ struct StatsPopoverView: View {
     private var gcpPubSubPane: some View {
         VStack(alignment: .leading, spacing: 6) {
             if stats.gcp.topics.isEmpty && stats.gcp.subscriptions.isEmpty {
-                gcpEmptyRow(Strings.gcpPubSubEmpty)
+                if let err = stats.gcp.pubsubError {
+                    gcpEmptyRow(err)
+                } else {
+                    gcpEmptyRow(Strings.gcpPubSubEmpty)
+                }
             } else {
                 if !stats.gcp.topics.isEmpty {
                     gcpSectionHeader(Strings.gcpTopicsLabel)

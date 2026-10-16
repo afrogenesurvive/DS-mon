@@ -22,7 +22,9 @@ enum GCPAuth {
     // MARK: - Token fetch
 
     static func fetchToken(saJSON: String, scope: String) async throws -> Token {
-        guard let data = saJSON.data(using: .utf8),
+        var cleaned = saJSON.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.first == "\u{FEFF}" { cleaned.removeFirst() }
+        guard let data = cleaned.data(using: .utf8),
               let sa = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let clientEmail = sa["client_email"] as? String, !clientEmail.isEmpty,
               let privateKeyPEM = sa["private_key"] as? String, !privateKeyPEM.isEmpty else {
@@ -143,18 +145,19 @@ enum GCPAuth {
             .replacingOccurrences(of: " ", with: "")
         guard let der = Data(base64Encoded: base64) else { throw GCPError.invalidCredentials }
         let bytes = [UInt8](der)
-        // SEQUENCE → INTEGER (version) → SEQUENCE (algorithm) → OCTET STRING (PKCS#1)
-        guard let (_, seqEnd) = readTLV(bytes, from: 0, tag: 0x30) else { throw GCPError.invalidCredentials }
-        var offset = seqEnd
-        guard let (_, intEnd) = readTLV(bytes, from: offset, tag: 0x02) else { throw GCPError.invalidCredentials }
-        offset = intEnd
-        guard let (_, algEnd) = readTLV(bytes, from: offset, tag: 0x30) else { throw GCPError.invalidCredentials }
-        offset = algEnd
+        // PKCS#8: SEQUENCE { INTEGER version, SEQUENCE algorithm, OCTET STRING pkcs1 }
+        // 每个 TLV 的下一项都从「内容起始处 + 内容长度」开始，而非从 TLV 结尾开始。
+        guard let (_, outerStart) = readTLV(bytes, from: 0, tag: 0x30) else { throw GCPError.invalidCredentials }
+        var offset = outerStart
+        guard let (version, versionStart) = readTLV(bytes, from: offset, tag: 0x02) else { throw GCPError.invalidCredentials }
+        offset = versionStart + version.count
+        guard let (algorithm, algorithmStart) = readTLV(bytes, from: offset, tag: 0x30) else { throw GCPError.invalidCredentials }
+        offset = algorithmStart + algorithm.count
         guard let (octets, _) = readTLV(bytes, from: offset, tag: 0x04) else { throw GCPError.invalidCredentials }
         return Data(octets)
     }
 
-    /// Minimal DER TLV reader. Returns (content bytes, index just past this TLV).
+    /// Minimal DER TLV reader. Returns (content bytes, index where the content begins).
     private static func readTLV(_ bytes: [UInt8], from i: Int, tag: UInt8) -> ([UInt8], Int)? {
         guard i < bytes.count, bytes[i] == tag else { return nil }
         var idx = i + 1
@@ -173,7 +176,6 @@ enum GCPAuth {
             }
         }
         guard idx + length <= bytes.count else { return nil }
-        let content = Array(bytes[idx..<(idx + length)])
-        return (content, idx + length)
+        return (Array(bytes[idx..<(idx + length)]), idx)
     }
 }
