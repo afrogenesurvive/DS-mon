@@ -52,3 +52,6 @@ afrogene/
 dev-keys/
 keyrings/
 personal_key_manager/
+
+# --- devsec_cogdebt derived artifacts ---
+.devsec_cogdebt/

@@ -381,7 +381,8 @@ struct RepoStoreExport: Codable {
 
 // MARK: GCP
 
-/// GCP 快照（v5 新增）。只含清单级摘要，不含任何凭据。
+/// GCP 快照（v5 新增）。v6 起含完整清单（实例 / 服务账号 / 密钥 / IAM / Pub/Sub /
+/// 应用 / API 与指标），仍不含任何凭据。
 struct GCPExport: Codable {
     let enabled: Bool
     let projects: [GCPProjectExport]
@@ -389,6 +390,11 @@ struct GCPExport: Codable {
     let runningInstances: Int
     let alwaysFreeRunning: Int
     let alwaysFreeLimit: Int
+    let alwaysFreeEligible: Int
+    let alwaysFreeNonEligible: Int
+    let alwaysFreeUsagePercentage: Double
+    let alwaysFreeWithinTier: Bool
+    let alwaysFreeWarning: Bool
     let serviceAccountCount: Int
     let userManagedKeyCount: Int
     let topicCount: Int
@@ -396,6 +402,18 @@ struct GCPExport: Codable {
     let runServiceCount: Int
     let appEngineServiceCount: Int
     let lastUpdate: String
+    // v6 新增：完整清单（不再是仅计数）
+    let instances: [GCPInstanceExport]
+    let serviceAccounts: [GCPServiceAccountExport]
+    let userManagedKeys: [GCPUserManagedKeyExport]
+    let iamBindings: [GCPIamBindingExport]
+    let topics: [GCPTopicExport]
+    let subscriptions: [GCPSubscriptionExport]
+    let runServices: [GCPRunServiceExport]
+    let appEngineServices: [GCPAppEngineServiceExport]
+    /// projectID → 已启用 API 列表（on-demand 加载；未加载则为空）
+    let apiServices: [String: [GCPApiServiceExport]]
+    let apiMetrics: [GCPApiMetricExport]
 
     @MainActor
     init(_ gcp: GCPTracker) {
@@ -407,6 +425,11 @@ struct GCPExport: Codable {
         runningInstances = gcp.instances.filter { $0.isRunning }.count
         alwaysFreeRunning = gcp.alwaysFree.runningInstances
         alwaysFreeLimit = gcp.alwaysFree.limitInstances
+        alwaysFreeEligible = gcp.alwaysFree.eligibleCount
+        alwaysFreeNonEligible = gcp.alwaysFree.nonEligibleCount
+        alwaysFreeUsagePercentage = gcp.alwaysFree.usagePercentage
+        alwaysFreeWithinTier = gcp.alwaysFree.isWithinFreeTier
+        alwaysFreeWarning = gcp.alwaysFree.isWarning
         serviceAccountCount = gcp.serviceAccounts.count
         userManagedKeyCount = gcp.userManagedKeys.count
         topicCount = gcp.topics.count
@@ -414,6 +437,40 @@ struct GCPExport: Codable {
         runServiceCount = gcp.runServices.count
         appEngineServiceCount = gcp.appEngineServices.count
         lastUpdate = gcp.lastUpdate
+        instances = gcp.instances.map {
+            GCPInstanceExport(id: $0.id, project: $0.project, zone: $0.zone,
+                              machineType: $0.machineType, status: $0.status,
+                              publicIP: $0.publicIP, privateIP: $0.privateIP)
+        }
+        serviceAccounts = gcp.serviceAccounts.map {
+            GCPServiceAccountExport(email: $0.email, displayName: $0.displayName)
+        }
+        userManagedKeys = gcp.userManagedKeys.map {
+            GCPUserManagedKeyExport(id: $0.id, validAfterTime: $0.validAfterTime,
+                                    validBeforeTime: $0.validBeforeTime, keyType: $0.keyType,
+                                    ageDays: $0.ageDays)
+        }
+        iamBindings = gcp.policyBindings.map {
+            GCPIamBindingExport(role: $0.role, members: $0.members)
+        }
+        topics = gcp.topics.map { GCPTopicExport(name: $0.name) }
+        subscriptions = gcp.subscriptions.map {
+            GCPSubscriptionExport(name: $0.name, topic: $0.topic)
+        }
+        runServices = gcp.runServices.map {
+            GCPRunServiceExport(name: $0.name, region: $0.region, url: $0.url,
+                                latestRevision: $0.latestRevision)
+        }
+        appEngineServices = gcp.appEngineServices.map {
+            GCPAppEngineServiceExport(name: $0.name, versions: $0.versions)
+        }
+        apiServices = gcp.apiServices.mapValues {
+            $0.map { GCPApiServiceExport(id: $0.id, state: $0.state) }
+        }
+        apiMetrics = gcp.apiMetrics.map {
+            GCPApiMetricExport(service: $0.service, requests: $0.requests,
+                               errors: $0.errors, avgLatencyMs: $0.avgLatencyMs)
+        }
     }
 }
 
@@ -422,6 +479,67 @@ struct GCPProjectExport: Codable {
     let number: String
     let name: String
     let state: String
+}
+
+struct GCPInstanceExport: Codable {
+    let id: String
+    let project: String
+    let zone: String
+    let machineType: String
+    let status: String
+    let publicIP: String?
+    let privateIP: String?
+}
+
+struct GCPServiceAccountExport: Codable {
+    let email: String
+    let displayName: String
+}
+
+struct GCPUserManagedKeyExport: Codable {
+    let id: String
+    let validAfterTime: String
+    let validBeforeTime: String
+    let keyType: String
+    let ageDays: Int?
+}
+
+struct GCPIamBindingExport: Codable {
+    let role: String
+    let members: [String]
+}
+
+struct GCPTopicExport: Codable {
+    let name: String
+}
+
+struct GCPSubscriptionExport: Codable {
+    let name: String
+    let topic: String
+}
+
+struct GCPRunServiceExport: Codable {
+    let name: String
+    let region: String
+    let url: String
+    let latestRevision: String
+}
+
+struct GCPAppEngineServiceExport: Codable {
+    let name: String
+    let versions: [String]
+}
+
+struct GCPApiServiceExport: Codable {
+    let id: String
+    let state: String
+}
+
+struct GCPApiMetricExport: Codable {
+    let service: String
+    let requests: Int64
+    let errors: Int64
+    let avgLatencyMs: Double
 }
 
 // MARK: Tailscale
@@ -695,9 +813,12 @@ struct GitHubExport: Codable {
 /// - v5：信封归入 `app`；LLM 相关字段归入 `llm_activity`，新增 `service_activity`
 ///       （服务操作 + 全部通知，落库 `action_log`）；breakdowns / byRepo 每条新增
 ///       `providerIds`；所有时间改为 `DD-MM-YYYY HH:MM:SS GMT±H[:MM]`（本地时间 + 时区）
+/// - v6：`cloud.gcp` 由清单级摘要扩展为完整清单（instances / serviceAccounts /
+///       userManagedKeys / iamBindings / topics / subscriptions / runServices /
+///       appEngineServices / apiServices / apiMetrics + Always Free 明细）
 enum UsageExporter {
 
-    private static let exportFormatVersion = 5
+    private static let exportFormatVersion = 6
 
     /// 弹出保存面板并把完整用量数据导出为 JSON
     @MainActor
@@ -1045,6 +1166,14 @@ enum ConfigExporter {
             // Tailscale 配置（无令牌：全部走本机 tailscale 命令行）
             Strings.Keys.tailscaleEnabled,
             Strings.Keys.tailscaleNotifyEnabled,
+            // Google Cloud（GCP）配置（服务账号 JSON 属密钥，见 secretKeys）
+            Strings.Keys.gcpEnabled,
+            Strings.Keys.gcpProjectIds,
+            Strings.Keys.gcpComputeActionsEnabled,
+            Strings.Keys.gcpApiActionsEnabled,
+            Strings.Keys.gcpPubsubPublishEnabled,
+            Strings.Keys.gcpAlwaysFreeNotifyEnabled,
+            Strings.Keys.gcpKeyRotationNotifyEnabled,
             // Local DBs 配置
             Strings.Keys.localDBsEnabled,
             Strings.Keys.localDBsNotifyEnabled,
@@ -1077,6 +1206,7 @@ enum ConfigExporter {
             Strings.Keys.syncPushToken,
             Strings.Keys.cloudflareApiToken,
             Strings.Keys.netlifyApiToken,
+            Strings.Keys.gcpServiceAccountJSON,
             Strings.Keys.localDBsMySQLPassword,
             Strings.Keys.localDBsNeo4jPassword,
         ]
